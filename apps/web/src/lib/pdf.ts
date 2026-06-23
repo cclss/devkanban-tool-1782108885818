@@ -9,6 +9,10 @@
  * Only first-page preview is needed for the upload step (grain-6). The field
  * placement grain (grain-7) renders all pages — `loadPdf` returns the full
  * document handle so that grain can reuse this loader.
+ *
+ * The signer never holds a File (the document lives server-side behind a session
+ * token), so `loadPdfFromData` / `loadPdfFromUrl` open a document from fetched
+ * bytes or an authenticated URL — the same handle shape every renderer consumes.
  */
 
 // Loaded lazily; types are import()-only so nothing pdfjs touches SSR runtime.
@@ -49,14 +53,47 @@ export class PdfRenderError extends Error {
  * worrying about pdfjs detaching a shared buffer.
  */
 export async function loadPdf(file: File): Promise<{ doc: PdfDocument; pageCount: number }> {
+  return loadPdfFromData(await file.arrayBuffer());
+}
+
+/**
+ * Open a PDF from raw bytes. The shared core behind every loader: the upload
+ * preview reads a File's buffer, the signer fetches bytes over the wire, and
+ * both end here. Returns the document handle plus its page count.
+ */
+export async function loadPdfFromData(
+  data: ArrayBuffer | Uint8Array,
+): Promise<{ doc: PdfDocument; pageCount: number }> {
   const pdfjs = await getPdfjs();
-  const data = new Uint8Array(await file.arrayBuffer());
+  // pdfjs may detach the underlying buffer; every caller passes a freshly read
+  // buffer (File.arrayBuffer / Response.arrayBuffer), so a view is safe here.
+  const bytes = data instanceof Uint8Array ? data : new Uint8Array(data);
   try {
-    const doc = await pdfjs.getDocument({ data }).promise;
+    const doc = await pdfjs.getDocument({ data: bytes }).promise;
     return { doc, pageCount: doc.numPages };
   } catch {
     throw new PdfRenderError();
   }
+}
+
+/**
+ * Open a PDF served from `url`. Used by the signer, whose document is streamed
+ * from a session-guarded endpoint — pass the bearer header via `init`. Any
+ * fetch/parse failure surfaces as a {@link PdfRenderError} so the viewer shows
+ * the same friendly guard as a corrupt file.
+ */
+export async function loadPdfFromUrl(
+  url: string,
+  init?: RequestInit,
+): Promise<{ doc: PdfDocument; pageCount: number }> {
+  let res: Response;
+  try {
+    res = await fetch(url, init);
+  } catch {
+    throw new PdfRenderError();
+  }
+  if (!res.ok) throw new PdfRenderError();
+  return loadPdfFromData(await res.arrayBuffer());
 }
 
 export interface RenderedSize {

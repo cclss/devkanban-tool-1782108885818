@@ -185,6 +185,22 @@ const config: Config = {
           '20%, 60%': { transform: 'translateX(-6px)' },
           '40%, 80%': { transform: 'translateX(6px)' },
         },
+        // A calm ring that expands and fades to draw the eye to a field still
+        // needing a signature, then resets invisibly (spread 0, transparent) for
+        // a seamless loop. The ring rides on `--color-primary`, so it re-skins to
+        // the sender's brand. The field's own static border/background carry the
+        // highlight, so under reduced-motion (ring stopped) it stays clearly marked.
+        'breathing-pulse': {
+          '0%': {
+            boxShadow: '0 0 0 0 color-mix(in srgb, var(--color-primary) 45%, transparent)',
+          },
+          '70%': {
+            boxShadow: '0 0 0 7px color-mix(in srgb, var(--color-primary) 0%, transparent)',
+          },
+          '100%': {
+            boxShadow: '0 0 0 0 color-mix(in srgb, var(--color-primary) 0%, transparent)',
+          },
+        },
         'step-bounce': {
           '0%': { transform: 'scale(0.6)' },
           '60%': { transform: 'scale(1.15)' },
@@ -249,6 +265,7 @@ const config: Config = {
         'fade-in-up': 'fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both',
         'fade-in': 'fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
         shake: 'shake 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
+        'breathing-pulse': 'breathing-pulse 2s cubic-bezier(0.4, 0, 0.2, 1) infinite',
         'step-bounce': 'step-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
         checkmark: 'checkmark-draw 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         confetti: 'confetti-burst 1s cubic-bezier(0.16, 1, 0.3, 1) forwards',

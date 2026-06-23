@@ -17,7 +17,7 @@
  * and intentionally mirror the server's signing catalog so the voice stays one.
  */
 
-import { apiFetch } from './api';
+import { apiFetch, apiUrl } from './api';
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -92,6 +92,17 @@ export const SIGNER_COPY = {
   unavailable: '더 이상 서명할 수 없는 계약이에요. 발신자에게 문의해 주세요.',
   invalidLinkTitle: '링크를 확인해 주세요',
   invalidLink: '서명 링크가 올바르지 않아요. 발신자에게 링크를 다시 요청해 주세요.',
+  // Document viewer chrome (mirrors the same Toss voice).
+  viewerCtaContinue: '서명하기',
+  viewerCtaComplete: '서명 완료',
+  viewerLoadError: '문서를 불러올 수 없어요. 잠시 후 다시 시도해 주세요.',
+  fieldFilled: '작성됨',
+  /** "Tap here" affordance shown on an unfilled field, by type. */
+  fieldAffordance: {
+    SIGNATURE: '여기에 서명',
+    DATE: '여기에 날짜',
+    TEXT: '여기에 입력',
+  },
 } as const;
 
 // --- session token persistence ----------------------------------------------
@@ -160,4 +171,13 @@ export function fetchPayload(
   return apiFetch<SigningPayload>(`${base(accessToken)}/payload`, {
     token: sessionToken,
   });
+}
+
+/**
+ * ④ Absolute URL of the session-guarded PDF byte stream. The viewer opens it
+ * via `loadPdfFromUrl` with the session token as a bearer header (the bytes are
+ * binary, so this bypasses the JSON `apiFetch` path).
+ */
+export function signerPdfUrl(accessToken: string): string {
+  return apiUrl(`${base(accessToken)}/pdf`);
 }

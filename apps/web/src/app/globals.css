@@ -157,6 +157,17 @@
     );
     background-size: 200% 100%;
   }
+
+  /*
+   * Breathing-pulse field marker — pairs with the `animate-breathing-pulse`
+   * keyframe to draw attention to a sign field that still needs input. The
+   * class itself carries no motion; it's the hook the reduced-motion rule below
+   * targets so the field settles to its static highlight instead of freezing
+   * mid-pulse.
+   */
+  .field-pulse {
+    border-radius: inherit;
+  }
 }
 
 /*
@@ -191,5 +202,14 @@
 
   .motion-stagger > * {
     opacity: 1 !important;
+  }
+
+  /*
+   * The breathing pulse stops entirely (rather than freezing at an arbitrary
+   * keyframe offset). The field keeps its static border/background highlight, so
+   * a sign field stays clearly marked without any motion.
+   */
+  .field-pulse {
+    animation: none !important;
   }
 }

@@ -31,6 +31,17 @@ import {
   type SigningPayload,
 } from '@/lib/signing';
 
+/**
+ * A value the signer has captured for one field, read back by the viewer to
+ * reflect it inline on the page. The capture UI (signature canvas, font picker,
+ * date) is a later grain; the viewer only needs the rendered payload, so the
+ * shapes here are the read contract that grain binds to.
+ */
+export type SignerFieldValue =
+  | { type: 'SIGNATURE'; /** Captured signature as a PNG data URL. */ dataUrl: string }
+  | { type: 'TEXT'; text: string; /** Optional chosen signature font. */ fontFamily?: string }
+  | { type: 'DATE'; text: string };
+
 export type SignerPhase =
   | 'loading'
   | 'verify'
@@ -49,6 +60,10 @@ export interface SignerState {
   payload: SigningPayload | null;
   /** Why a link is non-signable, when `phase === 'blocked'`. */
   blockReason: BlockReason | null;
+  /** Values captured per field id; the viewer reflects these inline. */
+  fieldValues: Record<string, SignerFieldValue>;
+  /** The field whose capture sheet is open (drives the BottomSheet target). */
+  activeFieldId: string | null;
 }
 
 const initialState: SignerState = {
@@ -56,6 +71,8 @@ const initialState: SignerState = {
   meta: null,
   payload: null,
   blockReason: null,
+  fieldValues: {},
+  activeFieldId: null,
 };
 
 type SignerAction =
@@ -63,7 +80,10 @@ type SignerAction =
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
   | { type: 'VERIFIED'; payload: SigningPayload }
   | { type: 'GO_SIGNING' }
-  | { type: 'DONE' };
+  | { type: 'DONE' }
+  | { type: 'OPEN_FIELD'; fieldId: string }
+  | { type: 'CLOSE_FIELD' }
+  | { type: 'SET_FIELD_VALUE'; fieldId: string; value: SignerFieldValue };
 
 function reducer(state: SignerState, action: SignerAction): SignerState {
   switch (action.type) {
@@ -82,6 +102,17 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
       return { ...state, phase: 'signing' };
     case 'DONE':
       return { ...state, phase: 'done' };
+    case 'OPEN_FIELD':
+      return { ...state, activeFieldId: action.fieldId };
+    case 'CLOSE_FIELD':
+      return { ...state, activeFieldId: null };
+    case 'SET_FIELD_VALUE':
+      return {
+        ...state,
+        fieldValues: { ...state.fieldValues, [action.fieldId]: action.value },
+        // Capturing a value closes the active sheet for that field.
+        activeFieldId: state.activeFieldId === action.fieldId ? null : state.activeFieldId,
+      };
     default:
       return state;
   }
@@ -96,6 +127,8 @@ function blockReasonFor(meta: SigningMeta): BlockReason | null {
 
 interface SignerContextValue {
   state: SignerState;
+  /** The SignRequest access token for this link (PDF stream, session lookup). */
+  token: string;
   /**
    * Verify the 6-digit code, then load the signer's payload and advance to the
    * viewer. Rejects (with the server's Toss-tone message) on a wrong/expired
@@ -106,6 +139,12 @@ interface SignerContextValue {
   goSigning: () => void;
   /** Mark the signer's part complete (later grains). */
   markDone: () => void;
+  /** Open the capture sheet targeting a field (the BottomSheet is a later grain). */
+  openField: (fieldId: string) => void;
+  /** Dismiss the capture sheet without changing any value. */
+  closeField: () => void;
+  /** Record a captured value for a field; the viewer reflects it inline. */
+  setFieldValue: (fieldId: string, value: SignerFieldValue) => void;
 }
 
 const SignerContext = React.createContext<SignerContextValue | null>(null);
@@ -156,10 +195,20 @@ export function SignerProvider({
 
   const goSigning = React.useCallback(() => dispatch({ type: 'GO_SIGNING' }), []);
   const markDone = React.useCallback(() => dispatch({ type: 'DONE' }), []);
+  const openField = React.useCallback(
+    (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
+    [],
+  );
+  const closeField = React.useCallback(() => dispatch({ type: 'CLOSE_FIELD' }), []);
+  const setFieldValue = React.useCallback(
+    (fieldId: string, value: SignerFieldValue) =>
+      dispatch({ type: 'SET_FIELD_VALUE', fieldId, value }),
+    [],
+  );
 
   const value = React.useMemo<SignerContextValue>(
-    () => ({ state, verify, goSigning, markDone }),
-    [state, verify, goSigning, markDone],
+    () => ({ state, token, verify, goSigning, markDone, openField, closeField, setFieldValue }),
+    [state, token, verify, goSigning, markDone, openField, closeField, setFieldValue],
   );
 
   return <SignerContext.Provider value={value}>{children}</SignerContext.Provider>;

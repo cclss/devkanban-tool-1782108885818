@@ -16,6 +16,15 @@ const API_BASE = `${API_ORIGIN}/api`;
 /** Neutral fallback when we can't read a server-provided message. */
 export const GENERIC_ERROR = '문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
 
+/**
+ * Absolute URL for an API path. Use when fetching outside `apiFetch` — e.g. a
+ * binary stream (PDF bytes) that isn't JSON — so the `/api` prefix stays in one
+ * place.
+ */
+export function apiUrl(path: string): string {
+  return `${API_BASE}${path}`;
+}
+
 export class ApiError extends Error {
   readonly status: number;
 

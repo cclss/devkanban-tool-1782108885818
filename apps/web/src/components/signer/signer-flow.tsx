@@ -5,8 +5,9 @@
  *
  * Reads phase off the shared signer context and dispatches to the matching
  * screen. The five-phase happy path (loading → verify → viewing → signing →
- * done) plus the `blocked` branch are all covered here; `signing` / `done`
- * reuse the viewer slot until later grains build them out.
+ * done) plus the `blocked` branch are all covered here. `viewing` / `signing`
+ * render the document viewer (the capture sheet overlays it); `done` reuses the
+ * viewer until the completion screen grain builds it out.
  */
 
 import * as React from 'react';
@@ -14,7 +15,7 @@ import { useSigner } from './signer-context';
 import { LoadingScreen } from './loading-screen';
 import { VerifyScreen } from './verify-screen';
 import { NoticeScreen } from './notice-screen';
-import { ViewerPlaceholder } from './viewer-placeholder';
+import { DocumentViewer } from './document-viewer';
 
 export function SignerFlow() {
   const { state } = useSigner();
@@ -32,7 +33,7 @@ export function SignerFlow() {
     case 'viewing':
     case 'signing':
     case 'done':
-      return state.meta ? <ViewerPlaceholder meta={state.meta} /> : <LoadingScreen />;
+      return state.meta ? <DocumentViewer meta={state.meta} /> : <LoadingScreen />;
     default:
       return <LoadingScreen />;
   }
