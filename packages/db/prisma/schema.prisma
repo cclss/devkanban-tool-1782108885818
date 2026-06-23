@@ -43,6 +43,15 @@ model Document {
   // Timestamp the contract was dispatched (status → IN_PROGRESS). Used to
   // count monthly sends for the Free-plan quota guard.
   sentAt    DateTime?      @map("sent_at")
+  // Completion post-processing outputs (grain-5). Populated once the last
+  // signer finishes and the worker has generated/stored the artifacts:
+  //   • signedStorageKey      — object key of the flattened, signed final PDF
+  //   • certificateStorageKey — object key of the audit-trail certificate PDF
+  //   • completedAt           — when the contract completed (also the
+  //     idempotency marker: a non-null value means post-processing is done).
+  signedStorageKey      String?   @map("signed_storage_key")
+  certificateStorageKey String?   @map("certificate_storage_key")
+  completedAt           DateTime? @map("completed_at")
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
 

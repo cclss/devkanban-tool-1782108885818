@@ -21,6 +21,7 @@ import {
   SIGNER_VERIFY_MAX_ATTEMPTS,
 } from '../common/messages';
 import { SignerSessionService } from './signer-session.service';
+import { CompletionQueue } from '../completion/completion.queue';
 import type { SaveFieldValuesDto } from './dto/signing.dto';
 
 /** Audit-log action names for the signer flow. */
@@ -40,6 +41,7 @@ export class SigningService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly sessions: SignerSessionService,
+    private readonly completionQueue: CompletionQueue,
   ) {}
 
   // --- ① pre-auth meta -----------------------------------------------------
@@ -340,6 +342,13 @@ export class SigningService {
       }
       return false;
     });
+
+    // Last signer just finished: kick off completion post-processing (final PDF
+    // + certificate + email + artifact recording) AFTER the transaction commits.
+    // `enqueue` never throws — a queue hiccup must not break this response.
+    if (documentCompleted) {
+      await this.completionQueue.enqueue(signRequest.documentId);
+    }
 
     return {
       status: SignRequestStatus.SIGNED,

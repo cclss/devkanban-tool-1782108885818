@@ -9,6 +9,7 @@ import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SigningModule } from './signing/signing.module';
 import { PdfModule } from './pdf/pdf.module';
+import { CompletionModule } from './completion/completion.module';
 
 @Module({
   imports: [
@@ -21,6 +22,7 @@ import { PdfModule } from './pdf/pdf.module';
     DocumentsModule,
     SigningModule,
     PdfModule,
+    CompletionModule,
     HealthModule,
   ],
 })
