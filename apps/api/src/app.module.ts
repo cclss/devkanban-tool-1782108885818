@@ -6,6 +6,7 @@ import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
+import { SigningModule } from './signing/signing.module';
 
 @Module({
   imports: [
@@ -15,6 +16,7 @@ import { DocumentsModule } from './documents/documents.module';
     NotificationsModule,
     AuthModule,
     DocumentsModule,
+    SigningModule,
     HealthModule,
   ],
 })
