@@ -15,9 +15,11 @@ import {
   Skeleton,
 } from '@repo/ui';
 import { StatusBadge } from '@/components/status-badge';
+import { CompletionDownload } from '@/components/completion-download';
 import { ApiError } from '@/lib/api';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
+  downloadOwnerArtifact,
   fetchDocuments,
   fetchQuota,
   takeSentSignal,
@@ -275,25 +277,42 @@ function DashboardBody({
 }
 
 function ContractCard({ document, highlighted }: { document: DocumentSummary; highlighted: boolean }) {
+  const completed = document.status === 'COMPLETED';
   return (
     <Card
       interactive
       className={
-        'flex items-center gap-md p-lg transition-shadow ' +
+        'flex flex-col gap-md p-lg transition-shadow ' +
         (highlighted ? 'ring-2 ring-focus' : '')
       }
     >
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
-        <DocumentIcon />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-2xs">
-        <div className="flex items-center gap-xs">
-          <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
-          <StatusBadge status={document.status} label={document.statusLabel} />
+      <div className="flex items-center gap-md">
+        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
+          <DocumentIcon />
+        </span>
+        <div className="flex min-w-0 flex-1 flex-col gap-2xs">
+          <div className="flex items-center gap-xs">
+            <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
+            {/* Completed cards carry the 완료됨 badge inside the download area
+                below, so the title row omits it to avoid a duplicate badge. */}
+            {!completed ? (
+              <StatusBadge status={document.status} label={document.statusLabel} />
+            ) : null}
+          </div>
+          <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
         </div>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
+        {!completed ? <ChevronIcon /> : null}
       </div>
-      <ChevronIcon />
+
+      {completed ? (
+        <CompletionDownload
+          className="border-t border-border pt-md"
+          ready={document.downloadsReady}
+          completedAt={document.completedAt}
+          statusLabel={document.statusLabel}
+          onDownload={(kind) => downloadOwnerArtifact(document.id, kind, document.title)}
+        />
+      ) : null}
     </Card>
   );
 }

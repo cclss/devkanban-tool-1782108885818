@@ -22,6 +22,7 @@ import {
 } from '../common/messages';
 import { SignerSessionService } from './signer-session.service';
 import { CompletionQueue } from '../completion/completion.queue';
+import { artifactFilename, type CompletionArtifact } from '../completion/artifact';
 import type { SaveFieldValuesDto } from './dto/signing.dto';
 
 /** Audit-log action names for the signer flow. */
@@ -208,13 +209,46 @@ export class SigningService {
     });
     if (!signRequest) throw new NotFoundException(MESSAGES.signing.invalidLink);
 
-    const key = signRequest.document.storageKey;
-    if (this.storage.usesS3) {
-      // S3 driver has no path-based stream; read bytes then wrap in a stream.
-      const bytes = await this.storage.read(key);
-      return Readable.from(bytes);
+    return this.storage.openStream(signRequest.document.storageKey);
+  }
+
+  // --- completion artifact download (session) ------------------------------
+
+  /**
+   * Open a completed contract's artifact (signed final PDF or audit certificate)
+   * for a signer to download. Available only once the document is COMPLETED and
+   * the post-processing (grain-5) has stored the artifact; otherwise a friendly
+   * "준비되지 않았어요" error. The session guard already binds this signRequest to
+   * the link being accessed, so a signer can only reach their own contract.
+   */
+  async openArtifact(
+    signRequestId: string,
+    kind: CompletionArtifact,
+  ): Promise<{ stream: Readable; filename: string }> {
+    const signRequest = await this.prisma.signRequest.findUnique({
+      where: { id: signRequestId },
+      select: {
+        document: {
+          select: {
+            title: true,
+            status: true,
+            signedStorageKey: true,
+            certificateStorageKey: true,
+          },
+        },
+      },
+    });
+    if (!signRequest) throw new NotFoundException(MESSAGES.signing.invalidLink);
+
+    const { document } = signRequest;
+    const key =
+      kind === 'signed' ? document.signedStorageKey : document.certificateStorageKey;
+    if (document.status !== DocumentStatus.COMPLETED || !key) {
+      throw new NotFoundException(MESSAGES.document.artifactNotReady);
     }
-    return this.storage.createReadStream(key);
+
+    const stream = await this.storage.openStream(key);
+    return { stream, filename: artifactFilename(document.title, kind) };
   }
 
   // --- ⑤ save captured field values (session) ------------------------------

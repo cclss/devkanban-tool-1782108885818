@@ -17,7 +17,12 @@
  * and intentionally mirror the server's signing catalog so the voice stays one.
  */
 
-import { apiFetch, apiUrl } from './api';
+import { ApiError, apiDownload, apiFetch, apiUrl } from './api';
+import {
+  COMPLETION_DOWNLOAD_COPY,
+  saveBlob,
+  type CompletionArtifact,
+} from './completion-download';
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -264,6 +269,26 @@ export function completeSigning(
     method: 'POST',
     token: sessionToken,
   });
+}
+
+/**
+ * ⑦ Download a completed contract's artifact as the signer and hand it to the
+ * browser's "save file". Requires the active signer session (issued on code
+ * verification); a missing session rejects with a neutral retry message. Rejects
+ * with the server's Toss-tone message when the artifacts aren't ready yet.
+ */
+export async function downloadSignerArtifact(
+  accessToken: string,
+  kind: CompletionArtifact,
+  fallbackTitle: string,
+): Promise<void> {
+  const session = getSignerSession(accessToken);
+  if (!session) throw new ApiError(SIGNER_COPY.completeError, 401);
+
+  const { blob, filename } = await apiDownload(`${base(accessToken)}/download/${kind}`, {
+    token: session,
+  });
+  saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
 }
 
 /**

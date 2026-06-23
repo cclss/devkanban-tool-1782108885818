@@ -14,11 +14,16 @@ import {
   SignRequestStatus,
   type Document,
 } from '@repo/db';
+import { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NotificationsService, type NotificationJob } from '../notifications/notifications.service';
 import { FREE_PLAN_MONTHLY_LIMIT, MESSAGES } from '../common/messages';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
+import {
+  artifactFilename,
+  type CompletionArtifact,
+} from '../completion/artifact';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
@@ -279,6 +284,40 @@ export class DocumentsService {
     };
   }
 
+  /**
+   * Open a completed contract's artifact (signed final PDF or audit certificate)
+   * for the owner to download. Owner-only; only available once the completion
+   * post-processing (grain-5) has stored the artifact. Returns a byte stream and
+   * the user-facing filename so the controller can stream it as an attachment.
+   */
+  async openArtifact(
+    ownerId: string,
+    documentId: string,
+    kind: CompletionArtifact,
+  ): Promise<{ stream: Readable; filename: string }> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: {
+        ownerId: true,
+        title: true,
+        status: true,
+        signedStorageKey: true,
+        certificateStorageKey: true,
+      },
+    });
+    if (!document) throw new NotFoundException(MESSAGES.document.notFound);
+    if (document.ownerId !== ownerId) throw new ForbiddenException(MESSAGES.document.forbidden);
+
+    const key =
+      kind === 'signed' ? document.signedStorageKey : document.certificateStorageKey;
+    if (document.status !== DocumentStatus.COMPLETED || !key) {
+      throw new NotFoundException(MESSAGES.document.artifactNotReady);
+    }
+
+    const stream = await this.storage.openStream(key);
+    return { stream, filename: artifactFilename(document.title, kind) };
+  }
+
   /** Remaining Free-plan sends this calendar month. */
   async quota(ownerId: string): Promise<{ used: number; limit: number; remaining: number }> {
     const used = await this.monthlySendCount(ownerId);
@@ -370,6 +409,13 @@ export class DocumentsService {
       recipientCount,
       sentAt: document.sentAt ? document.sentAt.toISOString() : null,
       createdAt: document.createdAt.toISOString(),
+      completedAt: document.completedAt ? document.completedAt.toISOString() : null,
+      // The dashboard download area only appears once post-processing has stored
+      // both artifacts; until then it shows a "준비 중" placeholder.
+      downloadsReady:
+        document.status === DocumentStatus.COMPLETED &&
+        Boolean(document.signedStorageKey) &&
+        Boolean(document.certificateStorageKey),
     };
   }
 }
@@ -383,6 +429,10 @@ export interface DocumentSummary {
   recipientCount: number;
   sentAt: string | null;
   createdAt: string;
+  /** ISO completion timestamp once the contract is fully signed (else null). */
+  completedAt: string | null;
+  /** True when both completion artifacts are stored and downloadable. */
+  downloadsReady: boolean;
 }
 
 export interface DocumentDetail extends DocumentSummary {

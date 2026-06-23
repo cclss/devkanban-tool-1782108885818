@@ -17,6 +17,8 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
     credentials: true,
+    // Let the browser read the artifact filename on cross-origin downloads.
+    exposedHeaders: ['Content-Disposition'],
   });
   app.setGlobalPrefix('api', { exclude: ['health'] });
 

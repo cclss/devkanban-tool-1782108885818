@@ -21,11 +21,12 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Confetti, SuccessCheck } from '@repo/ui';
 import { brandStyle } from '@/lib/branding';
-import { SIGNER_COPY, type SigningMeta } from '@/lib/signing';
+import { CompletionDownload } from '@/components/completion-download';
+import { SIGNER_COPY, downloadSignerArtifact, type SigningMeta } from '@/lib/signing';
 import { useSigner } from './signer-context';
 
 export function CompletionScreen({ meta }: { meta: SigningMeta }) {
-  const { state } = useSigner();
+  const { state, token } = useSigner();
   const { payload, documentCompleted } = state;
 
   // Portals need the DOM; gate on mount so SSR/first paint stays clean.
@@ -68,6 +69,15 @@ export function CompletionScreen({ meta }: { meta: SigningMeta }) {
         </div>
 
         <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
+
+        {documentCompleted ? (
+          <CompletionDownload
+            className="mt-xs w-full rounded-md border border-border bg-surface px-md py-md"
+            ready
+            showBadge={false}
+            onDownload={(kind) => downloadSignerArtifact(token, kind, documentTitle)}
+          />
+        ) : null}
       </div>
     </div>,
     window.document.body,

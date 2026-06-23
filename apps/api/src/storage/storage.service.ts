@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { promises as fs } from 'fs';
 import { createReadStream, type ReadStream } from 'fs';
+import { Readable } from 'stream';
 import { join, resolve, isAbsolute } from 'path';
 import { randomUUID } from 'crypto';
 
@@ -92,6 +93,20 @@ export class StorageService {
   /** Open a read stream for downloads. */
   createReadStream(key: string): ReadStream {
     return createReadStream(this.localPath(key));
+  }
+
+  /**
+   * Open the object's bytes as a stream, regardless of driver. The S3 driver
+   * has no path-based stream, so its bytes are read once and re-wrapped as a
+   * Readable; local disk streams directly. Used by every byte download path
+   * (signer PDF, completion artifacts) so the S3/local branch lives in one place.
+   */
+  async openStream(key: string): Promise<Readable> {
+    if (this.usesS3) {
+      const bytes = await this.read(key);
+      return Readable.from(bytes);
+    }
+    return this.createReadStream(key);
   }
 
   /**

@@ -37,6 +37,13 @@ async function makePdf(pages = 1): Promise<Buffer> {
   return Buffer.from(await doc.save());
 }
 
+/** supertest response parser that collects a binary body into a Buffer. */
+function binaryParser(res: any, cb: (err: Error | null, body: Buffer) => void): void {
+  const chunks: Buffer[] = [];
+  res.on('data', (chunk: Buffer) => chunks.push(Buffer.from(chunk)));
+  res.on('end', () => cb(null, Buffer.concat(chunks)));
+}
+
 describe('Completion post-processing (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
@@ -44,6 +51,8 @@ describe('Completion post-processing (e2e)', () => {
   let token: string;
   let userId: string;
   let documentId: string;
+  let signerAccessToken: string;
+  let signerSessionToken: string;
 
   const email = `completer_${Date.now()}@example.com`;
   const password = 'password1234';
@@ -109,6 +118,8 @@ describe('Completion post-processing (e2e)', () => {
       .send({ code: signRequest.verifyCode })
       .expect(200);
     const sessionToken = verify.body.sessionToken as string;
+    signerAccessToken = signRequest.accessToken;
+    signerSessionToken = sessionToken;
 
     // 6) Signer saves the captured signature value.
     await request(app.getHttpServer())
@@ -152,5 +163,75 @@ describe('Completion post-processing (e2e)', () => {
     expect(after.completedAt?.getTime()).toBe(before.completedAt?.getTime());
     expect(after.signedStorageKey).toBe(before.signedStorageKey);
     expect(after.certificateStorageKey).toBe(before.certificateStorageKey);
+  });
+
+  it('exposes the artifacts to the owner and the dashboard summary', async () => {
+    // The dashboard list now reports completion + that downloads are ready.
+    const list = await request(app.getHttpServer())
+      .get('/api/documents')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+    const summary = (list.body as Array<Record<string, unknown>>).find((d) => d.id === documentId);
+    expect(summary).toBeTruthy();
+    expect(summary!.status).toBe('COMPLETED');
+    expect(summary!.downloadsReady).toBe(true);
+    expect(summary!.completedAt).toBeTruthy();
+
+    // Owner downloads both artifacts as PDF attachments.
+    for (const kind of ['signed', 'certificate']) {
+      const res = await request(app.getHttpServer())
+        .get(`/api/documents/${documentId}/download/${kind}`)
+        .set('Authorization', `Bearer ${token}`)
+        .buffer()
+        .parse(binaryParser)
+        .expect(200);
+      expect(res.headers['content-type']).toContain('application/pdf');
+      expect(res.headers['content-disposition']).toContain('attachment');
+      const pdf = await PDFDocument.load(res.body);
+      expect(pdf.getPageCount()).toBeGreaterThan(0);
+    }
+  });
+
+  it('lets the signer download the artifacts with their session', async () => {
+    for (const kind of ['signed', 'certificate']) {
+      const res = await request(app.getHttpServer())
+        .get(`/api/signing/${signerAccessToken}/download/${kind}`)
+        .set('Authorization', `Bearer ${signerSessionToken}`)
+        .buffer()
+        .parse(binaryParser)
+        .expect(200);
+      expect(res.headers['content-type']).toContain('application/pdf');
+      const pdf = await PDFDocument.load(res.body);
+      expect(pdf.getPageCount()).toBeGreaterThan(0);
+    }
+  });
+
+  it('blocks downloads without the right credentials', async () => {
+    // No owner JWT → 401.
+    await request(app.getHttpServer())
+      .get(`/api/documents/${documentId}/download/signed`)
+      .expect(401);
+
+    // A different signed-in user cannot reach someone else's contract → 403.
+    const other = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ email: `intruder_${Date.now()}@example.com`, password, name: '침입자' })
+      .expect(201);
+    await request(app.getHttpServer())
+      .get(`/api/documents/${documentId}/download/signed`)
+      .set('Authorization', `Bearer ${other.body.accessToken}`)
+      .expect(403);
+    await prisma.user.delete({ where: { id: other.body.user.id } }).catch(() => undefined);
+
+    // An unknown artifact kind is rejected.
+    await request(app.getHttpServer())
+      .get(`/api/documents/${documentId}/download/bogus`)
+      .set('Authorization', `Bearer ${token}`)
+      .expect(400);
+
+    // The signer endpoint requires the session bearer → 401 without it.
+    await request(app.getHttpServer())
+      .get(`/api/signing/${signerAccessToken}/download/signed`)
+      .expect(401);
   });
 });

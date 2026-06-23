@@ -53,6 +53,55 @@ export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   token?: string;
 }
 
+/**
+ * Fetch a binary response (e.g. a PDF download) as a Blob, surfacing the
+ * server's Toss-tone error copy on failure just like {@link apiFetch}. The
+ * server sends the filename via `Content-Disposition`; callers that already know
+ * a good name (e.g. from the contract title) can ignore the returned one.
+ */
+export async function apiDownload(
+  path: string,
+  options: ApiRequestOptions = {},
+): Promise<{ blob: Blob; filename: string | null }> {
+  const { token, headers, ...rest } = options;
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...rest,
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...headers,
+      },
+    });
+  } catch {
+    throw new ApiError(GENERIC_ERROR, 0);
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(extractMessage(body) ?? GENERIC_ERROR, res.status);
+  }
+
+  const blob = await res.blob();
+  return { blob, filename: filenameFromDisposition(res.headers.get('Content-Disposition')) };
+}
+
+/** Pull the UTF-8 `filename*` (or plain `filename`) out of a disposition header. */
+function filenameFromDisposition(header: string | null): string | null {
+  if (!header) return null;
+  const star = /filename\*=UTF-8''([^;]+)/i.exec(header);
+  if (star?.[1]) {
+    try {
+      return decodeURIComponent(star[1]);
+    } catch {
+      // Malformed encoding — fall through to the plain filename.
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(header);
+  return plain?.[1] ?? null;
+}
+
 export async function apiFetch<T>(path: string, options: ApiRequestOptions = {}): Promise<T> {
   const { json, token, headers, ...rest } = options;
 

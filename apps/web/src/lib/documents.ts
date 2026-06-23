@@ -11,8 +11,13 @@
  * an optimistic prepend that survives even before the network re-fetch lands.
  */
 
-import { apiFetch } from './api';
+import { apiDownload, apiFetch } from './api';
 import { getToken } from './auth';
+import {
+  COMPLETION_DOWNLOAD_COPY,
+  saveBlob,
+  type CompletionArtifact,
+} from './completion-download';
 
 export type DocumentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
@@ -26,6 +31,10 @@ export interface DocumentSummary {
   recipientCount: number;
   sentAt: string | null;
   createdAt: string;
+  /** ISO completion timestamp once fully signed (else null). */
+  completedAt: string | null;
+  /** True when both completion artifacts are stored and downloadable. */
+  downloadsReady: boolean;
 }
 
 export interface Quota {
@@ -40,6 +49,23 @@ export function fetchDocuments(): Promise<DocumentSummary[]> {
 
 export function fetchQuota(): Promise<Quota> {
   return apiFetch<Quota>('/documents/quota', { token: getToken() ?? undefined });
+}
+
+/**
+ * Download a completed contract's artifact as the signed-in owner and hand it to
+ * the browser's "save file". Rejects with the server's Toss-tone message (e.g.
+ * the artifacts aren't ready yet) so the caller can surface a friendly retry.
+ */
+export async function downloadOwnerArtifact(
+  documentId: string,
+  kind: CompletionArtifact,
+  fallbackTitle: string,
+): Promise<void> {
+  const { blob, filename } = await apiDownload(
+    `/documents/${encodeURIComponent(documentId)}/download/${kind}`,
+    { token: getToken() ?? undefined },
+  );
+  saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
 }
 
 // --- optimistic "just sent" hand-off ---------------------------------------

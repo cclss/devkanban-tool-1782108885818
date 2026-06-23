@@ -11,15 +11,18 @@ import {
   Put,
   Query,
   Req,
+  Res,
   UploadedFile,
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import type { Request } from 'express';
+import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/current-user.decorator';
 import { MESSAGES } from '../common/messages';
+import { attachmentDisposition } from '../common/http';
+import { parseArtifactKind } from '../completion/artifact';
 import { StorageService } from '../storage/storage.service';
 import { DocumentsService } from './documents.service';
 import {
@@ -100,6 +103,31 @@ export class DocumentsController {
   @Get(':id')
   detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.documents.detail(user.id, id);
+  }
+
+  /**
+   * Download a completed contract's artifact (owner only).
+   * `:artifact` is `signed` (최종 계약서) or `certificate` (감사 추적 인증서).
+   */
+  @Get(':id/download/:artifact')
+  async download(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Param('artifact') artifact: string,
+    @Res() res: Response,
+  ) {
+    const kind = parseArtifactKind(artifact);
+    if (!kind) throw new BadRequestException(MESSAGES.document.notFound);
+
+    const { stream, filename } = await this.documents.openArtifact(user.id, id, kind);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', attachmentDisposition(filename));
+    res.setHeader('Cache-Control', 'no-store');
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(HttpStatus.NOT_FOUND);
+      res.end();
+    });
+    stream.pipe(res);
   }
 
   /** Replace placed sign fields on a draft. */

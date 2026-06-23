@@ -21,6 +21,7 @@ import {
   type CompletionEmailRole,
 } from '../email/completion-email.template';
 import type { CompletionResult } from './completion.constants';
+import { artifactFilename } from './artifact';
 
 /** Human-readable identity-verification method used across the signer flow. */
 const VERIFICATION_METHOD = '6자리 인증코드';
@@ -243,8 +244,8 @@ export class CompletionService {
     certificatePdf: Buffer,
   ): Promise<number> {
     const attachments = [
-      { filename: attachmentName(document.title, '최종 계약서'), content: signedPdf },
-      { filename: attachmentName(document.title, '감사 추적 인증서'), content: certificatePdf },
+      { filename: artifactFilename(document.title, 'signed'), content: signedPdf },
+      { filename: artifactFilename(document.title, 'certificate'), content: certificatePdf },
     ];
     const senderName = document.owner.name ?? '발신자';
     const dashboardUrl = `${this.webOrigin()}/dashboard`;
@@ -337,10 +338,4 @@ function buildCertificateId(documentId: string, completedAt: Date): string {
   const date = `${kst.getUTCFullYear()}${p(kst.getUTCMonth() + 1)}${p(kst.getUTCDate())}`;
   const suffix = documentId.replace(/[^a-zA-Z0-9]/g, '').slice(-8).toUpperCase() || 'DOCUMENT';
   return `CERT-${date}-${suffix}`;
-}
-
-/** Build a readable, filesystem-safe attachment name from the contract title. */
-function attachmentName(title: string, kind: string): string {
-  const safe = title.replace(/[\\/:*?"<>|]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80) || '계약서';
-  return `${safe} (${kind}).pdf`;
 }

@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Body,
   Controller,
   Get,
@@ -12,6 +13,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Response } from 'express';
+import { MESSAGES } from '../common/messages';
+import { attachmentDisposition } from '../common/http';
+import { parseArtifactKind } from '../completion/artifact';
 import { CurrentSigner } from './current-signer.decorator';
 import { SignerSessionGuard } from './signer-session.guard';
 import type { SignerSession } from './signer-session.service';
@@ -78,6 +82,32 @@ export class SigningController {
     @Body() dto: SaveFieldValuesDto,
   ) {
     return this.signing.saveFields(signer.signRequestId, dto);
+  }
+
+  /**
+   * ⑦ Download a completed contract's artifact (session required).
+   * `:artifact` is `signed` (최종 계약서) or `certificate` (감사 추적 인증서).
+   * Only resolves once the document is COMPLETED and the artifacts are stored.
+   */
+  @Get(':token/download/:artifact')
+  @UseGuards(SignerSessionGuard)
+  async download(
+    @CurrentSigner() signer: SignerSession,
+    @Param('artifact') artifact: string,
+    @Res() res: Response,
+  ) {
+    const kind = parseArtifactKind(artifact);
+    if (!kind) throw new BadRequestException(MESSAGES.signing.invalidLink);
+
+    const { stream, filename } = await this.signing.openArtifact(signer.signRequestId, kind);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', attachmentDisposition(filename));
+    res.setHeader('Cache-Control', 'no-store');
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(HttpStatus.NOT_FOUND);
+      res.end();
+    });
+    stream.pipe(res);
   }
 
   /** ⑥ Finalize the signer's part (session required). */

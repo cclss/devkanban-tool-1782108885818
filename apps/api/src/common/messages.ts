@@ -21,6 +21,8 @@ export const MESSAGES = {
   document: {
     notFound: '요청한 계약을 찾을 수 없어요.',
     forbidden: '이 계약에 접근할 권한이 없어요.',
+    // 완료 후처리(최종본·인증서)가 아직 끝나지 않아 내려받을 수 없을 때.
+    artifactNotReady: '완료 문서가 아직 준비되지 않았어요. 잠시 후 다시 시도해 주세요.',
     invalidFileType: 'PDF 파일만 업로드할 수 있어요.',
     emptyFile: '파일이 비어 있어요. 다른 PDF로 다시 시도해 주세요.',
     corruptPdf: 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
