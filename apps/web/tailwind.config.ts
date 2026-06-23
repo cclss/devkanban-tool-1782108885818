@@ -229,6 +229,14 @@ const config: Config = {
           from: { transform: 'translateX(0)' },
           to: { transform: 'translateX(100%)' },
         },
+        'wizard-in-right': {
+          from: { opacity: '0', transform: 'translateX(16px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
+        'wizard-in-left': {
+          from: { opacity: '0', transform: 'translateX(-16px)' },
+          to: { opacity: '1', transform: 'translateX(0)' },
+        },
       },
       animation: {
         blob: 'blob-flow 18s ease-in-out infinite',
@@ -246,6 +254,8 @@ const config: Config = {
         'sheet-out-bottom': 'sheet-out-bottom 0.24s cubic-bezier(0.4, 0, 1, 1)',
         'sheet-in-right': 'sheet-in-right 0.32s cubic-bezier(0.16, 1, 0.3, 1)',
         'sheet-out-right': 'sheet-out-right 0.24s cubic-bezier(0.4, 0, 1, 1)',
+        'wizard-forward': 'wizard-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'wizard-back': 'wizard-in-left 0.35s cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },
