@@ -13,7 +13,8 @@
 
 // Loaded lazily; types are import()-only so nothing pdfjs touches SSR runtime.
 type PdfjsModule = typeof import('pdfjs-dist');
-type PdfDocument = Awaited<ReturnType<PdfjsModule['getDocument']>['promise']>;
+export type PdfDocument = Awaited<ReturnType<PdfjsModule['getDocument']>['promise']>;
+type RenderTask = ReturnType<Awaited<ReturnType<PdfDocument['getPage']>>['render']>;
 
 let pdfjsPromise: Promise<PdfjsModule> | null = null;
 
@@ -100,5 +101,81 @@ export async function renderFirstPage(
   } finally {
     // Free worker-side resources; the File stays in wizard state for re-renders.
     void doc.destroy();
+  }
+}
+
+// --- Multi-page rendering (field placement, grain-7) -----------------------
+
+/**
+ * Open a PDF once and keep the handle for repeated page renders.
+ *
+ * The field-placement step renders pages on demand (page switch, zoom) against a
+ * single long-lived document, unlike the upload preview which renders page 1 and
+ * disposes. Caller is responsible for `doc.destroy()` on unmount.
+ */
+export async function openPdf(file: File): Promise<{ doc: PdfDocument; pageCount: number }> {
+  return loadPdf(file);
+}
+
+/** A rendered page's laid-out CSS size (the field overlay's coordinate basis). */
+export interface RenderedPage {
+  cssWidth: number;
+  cssHeight: number;
+}
+
+// Track the in-flight render per canvas so a fast page/zoom change cancels the
+// previous one — pdfjs throws if two render() calls touch the same canvas.
+const activeRenders = new WeakMap<HTMLCanvasElement, RenderTask>();
+
+/** Thrown render was superseded by a newer one; callers ignore it silently. */
+export function isRenderCancelled(err: unknown): boolean {
+  return (
+    typeof err === 'object' &&
+    err !== null &&
+    'name' in err &&
+    (err as { name?: string }).name === 'RenderingCancelledException'
+  );
+}
+
+/**
+ * Render `pageNumber` of an open document into `canvas`, fit to `cssWidth` CSS
+ * pixels at the device pixel ratio. Cancels any prior render on the same canvas
+ * first. Returns the laid-out CSS size used to place the field overlay.
+ */
+export async function renderPageToCanvas(
+  doc: PdfDocument,
+  pageNumber: number,
+  canvas: HTMLCanvasElement,
+  cssWidth: number,
+): Promise<RenderedPage> {
+  activeRenders.get(canvas)?.cancel();
+
+  const page = await doc.getPage(pageNumber);
+  const base = page.getViewport({ scale: 1 });
+  const scale = cssWidth / base.width;
+  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
+  const viewport = page.getViewport({ scale: scale * dpr });
+
+  const context = canvas.getContext('2d');
+  if (!context) throw new PdfRenderError();
+
+  canvas.width = Math.floor(viewport.width);
+  canvas.height = Math.floor(viewport.height);
+  const cssHeight = viewport.height / dpr;
+  const laidOutWidth = viewport.width / dpr;
+  canvas.style.width = `${laidOutWidth}px`;
+  canvas.style.height = `${cssHeight}px`;
+
+  const task = page.render({ canvasContext: context, viewport });
+  activeRenders.set(canvas, task);
+  try {
+    await task.promise;
+    return { cssWidth: laidOutWidth, cssHeight };
+  } catch (err) {
+    if (isRenderCancelled(err)) throw err;
+    throw new PdfRenderError();
+  } finally {
+    if (activeRenders.get(canvas) === task) activeRenders.delete(canvas);
+    page.cleanup();
   }
 }
