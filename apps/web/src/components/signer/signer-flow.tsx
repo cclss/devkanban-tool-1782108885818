@@ -16,6 +16,7 @@ import { LoadingScreen } from './loading-screen';
 import { VerifyScreen } from './verify-screen';
 import { NoticeScreen } from './notice-screen';
 import { DocumentViewer } from './document-viewer';
+import { CompletionScreen } from './completion-screen';
 
 export function SignerFlow() {
   const { state } = useSigner();
@@ -32,8 +33,9 @@ export function SignerFlow() {
       );
     case 'viewing':
     case 'signing':
-    case 'done':
       return state.meta ? <DocumentViewer meta={state.meta} /> : <LoadingScreen />;
+    case 'done':
+      return state.meta ? <CompletionScreen meta={state.meta} /> : <LoadingScreen />;
     default:
       return <LoadingScreen />;
   }

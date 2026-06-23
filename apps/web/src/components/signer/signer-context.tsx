@@ -23,10 +23,13 @@
 import * as React from 'react';
 import { ApiError } from '@/lib/api';
 import {
+  completeSigning,
   fetchMeta,
   fetchPayload,
+  getSignerSession,
   setSignerSession,
   verifyCode,
+  SIGNER_COPY,
   type SigningMeta,
   type SigningPayload,
 } from '@/lib/signing';
@@ -64,6 +67,8 @@ export interface SignerState {
   fieldValues: Record<string, SignerFieldValue>;
   /** The field whose capture sheet is open (drives the BottomSheet target). */
   activeFieldId: string | null;
+  /** Set once `complete` succeeds: whether the whole document is now finalized. */
+  documentCompleted: boolean;
 }
 
 const initialState: SignerState = {
@@ -73,6 +78,7 @@ const initialState: SignerState = {
   blockReason: null,
   fieldValues: {},
   activeFieldId: null,
+  documentCompleted: false,
 };
 
 type SignerAction =
@@ -80,7 +86,7 @@ type SignerAction =
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
   | { type: 'VERIFIED'; payload: SigningPayload }
   | { type: 'GO_SIGNING' }
-  | { type: 'DONE' }
+  | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'OPEN_FIELD'; fieldId: string }
   | { type: 'CLOSE_FIELD' }
   | { type: 'SET_FIELD_VALUE'; fieldId: string; value: SignerFieldValue };
@@ -101,7 +107,7 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
-      return { ...state, phase: 'done' };
+      return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
     case 'OPEN_FIELD':
       return { ...state, activeFieldId: action.fieldId };
     case 'CLOSE_FIELD':
@@ -137,8 +143,12 @@ interface SignerContextValue {
   verify: (code: string) => Promise<void>;
   /** Advance from the viewer into the signature step (later grains). */
   goSigning: () => void;
-  /** Mark the signer's part complete (later grains). */
-  markDone: () => void;
+  /**
+   * Finalize the signer's part: call `/complete`, then advance to the completion
+   * screen on success. Rejects (with the server's Toss-tone message) on failure
+   * so the viewer can show a friendly retry — the captured field values stay put.
+   */
+  complete: () => Promise<void>;
   /** Open the capture sheet targeting a field (the BottomSheet is a later grain). */
   openField: (fieldId: string) => void;
   /** Dismiss the capture sheet without changing any value. */
@@ -194,7 +204,16 @@ export function SignerProvider({
   );
 
   const goSigning = React.useCallback(() => dispatch({ type: 'GO_SIGNING' }), []);
-  const markDone = React.useCallback(() => dispatch({ type: 'DONE' }), []);
+  const complete = React.useCallback(async () => {
+    const session = getSignerSession(token);
+    if (!session) {
+      // The session is required to finalize; a missing one means it expired or
+      // the tab lost it. Surface a neutral error so the viewer offers a retry.
+      throw new ApiError(SIGNER_COPY.completeError, 401);
+    }
+    const result = await completeSigning(token, session);
+    dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
+  }, [token]);
   const openField = React.useCallback(
     (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
     [],
@@ -207,8 +226,8 @@ export function SignerProvider({
   );
 
   const value = React.useMemo<SignerContextValue>(
-    () => ({ state, token, verify, goSigning, markDone, openField, closeField, setFieldValue }),
-    [state, token, verify, goSigning, markDone, openField, closeField, setFieldValue],
+    () => ({ state, token, verify, goSigning, complete, openField, closeField, setFieldValue }),
+    [state, token, verify, goSigning, complete, openField, closeField, setFieldValue],
   );
 
   return <SignerContext.Provider value={value}>{children}</SignerContext.Provider>;

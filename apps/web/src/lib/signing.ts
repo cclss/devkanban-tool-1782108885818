@@ -125,6 +125,19 @@ export const SIGNER_COPY = {
     apply: '적용',
     saveError: '서명을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.',
   },
+  /** Completion takeover chrome (same Toss voice as the rest). */
+  done: {
+    /** Celebration headline — mirrors the server's `completed` catalog entry. */
+    title: '서명이 완료되었습니다!',
+    body: '작성하신 서명이 안전하게 전달됐어요.',
+    /** Calm post-summary: which document was signed. */
+    documentLabel: '서명한 문서',
+    /** What happens next, by whether the whole document is now complete. */
+    nextAllDone: '모든 서명이 끝났어요. 완료된 계약서를 메일로 보내 드릴게요.',
+    nextWaiting: '다른 분들의 서명이 끝나면 완료된 계약서를 메일로 보내 드릴게요.',
+  },
+  /** Final-CTA failure fallback (no blame, just retry) — when the server gives none. */
+  completeError: '서명을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
 } as const;
 
 // --- session token persistence ----------------------------------------------
@@ -225,6 +238,31 @@ export function saveFields(
     method: 'POST',
     token: sessionToken,
     json: { fields },
+  });
+}
+
+/** Result of finalizing the signer's part (mirrors SigningService.complete). */
+export interface CompleteResult {
+  status: SignRequestStatus;
+  /** True when this was the last outstanding signer — the whole doc is now done. */
+  documentCompleted: boolean;
+  message: string;
+}
+
+/**
+ * ⑥ Finalize the signer's part (session required). The server requires every
+ * assigned field filled, flips the SignRequest to SIGNED, and reports whether
+ * the document as a whole is now complete. Rejects with the server's Toss-tone
+ * message (e.g. an incomplete/expired/already-signed state) so the viewer can
+ * surface a friendly retry without losing the captured signature.
+ */
+export function completeSigning(
+  accessToken: string,
+  sessionToken: string,
+): Promise<CompleteResult> {
+  return apiFetch<CompleteResult>(`${base(accessToken)}/complete`, {
+    method: 'POST',
+    token: sessionToken,
   });
 }
 

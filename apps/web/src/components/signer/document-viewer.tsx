@@ -19,6 +19,7 @@
 
 import * as React from 'react';
 import { Button, Skeleton, cn } from '@repo/ui';
+import { ApiError } from '@/lib/api';
 import { brandStyle } from '@/lib/branding';
 import {
   getSignerSession,
@@ -65,8 +66,13 @@ function topOf(field: SigningPayloadField): number {
 }
 
 export function DocumentViewer({ meta }: { meta: SigningMeta }) {
-  const { token, state, openField, markDone } = useSigner();
+  const { token, state, openField, complete } = useSigner();
   const { payload, fieldValues } = state;
+
+  // Finalize state for the bottom CTA. A failed `complete` keeps every captured
+  // value in place (the context never clears them), so the signer just retries.
+  const [completing, setCompleting] = React.useState(false);
+  const [completeError, setCompleteError] = React.useState<string | null>(null);
 
   const session = React.useMemo(() => getSignerSession(token), [token]);
   const fields = React.useMemo(() => payload?.fields ?? [], [payload]);
@@ -159,17 +165,26 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
     [openField, scrollToField],
   );
 
-  const onCta = React.useCallback(() => {
+  const onCta = React.useCallback(async () => {
     const next = orderedUnfilled[0];
     if (next) {
       scrollToField(next.id);
       openField(next.id);
       return;
     }
-    // All fields captured. The real submit → complete → completion screen is a
-    // later grain; advancing the phase is the hand-off point it binds to.
-    markDone();
-  }, [orderedUnfilled, scrollToField, openField, markDone]);
+    // All fields captured: finalize. On success the context flips to `done` and
+    // this viewer unmounts for the completion screen; on failure we surface the
+    // server's Toss-tone message and let the signer retry (values are retained).
+    if (completing) return;
+    setCompleting(true);
+    setCompleteError(null);
+    try {
+      await complete();
+    } catch (err) {
+      setCompleteError(err instanceof ApiError ? err.message : SIGNER_COPY.completeError);
+      setCompleting(false);
+    }
+  }, [orderedUnfilled, scrollToField, openField, complete, completing]);
 
   const progress =
     total === 0
@@ -226,7 +241,16 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="mx-auto w-full max-w-[480px] px-lg py-md">
-          <Button fullWidth size="lg" onClick={onCta}>
+          {completeError ? (
+            <p
+              role="alert"
+              aria-live="assertive"
+              className="mb-xs text-center text-sm text-danger"
+            >
+              {completeError}
+            </p>
+          ) : null}
+          <Button fullWidth size="lg" onClick={onCta} isLoading={completing}>
             {remaining > 0 ? SIGNER_COPY.viewerCtaContinue : SIGNER_COPY.viewerCtaComplete}
           </Button>
         </div>
