@@ -27,6 +27,7 @@ import {
 import { UploadStep } from './upload-step';
 import { FieldsStep } from './fields-step';
 import { RecipientsStep } from './recipients-step';
+import { ReviewStep } from './review-step';
 
 export function ContractWizard() {
   return (
@@ -102,21 +103,8 @@ function StepSlot({ step }: { step: number }) {
     case 2:
       return <RecipientsStep />;
     case 3:
-      return <PlaceholderStep title="발송 전 확인해요" />;
+      return <ReviewStep />;
     default:
       return null;
   }
-}
-
-/**
- * Empty slot for steps a later grain fills. Intentionally minimal — grain-7/8/9
- * replace this with the real step content.
- */
-function PlaceholderStep({ title }: { title: string }) {
-  return (
-    <div className="flex flex-col items-center justify-center gap-xs rounded-lg border border-dashed border-border-strong bg-surface-muted px-md py-3xl text-center">
-      <h2 className="text-lg font-bold text-foreground">{title}</h2>
-      <p className="text-sm text-foreground-subtle">이 단계는 곧 이어집니다.</p>
-    </div>
-  );
 }
