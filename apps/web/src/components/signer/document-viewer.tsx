@@ -38,6 +38,7 @@ import {
 import { normToPx, type PageSize } from '@/lib/field-geometry';
 import { useSigner, type SignerFieldValue } from './signer-context';
 import { BrandingHeader } from './branding-header';
+import { SignatureInputSheet } from './signature-sheet';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
@@ -230,6 +231,9 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
           </Button>
         </div>
       </div>
+
+      {/* The capture BottomSheet targets the field opened via the signer context. */}
+      <SignatureInputSheet />
     </main>
   );
 }

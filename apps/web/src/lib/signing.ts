@@ -103,6 +103,28 @@ export const SIGNER_COPY = {
     DATE: '여기에 날짜',
     TEXT: '여기에 입력',
   },
+  // Signature input BottomSheet chrome (same Toss voice as the rest).
+  sheet: {
+    /** Sheet title, by field type. */
+    title: {
+      SIGNATURE: '서명 입력',
+      DATE: '날짜 입력',
+      TEXT: '내용 입력',
+    },
+    /** Mode toggle labels for a signature field. */
+    modeDraw: '그리기',
+    modeType: '입력',
+    drawHint: '아래 칸에 손가락이나 펜으로 서명해 주세요.',
+    typeHint: '이름을 입력하고 마음에 드는 글씨체를 골라 주세요.',
+    typePlaceholder: '이름',
+    fontLabel: '글씨체',
+    dateLabel: '날짜',
+    textLabel: '내용',
+    textPlaceholder: '내용을 입력해 주세요',
+    reset: '다시',
+    apply: '적용',
+    saveError: '서명을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.',
+  },
 } as const;
 
 // --- session token persistence ----------------------------------------------
@@ -180,4 +202,43 @@ export function fetchPayload(
  */
 export function signerPdfUrl(accessToken: string): string {
   return apiUrl(`${base(accessToken)}/pdf`);
+}
+
+/** One captured value to persist: the field id + its serialized string value. */
+export interface FieldValueInput {
+  fieldId: string;
+  /** Signature PNG data URL / ISO `YYYY-MM-DD` date / non-empty text. */
+  value: string;
+}
+
+/**
+ * ⑤ Persist captured field values (session required). The server validates each
+ * value against its field type (signature dataURL / ISO date / text) and writes
+ * only fields assigned to this signer. Returns how many were saved.
+ */
+export function saveFields(
+  accessToken: string,
+  sessionToken: string,
+  fields: FieldValueInput[],
+): Promise<{ saved: number }> {
+  return apiFetch<{ saved: number }>(`${base(accessToken)}/fields`, {
+    method: 'POST',
+    token: sessionToken,
+    json: { fields },
+  });
+}
+
+/**
+ * Serialize a captured signer value into the server's string contract:
+ * signature → data URL, text/date → the raw string. Returns `null` for an
+ * empty/unsupported value (nothing to persist).
+ */
+export function serializeFieldValue(value: {
+  type: SignFieldType;
+  dataUrl?: string;
+  text?: string;
+}): string | null {
+  if (value.type === 'SIGNATURE') return value.dataUrl ?? null;
+  const text = value.text?.trim();
+  return text ? text : null;
 }
