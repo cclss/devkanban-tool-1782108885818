@@ -4,6 +4,7 @@ import { HealthModule } from './health/health.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
+import { EmailModule } from './email/email.module';
 import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SigningModule } from './signing/signing.module';
@@ -15,6 +16,7 @@ import { PdfModule } from './pdf/pdf.module';
     PrismaModule,
     StorageModule,
     NotificationsModule,
+    EmailModule,
     AuthModule,
     DocumentsModule,
     SigningModule,
