@@ -26,6 +26,7 @@ import {
 } from './wizard-context';
 import { UploadStep } from './upload-step';
 import { FieldsStep } from './fields-step';
+import { RecipientsStep } from './recipients-step';
 
 export function ContractWizard() {
   return (
@@ -99,7 +100,7 @@ function StepSlot({ step }: { step: number }) {
     case 1:
       return <FieldsStep />;
     case 2:
-      return <PlaceholderStep title="받는 분을 입력해요" />;
+      return <RecipientsStep />;
     case 3:
       return <PlaceholderStep title="발송 전 확인해요" />;
     default:

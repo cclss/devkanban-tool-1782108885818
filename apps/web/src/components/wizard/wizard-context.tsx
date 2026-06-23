@@ -19,6 +19,7 @@
 
 import * as React from 'react';
 import type { DocumentSummary } from '@/lib/documents';
+import { recipientsComplete } from '@/lib/recipients';
 
 export type SignFieldType = 'SIGNATURE' | 'DATE' | 'TEXT';
 
@@ -117,7 +118,9 @@ export function canProceed(state: WizardState): boolean {
     case 1:
       return state.fields.length > 0;
     case 2:
-      return state.recipients.length > 0;
+      // Need ≥1 recipient and every recipient passing inline validation
+      // (email present, well-formed, no duplicates).
+      return recipientsComplete(state.recipients);
     default:
       return true;
   }
