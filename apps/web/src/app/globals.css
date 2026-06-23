@@ -1,3 +1,195 @@
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css');
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
+
+@layer base {
+  /*
+   * Design tokens as semantic CSS custom properties.
+   *
+   * Sender branding hook: the `--brand-*` group is the single override point.
+   * A sender's brand color is applied by setting `--brand-primary` (and its
+   * companions) on any container — e.g.
+   *   <div style={{ '--brand-primary': '#ff5a5f' }}>…</div>
+   * Every primary-colored component reads `--color-primary`, which inherits
+   * from `--brand-primary`, so the whole subtree re-skins without touching
+   * component code.
+   */
+  :root {
+    /* — Brand hook (sender override point) —
+       Default action blue is deepened to #1c64f2 so white button text clears
+       WCAG AA (≈5.1:1) while keeping the Toss-blue hue. */
+    --brand-primary: #1c64f2;
+    --brand-primary-hover: #1456d8;
+    --brand-primary-pressed: #1048bf;
+    --brand-primary-foreground: #ffffff;
+    --brand-primary-subtle: #e8f1ff;
+
+    /* — Greyscale ramp — */
+    --grey-50: #f9fafb;
+    --grey-100: #f2f4f6;
+    --grey-200: #e5e8eb;
+    --grey-300: #d1d6db;
+    --grey-400: #b0b8c1;
+    --grey-500: #8b95a1;
+    --grey-600: #6b7684;
+    --grey-700: #4e5968;
+    --grey-800: #333d4b;
+    --grey-900: #191f28;
+
+    /* — Semantic surfaces & text — */
+    --color-background: var(--grey-100);
+    --color-surface: #ffffff;
+    --color-surface-muted: var(--grey-50);
+    --color-foreground: var(--grey-900);
+    --color-foreground-muted: var(--grey-700);
+    /* grey-600 (not 500) so secondary/hint text clears AA (≈4.6:1) on surface. */
+    --color-foreground-subtle: var(--grey-600);
+    --color-border: var(--grey-200);
+    --color-border-strong: var(--grey-300);
+
+    /* — Primary (inherits the brand hook) — */
+    --color-primary: var(--brand-primary);
+    --color-primary-hover: var(--brand-primary-hover);
+    --color-primary-pressed: var(--brand-primary-pressed);
+    --color-primary-foreground: var(--brand-primary-foreground);
+    --color-primary-subtle: var(--brand-primary-subtle);
+
+    /* — Status — */
+    --color-success: #15c47e;
+    --color-success-foreground: #ffffff;
+    --color-success-subtle: #e7f9f1;
+    /* Danger deepened from the Toss-red hue to #d62f3c for AA white text (≈4.8:1). */
+    --color-danger: #d62f3c;
+    --color-danger-foreground: #ffffff;
+    --color-danger-subtle: #fdecee;
+    --color-warning: #ff9500;
+    --color-warning-foreground: #ffffff;
+    --color-warning-subtle: #fff4e6;
+
+    /* — Interaction — */
+    --color-ring: var(--brand-primary);
+    --color-overlay: rgba(13, 16, 21, 0.55);
+    /* Pre-baked translucent focus halos. color-mix keeps the alpha while still
+       resolving `--brand-primary` in the consumer's context, so a sender's
+       brand override re-tints the focus ring too. (Tailwind v3 cannot apply a
+       `/opacity` modifier to a CSS-variable color, hence the baked tokens.) */
+    --color-focus: color-mix(in srgb, var(--brand-primary) 32%, transparent);
+    --color-focus-danger: color-mix(in srgb, var(--color-danger) 30%, transparent);
+
+    /* — Motion (easing + duration tokens) — */
+    --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);
+    --ease-out-expressive: cubic-bezier(0.16, 1, 0.3, 1);
+    --ease-in-soft: cubic-bezier(0.4, 0, 1, 1);
+    --ease-bounce: cubic-bezier(0.34, 1.56, 0.64, 1);
+    --duration-instant: 100ms;
+    --duration-fast: 150ms;
+    --duration-base: 250ms;
+    --duration-slow: 400ms;
+    --duration-slower: 600ms;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    background-color: var(--color-background);
+    color: var(--color-foreground);
+    font-family:
+      'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+      system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo',
+      'Noto Sans KR', sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Consistent, visible keyboard focus across all interactive elements. */
+  :focus-visible {
+    outline: none;
+  }
+}
+
+@layer utilities {
+  /*
+   * Stagger helper — applies the fade-in-up entrance to direct children with an
+   * incremental delay. Children opt in to a custom index via `--stagger-index`;
+   * otherwise the nth-child fallback covers the first several items.
+   */
+  .motion-stagger > * {
+    opacity: 0;
+    animation: fade-in-up 0.5s var(--ease-out-expressive) both;
+    animation-delay: calc(var(--stagger-index, 0) * 60ms);
+  }
+  .motion-stagger > *:nth-child(1) {
+    --stagger-index: 0;
+  }
+  .motion-stagger > *:nth-child(2) {
+    --stagger-index: 1;
+  }
+  .motion-stagger > *:nth-child(3) {
+    --stagger-index: 2;
+  }
+  .motion-stagger > *:nth-child(4) {
+    --stagger-index: 3;
+  }
+  .motion-stagger > *:nth-child(5) {
+    --stagger-index: 4;
+  }
+  .motion-stagger > *:nth-child(6) {
+    --stagger-index: 5;
+  }
+  .motion-stagger > *:nth-child(7) {
+    --stagger-index: 6;
+  }
+  .motion-stagger > *:nth-child(8) {
+    --stagger-index: 7;
+  }
+
+  /* Skeleton shimmer surface — pairs with the `animate-shimmer` keyframe. */
+  .skeleton-shimmer {
+    background-image: linear-gradient(
+      90deg,
+      var(--grey-200) 0%,
+      var(--grey-100) 40%,
+      var(--grey-200) 80%
+    );
+    background-size: 200% 100%;
+  }
+}
+
+/*
+ * `.motion-stagger` references this keyframe by name from raw CSS (not via an
+ * `animate-*` utility), so it must be defined here — Tailwind only emits a
+ * keyframe when its matching animation utility is actually used in markup.
+ */
+@keyframes fade-in-up {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/*
+ * Reduced-motion fallback. Every animation/transition collapses to an instant,
+ * static end-state so the experience stays usable for motion-sensitive users.
+ */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  .motion-stagger > * {
+    opacity: 1 !important;
+  }
+}
