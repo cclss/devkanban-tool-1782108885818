@@ -1,0 +1,151 @@
+// Prisma schema for the e-signature SaaS MVP.
+// Initial data model — covers users, documents, sign requests, sign fields,
+// and audit logs. Business logic / queries are intentionally out of scope for
+// the scaffolding grain; this only establishes the persistence layer.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Application user (the sender who creates and dispatches contracts).
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  name         String?
+  passwordHash String?  @map("password_hash")
+  // Sender branding (logo + brand color) — available on all plans per spec.
+  brandLogoUrl String?  @map("brand_logo_url")
+  brandColor   String?  @map("brand_color")
+  plan         Plan     @default(FREE)
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  documents Document[]
+  auditLogs AuditLog[]
+
+  @@map("users")
+}
+
+/// An uploaded PDF that a contract is built on top of.
+model Document {
+  id        String         @id @default(cuid())
+  ownerId   String         @map("owner_id")
+  title     String
+  // Object storage key (e.g. S3). Stub-friendly: no cloud wiring at this grain.
+  storageKey String        @map("storage_key")
+  pageCount Int            @default(0) @map("page_count")
+  status    DocumentStatus @default(DRAFT)
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  signRequests SignRequest[]
+  signFields   SignField[]
+  auditLogs    AuditLog[]
+
+  @@index([ownerId])
+  @@map("documents")
+}
+
+/// A request asking a single recipient to sign a document.
+model SignRequest {
+  id          String            @id @default(cuid())
+  documentId  String            @map("document_id")
+  recipientEmail String         @map("recipient_email")
+  recipientName  String?        @map("recipient_name")
+  // Signing order for sequential workflows.
+  order       Int               @default(0)
+  status      SignRequestStatus @default(PENDING)
+  // Access token embedded in the signing link.
+  accessToken String            @unique @map("access_token")
+  // 6-digit verification code delivered out of band.
+  verifyCode  String?           @map("verify_code")
+  signedAt    DateTime?         @map("signed_at")
+  createdAt   DateTime          @default(now()) @map("created_at")
+  updatedAt   DateTime          @updatedAt @map("updated_at")
+
+  document   Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signFields SignField[]
+  auditLogs  AuditLog[]
+
+  @@index([documentId])
+  @@map("sign_requests")
+}
+
+/// A placed field on a document page (signature, date, or free text).
+model SignField {
+  id            String        @id @default(cuid())
+  documentId    String        @map("document_id")
+  signRequestId String?       @map("sign_request_id")
+  type          SignFieldType
+  page          Int           @default(1)
+  // Normalized geometry (0..1) relative to the page. Coordinate-system
+  // conversion (PDF bottom-left vs canvas top-left) is handled in app logic.
+  x             Float
+  y             Float
+  width         Float
+  height        Float
+  // Captured value once signed (signature image ref / text / date).
+  value         String?
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  document    Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  signRequest SignRequest? @relation(fields: [signRequestId], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+  @@index([signRequestId])
+  @@map("sign_fields")
+}
+
+/// Immutable trail of every meaningful action for the audit certificate.
+model AuditLog {
+  id            String   @id @default(cuid())
+  documentId    String?  @map("document_id")
+  signRequestId String?  @map("sign_request_id")
+  actorId       String?  @map("actor_id")
+  action        String
+  // Free-form contextual metadata (IP, user agent, etc.).
+  metadata      Json?
+  ipAddress     String?  @map("ip_address")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  document    Document?    @relation(fields: [documentId], references: [id], onDelete: SetNull)
+  signRequest SignRequest? @relation(fields: [signRequestId], references: [id], onDelete: SetNull)
+  actor       User?        @relation(fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([documentId])
+  @@index([signRequestId])
+  @@map("audit_logs")
+}
+
+enum Plan {
+  FREE
+  PRO
+  ENTERPRISE
+}
+
+enum DocumentStatus {
+  DRAFT
+  IN_PROGRESS
+  COMPLETED
+  CANCELLED
+}
+
+enum SignRequestStatus {
+  PENDING
+  VIEWED
+  SIGNED
+  DECLINED
+}
+
+enum SignFieldType {
+  SIGNATURE
+  DATE
+  TEXT
+}

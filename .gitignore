@@ -28,3 +28,19 @@ erl_crash.dump
 *.ez
 *.beam
 .elixir_ls/
+
+# --- JS/TS monorepo ---
+# Turborepo cache
+.turbo/
+# Next.js build output
+.next/
+# pnpm local store
+.pnpm-store/
+# Prisma generated client (regenerated via `pnpm db:generate`)
+packages/db/src/generated/
+# TypeScript incremental build info
+*.tsbuildinfo
+# Local env files
+.env.development.local
+.env.test.local
+.env.production.local
