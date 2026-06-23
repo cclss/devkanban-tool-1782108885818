@@ -44,3 +44,6 @@ packages/db/src/generated/
 .env.development.local
 .env.test.local
 .env.production.local
+# Local-disk storage fallback (uploaded PDFs when S3 is not configured)
+.storage/
+**/.storage/

@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
-import { Logger } from '@nestjs/common';
+import { Logger, ValidationPipe } from '@nestjs/common';
 import { AppModule } from './app.module';
 
 async function bootstrap(): Promise<void> {
@@ -12,6 +12,16 @@ async function bootstrap(): Promise<void> {
     credentials: true,
   });
   app.setGlobalPrefix('api', { exclude: ['health'] });
+
+  // Validate + strip unknown properties on every DTO-bound request body.
+  app.useGlobalPipes(
+    new ValidationPipe({
+      whitelist: true,
+      transform: true,
+      transformOptions: { enableImplicitConversion: true },
+    }),
+  );
+  app.enableShutdownHooks();
 
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen(port);

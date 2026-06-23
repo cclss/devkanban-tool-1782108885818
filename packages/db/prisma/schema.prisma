@@ -40,6 +40,9 @@ model Document {
   storageKey String        @map("storage_key")
   pageCount Int            @default(0) @map("page_count")
   status    DocumentStatus @default(DRAFT)
+  // Timestamp the contract was dispatched (status → IN_PROGRESS). Used to
+  // count monthly sends for the Free-plan quota guard.
+  sentAt    DateTime?      @map("sent_at")
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
 
@@ -83,6 +86,9 @@ model SignField {
   documentId    String        @map("document_id")
   signRequestId String?       @map("sign_request_id")
   type          SignFieldType
+  // Which recipient (by 0-based order index) must fill this field. Resolved to
+  // a concrete signRequestId at send time. Null = first/only signer.
+  recipientIndex Int?         @default(0) @map("recipient_index")
   page          Int           @default(1)
   // Normalized geometry (0..1) relative to the page. Coordinate-system
   // conversion (PDF bottom-left vs canvas top-left) is handled in app logic.
