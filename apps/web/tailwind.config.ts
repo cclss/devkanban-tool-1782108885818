@@ -180,6 +180,11 @@ const config: Config = {
           from: { opacity: '0' },
           to: { opacity: '1' },
         },
+        shake: {
+          '0%, 100%': { transform: 'translateX(0)' },
+          '20%, 60%': { transform: 'translateX(-6px)' },
+          '40%, 80%': { transform: 'translateX(6px)' },
+        },
         'step-bounce': {
           '0%': { transform: 'scale(0.6)' },
           '60%': { transform: 'scale(1.15)' },
@@ -243,6 +248,7 @@ const config: Config = {
         shimmer: 'shimmer 1.6s linear infinite',
         'fade-in-up': 'fade-in-up 0.5s cubic-bezier(0.16, 1, 0.3, 1) both',
         'fade-in': 'fade-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
+        shake: 'shake 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
         'step-bounce': 'step-bounce 0.5s cubic-bezier(0.34, 1.56, 0.64, 1)',
         checkmark: 'checkmark-draw 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards',
         confetti: 'confetti-burst 1s cubic-bezier(0.16, 1, 0.3, 1) forwards',
