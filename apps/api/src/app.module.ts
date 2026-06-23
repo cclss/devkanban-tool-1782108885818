@@ -7,6 +7,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SigningModule } from './signing/signing.module';
+import { PdfModule } from './pdf/pdf.module';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { SigningModule } from './signing/signing.module';
     AuthModule,
     DocumentsModule,
     SigningModule,
+    PdfModule,
     HealthModule,
   ],
 })

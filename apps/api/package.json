@@ -9,6 +9,7 @@
     "start:prod": "node dist/main.js",
     "lint": "eslint \"src/**/*.ts\" --max-warnings 0",
     "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "jest --config ./jest.config.js",
     "test:e2e": "jest --config ./test/jest-e2e.json --runInBand",
     "clean": "rm -rf dist node_modules"
   },
@@ -22,6 +23,7 @@
     "@nestjs/jwt": "^10.2.0",
     "@nestjs/passport": "^10.0.3",
     "@nestjs/platform-express": "^10.4.15",
+    "@pdf-lib/fontkit": "^1.1.1",
     "@repo/db": "workspace:*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.34.5",
