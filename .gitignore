@@ -1,0 +1,49 @@
+# Charlie baseline (auto-added)
+node_modules/
+vendor/
+__pycache__/
+*.pyc
+dist/
+build/
+out/
+target/
+*.exe
+*.so
+*.dylib
+.vscode/
+.idea/
+*.swp
+.DS_Store
+*.log
+*.tmp
+.env
+.env.local
+.env.*.local
+_build/
+deps/
+cover/
+doc/
+.fetch
+erl_crash.dump
+*.ez
+*.beam
+.elixir_ls/
+
+# --- JS/TS monorepo ---
+# Turborepo cache
+.turbo/
+# Next.js build output
+.next/
+# pnpm local store
+.pnpm-store/
+# Prisma generated client (regenerated via `pnpm db:generate`)
+packages/db/src/generated/
+# TypeScript incremental build info
+*.tsbuildinfo
+# Local env files
+.env.development.local
+.env.test.local
+.env.production.local
+# Local-disk storage fallback (uploaded PDFs when S3 is not configured)
+.storage/
+**/.storage/

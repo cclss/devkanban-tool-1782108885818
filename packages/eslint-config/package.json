@@ -1,0 +1,19 @@
+{
+  "name": "@repo/eslint-config",
+  "version": "0.1.0",
+  "private": true,
+  "main": "base.js",
+  "files": ["base.js", "next.js", "nest.js"],
+  "dependencies": {
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint-config-prettier": "^9.1.0",
+    "eslint-config-turbo": "^2.3.3"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.1"
+  },
+  "peerDependencies": {
+    "eslint": "^8.57.1"
+  }
+}
