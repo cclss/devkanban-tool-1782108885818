@@ -57,6 +57,31 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
     void refresh();
   }, [refresh]);
 
+  /**
+   * Optimistic revoke: flip the row to 중지됨 the instant the owner clicks, then
+   * confirm with the server. On success we refetch for the authoritative view;
+   * on failure we restore the row to its prior status and rethrow so the row can
+   * surface the error. Mutating only the targeted link (not a whole snapshot)
+   * keeps concurrent revokes independent.
+   */
+  const revokeLink = React.useCallback(
+    async (link: ShareLink) => {
+      setLinks((cur) =>
+        cur ? cur.map((l) => (l.id === link.id ? { ...l, status: 'revoked' } : l)) : cur,
+      );
+      try {
+        await revokeShareLink(documentId, link.id);
+        void refresh();
+      } catch (err) {
+        setLinks((cur) =>
+          cur ? cur.map((l) => (l.id === link.id ? { ...l, status: link.status } : l)) : cur,
+        );
+        throw err;
+      }
+    },
+    [documentId, refresh],
+  );
+
   return (
     <section aria-labelledby="share-links-heading" className="flex flex-col gap-md">
       <div className="flex flex-col gap-sm sm:flex-row sm:items-start sm:justify-between">
@@ -83,7 +108,7 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
       ) : (
         <ul className="flex flex-col gap-sm">
           {links.map((link) => (
-            <ShareLinkRow key={link.id} documentId={documentId} link={link} onRevoked={refresh} />
+            <ShareLinkRow key={link.id} link={link} onRevoke={revokeLink} />
           ))}
         </ul>
       )}
@@ -101,13 +126,11 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
 
 /** A single share-link row: state pill + url + expiry note + copy/revoke. */
 function ShareLinkRow({
-  documentId,
   link,
-  onRevoked,
+  onRevoke,
 }: {
-  documentId: string;
   link: ShareLink;
-  onRevoked: () => Promise<void> | void;
+  onRevoke: (link: ShareLink) => Promise<void>;
 }) {
   const [copied, setCopied] = React.useState(false);
   const [copyError, setCopyError] = React.useState<string | null>(null);
@@ -140,13 +163,14 @@ function ShareLinkRow({
     setRevoking(true);
     setRevokeError(null);
     try {
-      await revokeShareLink(documentId, link.id);
-      await onRevoked();
+      // Optimistic: the section flips this row to 중지됨 immediately; we only need
+      // to surface an error if the server rejects (the section rolls the row back).
+      await onRevoke(link);
     } catch (err) {
       setRevokeError(err instanceof ApiError ? err.message : SHARE_COPY.list.revokeError);
       setRevoking(false);
     }
-  }, [documentId, link.id, onRevoked, revoking]);
+  }, [link, onRevoke, revoking]);
 
   const label = link.label ?? SHARE_COPY.result.linkLabel;
   const isActive = link.status === 'active';
