@@ -10,15 +10,23 @@
  * to select it, and drives confirm / discard / brief adjustment through large,
  * one-handed touch controls — completing the on-the-go contract-send use case.
  *
- * Scope (grain-5 boundary): review + light adjustment, NOT desktop-grade free
- * drag-and-new-placement.
+ * Scope (grain-3 boundary): review + direct-manipulation adjustment on a touch
+ * surface, NOT desktop-grade free drag-and-new-placement.
  *   • suggestions  → tap to select, then 적용 (→ field) / 해제 (discard). Pending
  *     proposals are confirm-or-dismiss, never edited in place (mirrors the
- *     desktop `ai-suggested-canvas` decision).
- *   • accepted fields → tap to select, then nudge (move) / size ± / 삭제 via the
- *     big control bar. Geometry edits run on confirmed fields only, through the
- *     same normalized model + `clampNormRect` guarantee the desktop path uses.
+ *     desktop `ai-suggested-canvas` decision) — no drag / resize on a proposal.
+ *   • accepted fields → DIRECT MANIPULATION: drag the box to move (pointer
+ *     capture, live preview, snap guides, page-edge clamp); drag a corner handle
+ *     to resize proportionally or an edge handle for a single axis (handles are
+ *     ≥44px touch targets); pinch with two fingers to resize freely. A live
+ *     readout shows the move %/size % during the gesture. The directional nudge
+ *     pad + size steppers stay as fine-tuning aids in the control bar. Every
+ *     geometry edit runs on confirmed fields only, through the same normalized
+ *     model + `clampPxRect`/`clampNormRect` guarantee the desktop path uses.
  *   • bulk 모두 적용 / 지우기 live in the shared SuggestionBanner.
+ *
+ * All motion respects `prefers-reduced-motion` (global fallback collapses
+ * transitions to a static end-state; the box follows the finger at duration-0).
  *
  * All analysis / classification is reused from grain-1/2 (`analyzeForSuggestions`)
  * and the grain-4 suggestion/confirm state model — nothing is re-derived here.
@@ -36,10 +44,18 @@ import {
 } from '@/lib/pdf';
 import {
   normToPx,
+  pxToNorm,
   clampNormRect,
+  clampPxRect,
+  resizePxRect,
+  snapMove,
+  RESIZE_HANDLES,
   FIELD_TYPE_META,
   type PageSize,
   type PxRect,
+  type NormRect,
+  type ResizeHandle,
+  type SnapLine,
 } from '@/lib/field-geometry';
 import type { SignFieldSuggestion } from '@/lib/signfield-suggest';
 import { FieldGlyph } from './field-canvas';
@@ -50,6 +66,57 @@ const MOVE_STEP = 0.02;
 /** Size step factors — grow / shrink the box around its center. */
 const GROW = 1.12;
 const SHRINK = 0.89;
+
+/** Snap threshold (px) for drag — a touch larger than the desktop's 6px. */
+const SNAP_THRESHOLD = 8;
+/**
+ * Finger travel (px) before a press on a box turns from a *tap* (select) into a
+ * *drag* (move). Below this the box doesn't move, so a confirm tap never nudges.
+ */
+const DRAG_ACTIVATE_PX = 4;
+
+/** Corner handles resize proportionally; edge handles resize a single axis. */
+function isCornerHandle(handle: ResizeHandle): boolean {
+  return handle.length === 2;
+}
+
+/**
+ * Proportional corner resize (px space): scale the box uniformly so it keeps its
+ * aspect ratio, pinning the corner opposite the dragged one. Caller clamps.
+ */
+function resizeProportionalPx(start: PxRect, handle: ResizeHandle, dx: number, dy: number): PxRect {
+  const raw = resizePxRect(start, handle, dx, dy);
+  const scale = Math.max(raw.width / start.width, raw.height / start.height, 0.01);
+  const width = start.width * scale;
+  const height = start.height * scale;
+  const right = start.left + start.width;
+  const bottom = start.top + start.height;
+  return {
+    left: handle.includes('w') ? right - width : start.left,
+    top: handle.includes('n') ? bottom - height : start.top,
+    width,
+    height,
+  };
+}
+
+/** Distance between two tracked pointer positions (px). */
+function pointerDistance(points: Map<number, { x: number; y: number }>): number {
+  const [a, b] = [...points.values()];
+  if (!a || !b) return 0;
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+/** Page-relative percentages for the live readout (always 0..100, rounded). */
+function pctMove(rect: PxRect, page: PageSize): string {
+  const x = Math.round((rect.left / (page.width || 1)) * 100);
+  const y = Math.round((rect.top / (page.height || 1)) * 100);
+  return `가로 ${x}% · 세로 ${y}%`;
+}
+function pctSize(rect: PxRect, page: PageSize): string {
+  const w = Math.round((rect.width / (page.width || 1)) * 100);
+  const h = Math.round((rect.height / (page.height || 1)) * 100);
+  return `크기 ${w}% × ${h}%`;
+}
 
 /** What the sender currently has selected on the page (page-scoped by render). */
 type Selection = { kind: 'suggestion' | 'field'; id: string } | null;
@@ -131,6 +198,15 @@ export function MobileFieldsReview({
     [adjustSelectedField],
   );
 
+  // Commit a direct-manipulation gesture (drag / handle / pinch) on one field.
+  // The canvas drives live preview locally; this writes the settled geometry back
+  // to wizard state through the same clamp guarantee every other edit path uses.
+  const commitFieldRect = React.useCallback(
+    (id: string, rect: NormRect) =>
+      onFieldsChange(fields.map((f) => (f.id === id ? { ...f, ...clampNormRect(rect) } : f))),
+    [fields, onFieldsChange],
+  );
+
   const deleteSelectedField = React.useCallback(() => {
     if (selection?.kind !== 'field') return;
     onFieldsChange(fields.filter((f) => f.id !== selection.id));
@@ -155,7 +231,8 @@ export function MobileFieldsReview({
       <div className="flex flex-col gap-2xs">
         <h2 className="text-xl font-bold text-foreground">AI가 배치한 서명란을 확인해 주세요</h2>
         <p className="text-sm text-foreground-subtle">
-          제안된 서명란을 미리보기에서 확인하고, 탭해서 적용하거나 위치·크기를 조정할 수 있어요.
+          제안된 서명란을 탭해서 적용하고, 확정한 박스는 끌어서 옮기거나 핸들·두 손가락으로 크기를
+          조정할 수 있어요.
         </p>
       </div>
 
@@ -220,6 +297,7 @@ export function MobileFieldsReview({
         suggestions={suggestions}
         selection={selection}
         onSelect={setSelection}
+        onCommitFieldRect={commitFieldRect}
         onPageCount={setPageCount}
       />
 
@@ -260,17 +338,41 @@ interface ReviewCanvasProps {
   suggestions: SignFieldSuggestion[];
   selection: Selection;
   onSelect: (selection: Selection) => void;
+  /** Commit a settled drag / resize / pinch gesture on one confirmed field. */
+  onCommitFieldRect: (id: string, rect: NormRect) => void;
   onPageCount: (count: number) => void;
 }
 
 type RenderStatus = 'loading' | 'ready' | 'error';
 
 /**
- * Renders the current page into a raster <canvas> and lays a tap-only overlay of
- * suggestion + field boxes on top, sized from the normalized model via
- * `normToPx` (so boxes track the page exactly like the desktop canvas). There is
- * no drag / resize / drop here — placement edits happen through the parent's
- * large touch controls; this surface is review + selection only.
+ * Active touch gesture on a confirmed field (px space, current page). `move` and
+ * `resize` are single-pointer; `pinch` tracks two fingers to scale around the
+ * box center. Live preview is kept local so dragging re-renders cheaply and the
+ * field model is only written on commit (pointer up).
+ */
+type Gesture =
+  | { kind: 'move'; id: string; pointerId: number; startRect: PxRect; startX: number; startY: number; active: boolean }
+  | {
+      kind: 'resize';
+      id: string;
+      pointerId: number;
+      handle: ResizeHandle;
+      startRect: PxRect;
+      startX: number;
+      startY: number;
+    }
+  | { kind: 'pinch'; id: string; startRect: PxRect; startDist: number };
+
+/**
+ * Renders the current page into a raster <canvas> and lays an interactive overlay
+ * of suggestion + field boxes on top, sized from the normalized model via
+ * `normToPx` (so boxes track the page exactly like the desktop canvas).
+ *
+ * Confirmed fields support DIRECT MANIPULATION on touch: drag the body to move,
+ * drag a corner/edge handle to resize, or pinch to scale — all with pointer
+ * capture, live preview, snap guides, a live %-readout, and page-edge clamping
+ * via the shared geometry helpers. Suggestions stay tap-only (confirm/discard).
  */
 function ReviewCanvas({
   file,
@@ -279,6 +381,7 @@ function ReviewCanvas({
   suggestions,
   selection,
   onSelect,
+  onCommitFieldRect,
   onPageCount,
 }: ReviewCanvasProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
@@ -367,6 +470,163 @@ function ReviewCanvas({
   const pageFields = fields.filter((f) => f.page === page);
   const pageSuggestions = suggestions.filter((s) => s.page === page);
 
+  // --- direct manipulation (drag move / handle resize / pinch) ---------------
+  // Live gesture rect + guides + readout are local so a drag never re-renders
+  // the parent wizard tree; the field model is written only on commit.
+  const gestureRef = React.useRef<Gesture | null>(null);
+  const pointersRef = React.useRef<Map<number, { x: number; y: number }>>(new Map());
+  const [liveRect, setLiveRect] = React.useState<{ id: string; rect: PxRect } | null>(null);
+  const [guides, setGuides] = React.useState<SnapLine[]>([]);
+  const [readout, setReadout] = React.useState<string | null>(null);
+
+  const fieldsRef = React.useRef(pageFields);
+  fieldsRef.current = pageFields;
+  const pageSizeRef = React.useRef(pageSize);
+  pageSizeRef.current = pageSize;
+
+  const peerRects = React.useCallback(
+    (excludeId: string): PxRect[] =>
+      fieldsRef.current.filter((f) => f.id !== excludeId).map((f) => normToPx(f, pageSizeRef.current)),
+    [],
+  );
+
+  const displayedRect = React.useCallback(
+    (field: SignFieldDraft): PxRect =>
+      liveRect && liveRect.id === field.id ? liveRect.rect : normToPx(field, pageSize),
+    [liveRect, pageSize],
+  );
+
+  const startMove = React.useCallback(
+    (event: React.PointerEvent, field: SignFieldDraft) => {
+      event.stopPropagation();
+      onSelect({ kind: 'field', id: field.id });
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+
+      const current = displayedRect(field);
+      // Second finger on the body → switch to a pinch (scale around center).
+      if (pointersRef.current.size >= 2) {
+        gestureRef.current = {
+          kind: 'pinch',
+          id: field.id,
+          startRect: current,
+          startDist: pointerDistance(pointersRef.current) || 1,
+        };
+        setLiveRect({ id: field.id, rect: current });
+        setReadout(pctSize(current, pageSizeRef.current));
+        return;
+      }
+      gestureRef.current = {
+        kind: 'move',
+        id: field.id,
+        pointerId: event.pointerId,
+        startRect: current,
+        startX: event.clientX,
+        startY: event.clientY,
+        active: false,
+      };
+      setLiveRect({ id: field.id, rect: current });
+    },
+    [onSelect, displayedRect],
+  );
+
+  const startResize = React.useCallback(
+    (event: React.PointerEvent, field: SignFieldDraft, handle: ResizeHandle) => {
+      event.stopPropagation();
+      onSelect({ kind: 'field', id: field.id });
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+      (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+      const startRect = displayedRect(field);
+      gestureRef.current = {
+        kind: 'resize',
+        id: field.id,
+        pointerId: event.pointerId,
+        handle,
+        startRect,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+      setLiveRect({ id: field.id, rect: startRect });
+      setReadout(pctSize(startRect, pageSizeRef.current));
+    },
+    [onSelect, displayedRect],
+  );
+
+  const onGesturePointerMove = React.useCallback((event: React.PointerEvent) => {
+    const g = gestureRef.current;
+    if (!g) return;
+    if (pointersRef.current.has(event.pointerId)) {
+      pointersRef.current.set(event.pointerId, { x: event.clientX, y: event.clientY });
+    }
+    const page = pageSizeRef.current;
+
+    if (g.kind === 'pinch') {
+      if (pointersRef.current.size < 2) return;
+      const scale = (pointerDistance(pointersRef.current) || g.startDist) / g.startDist;
+      const cx = g.startRect.left + g.startRect.width / 2;
+      const cy = g.startRect.top + g.startRect.height / 2;
+      const width = g.startRect.width * scale;
+      const height = g.startRect.height * scale;
+      const next = clampPxRect({ left: cx - width / 2, top: cy - height / 2, width, height }, page);
+      setLiveRect({ id: g.id, rect: next });
+      setReadout(pctSize(next, page));
+      return;
+    }
+
+    const dx = event.clientX - g.startX;
+    const dy = event.clientY - g.startY;
+
+    if (g.kind === 'move') {
+      // Stay a tap until the finger crosses the activation threshold.
+      if (!g.active && Math.hypot(dx, dy) < DRAG_ACTIVATE_PX) return;
+      g.active = true;
+      const moved = clampPxRect({ ...g.startRect, left: g.startRect.left + dx, top: g.startRect.top + dy }, page);
+      const snapped = snapMove(moved, page, peerRects(g.id), SNAP_THRESHOLD);
+      const final = clampPxRect(snapped.rect, page);
+      setGuides(snapped.guides);
+      setLiveRect({ id: g.id, rect: final });
+      setReadout(pctMove(final, page));
+      return;
+    }
+
+    // resize
+    const raw = isCornerHandle(g.handle)
+      ? resizeProportionalPx(g.startRect, g.handle, dx, dy)
+      : resizePxRect(g.startRect, g.handle, dx, dy);
+    const next = clampPxRect(raw, page);
+    setLiveRect({ id: g.id, rect: next });
+    setReadout(pctSize(next, page));
+  }, [peerRects]);
+
+  const endGesture = React.useCallback(
+    (event: React.PointerEvent) => {
+      const g = gestureRef.current;
+      pointersRef.current.delete(event.pointerId);
+      try {
+        (event.target as Element).releasePointerCapture?.(event.pointerId);
+      } catch {
+        /* capture may already be gone */
+      }
+      if (!g) return;
+      // A pinch keeps going while ≥2 fingers remain down.
+      if (g.kind === 'pinch' && pointersRef.current.size >= 2) return;
+
+      const live = liveRect;
+      gestureRef.current = null;
+      pointersRef.current.clear();
+      setGuides([]);
+      setLiveRect(null);
+      setReadout(null);
+      // A move that never activated was a tap → selection already happened, no
+      // geometry write. Everything else commits the previewed rect.
+      const wasTap = g.kind === 'move' && !g.active;
+      if (!wasTap && live && live.id === g.id) {
+        onCommitFieldRect(g.id, clampNormRect(pxToNorm(live.rect, pageSizeRef.current)));
+      }
+    },
+    [liveRect, onCommitFieldRect],
+  );
+
   return (
     <div className="rounded-lg border border-border bg-surface-muted p-sm">
       <div ref={containerRef} className="w-full">
@@ -391,17 +651,45 @@ function ReviewCanvas({
             </div>
           ) : null}
 
-          {/* Tap overlay — a tap on empty page clears the selection. */}
+          {/* Interactive overlay — a tap on empty page clears the selection. */}
           <div className="absolute inset-0" onPointerDown={() => onSelect(null)}>
-            {pageFields.map((field) => (
-              <FieldBox
-                key={field.id}
-                rect={normToPx(field, pageSize)}
-                type={field.type}
-                selected={selection?.kind === 'field' && selection.id === field.id}
-                onSelect={() => onSelect({ kind: 'field', id: field.id })}
-              />
-            ))}
+            {/* Snap guides — drawn while a drag engages a page/peer alignment. */}
+            {guides.map((g, i) =>
+              g.axis === 'x' ? (
+                <span
+                  key={`gx-${i}`}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute bottom-0 top-0 w-px bg-primary/70"
+                  style={{ left: g.pos }}
+                />
+              ) : (
+                <span
+                  key={`gy-${i}`}
+                  aria-hidden="true"
+                  className="pointer-events-none absolute left-0 right-0 h-px bg-primary/70"
+                  style={{ top: g.pos }}
+                />
+              ),
+            )}
+
+            {pageFields.map((field) => {
+              const rect = displayedRect(field);
+              return (
+                <FieldBox
+                  key={field.id}
+                  rect={rect}
+                  type={field.type}
+                  selected={selection?.kind === 'field' && selection.id === field.id}
+                  dragging={liveRect?.id === field.id}
+                  onSelect={() => onSelect({ kind: 'field', id: field.id })}
+                  onPointerDownBody={(e) => startMove(e, field)}
+                  onPointerDownHandle={(e, h) => startResize(e, field, h)}
+                  onPointerMove={onGesturePointerMove}
+                  onPointerUp={endGesture}
+                  onPointerCancel={endGesture}
+                />
+              );
+            })}
 
             {/* Suggestions render above fields so a proposal is never hidden. */}
             {pageSuggestions.map((suggestion) => (
@@ -413,6 +701,21 @@ function ReviewCanvas({
                 onSelect={() => onSelect({ kind: 'suggestion', id: suggestion.id })}
               />
             ))}
+
+            {/* Live feedback — move %/size % during a gesture, announced politely.
+                Pinned to the page top so a finger never covers it. */}
+            {readout && liveRect ? (
+              <div
+                role="status"
+                aria-live="polite"
+                className={cn(
+                  'pointer-events-none absolute left-1/2 top-2xs -translate-x-1/2 animate-fade-in',
+                  'rounded-full bg-foreground/90 px-sm py-2xs text-2xs font-semibold text-surface shadow-md tabular-nums',
+                )}
+              >
+                {readout}
+              </div>
+            ) : null}
           </div>
         </div>
       </div>
@@ -431,30 +734,81 @@ const TAP_BOX = cn(
   "before:absolute before:-inset-x-1 before:-inset-y-2.5 before:content-['']",
 );
 
+/** Touch resize handle: a 24px dot whose invisible `::before` widens the hit
+ *  area to ~44px (touch-handle-size + touch-target-min, sizing Token Group). */
+const TOUCH_HANDLE = cn(
+  'absolute h-6 w-6 rounded-full border-2 border-primary bg-surface shadow-sm touch-none',
+  "before:absolute before:-inset-2.5 before:content-['']",
+);
+
+/** Centre each handle on its edge/corner (−12px = half the 24px dot). */
+const TOUCH_HANDLE_POSITION: Record<ResizeHandle, string> = {
+  nw: '-left-3 -top-3',
+  n: 'left-1/2 -top-3 -translate-x-1/2',
+  ne: '-right-3 -top-3',
+  e: '-right-3 top-1/2 -translate-y-1/2',
+  se: '-right-3 -bottom-3',
+  s: 'left-1/2 -bottom-3 -translate-x-1/2',
+  sw: '-left-3 -bottom-3',
+  w: '-left-3 top-1/2 -translate-y-1/2',
+};
+
+interface FieldBoxProps {
+  rect: PxRect;
+  type: SignFieldDraft['type'];
+  selected: boolean;
+  dragging: boolean;
+  onSelect: () => void;
+  onPointerDownBody: (e: React.PointerEvent) => void;
+  onPointerDownHandle: (e: React.PointerEvent, handle: ResizeHandle) => void;
+  onPointerMove: (e: React.PointerEvent) => void;
+  onPointerUp: (e: React.PointerEvent) => void;
+  onPointerCancel: (e: React.PointerEvent) => void;
+}
+
+/**
+ * A confirmed field box on the touch review surface. Unlike the suggestion box
+ * (tap-only), this is directly manipulable: press-and-drag the body to move,
+ * drag a handle to resize, pinch to scale. A plain tap just selects it (the move
+ * gesture stays inert until the finger crosses the activation threshold).
+ */
 function FieldBox({
   rect,
   type,
   selected,
+  dragging,
   onSelect,
-}: {
-  rect: PxRect;
-  type: SignFieldDraft['type'];
-  selected: boolean;
-  onSelect: () => void;
-}) {
+  onPointerDownBody,
+  onPointerDownHandle,
+  onPointerMove,
+  onPointerUp,
+  onPointerCancel,
+}: FieldBoxProps) {
   const meta = FIELD_TYPE_META[type];
   return (
-    <button
-      type="button"
+    <div
+      role="button"
+      tabIndex={0}
       aria-pressed={selected}
-      aria-label={`확정된 ${meta.label} 필드. 탭하면 위치·크기 조정 또는 삭제`}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={onSelect}
+      aria-label={`확정된 ${meta.label} 필드. 끌어서 이동, 모서리 핸들이나 두 손가락으로 크기 조절. 아래 컨트롤로 미세 조정 또는 삭제`}
+      onPointerDown={onPointerDownBody}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect();
+        }
+      }}
       className={cn(
         TAP_BOX,
-        selected
-          ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
-          : 'border-primary/70 bg-primary-subtle/50 text-primary',
+        'touch-none',
+        dragging
+          ? 'z-10 scale-[1.02] border-primary bg-primary-subtle/90 text-primary shadow-lg ring-2 ring-focus duration-0'
+          : selected
+            ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
+            : 'border-primary/70 bg-primary-subtle/50 text-primary',
       )}
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     >
@@ -462,7 +816,20 @@ function FieldBox({
         <FieldGlyph type={type} />
         {meta.label}
       </span>
-    </button>
+
+      {/* Resize handles — corners scale proportionally, edges a single axis.
+          Shown only when selected; each is a ≥44px touch target. */}
+      {selected
+        ? RESIZE_HANDLES.map((h) => (
+            <span
+              key={h}
+              aria-hidden="true"
+              onPointerDown={(e) => onPointerDownHandle(e, h)}
+              className={cn(TOUCH_HANDLE, TOUCH_HANDLE_POSITION[h])}
+            />
+          ))
+        : null}
+    </div>
   );
 }
 
@@ -570,7 +937,7 @@ function FieldControls({
       <div className="flex items-center justify-between gap-sm">
         <span className="inline-flex items-center gap-2xs text-sm font-semibold text-primary">
           <FieldGlyph type={type} />
-          {meta.label} 조정
+          {meta.label} 미세 조정
         </span>
         <button
           type="button"
@@ -629,7 +996,7 @@ function EmptyControlsHint({ hasItems, fieldCount }: { hasItems: boolean; fieldC
       <div className="flex flex-col gap-2xs rounded-lg border border-success/40 bg-success-subtle/60 px-md py-sm">
         <p className="text-sm font-semibold text-foreground">서명란 {fieldCount}개를 확정했어요</p>
         <p className="text-sm text-foreground-muted">
-          아래 ‘다음’으로 발송 검토를 이어가거나, 박스를 탭해 더 조정할 수 있어요.
+          아래 ‘다음’으로 발송 검토를 이어가거나, 박스를 끌어 옮기고 핸들로 크기를 조정할 수 있어요.
         </p>
       </div>
     );
@@ -638,7 +1005,7 @@ function EmptyControlsHint({ hasItems, fieldCount }: { hasItems: boolean; fieldC
     <div className="flex items-center rounded-lg border border-dashed border-border-strong bg-surface-muted px-md py-sm">
       <p className="text-sm text-foreground-subtle">
         {hasItems
-          ? '미리보기의 서명란을 탭하면 적용하거나 위치·크기를 조정할 수 있어요.'
+          ? 'AI 제안을 탭하면 적용되고, 확정한 박스는 끌어서 옮기거나 핸들로 크기를 조정할 수 있어요.'
           : '이 페이지에는 표시할 서명란이 없어요.'}
       </p>
     </div>
