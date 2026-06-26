@@ -14,23 +14,10 @@ import * as React from 'react';
 import { LoadingScreen } from '@/components/signer/loading-screen';
 import { DocumentViewer } from '@/components/signer/document-viewer';
 import { CompletionScreen } from '@/components/signer/completion-screen';
-import {
-  NoticeScreen,
-  type NoticeScreenProps,
-} from '@/components/signer/notice-screen';
-import { SHARE_RECIPIENT_COPY } from '@/lib/share-recipient';
-import { useShare, type ShareBlockReason } from './share-context';
+import { NoticeScreen } from '@/components/signer/notice-screen';
+import { SHARE_NOTICE } from '@/lib/share-recipient';
+import { useShare } from './share-context';
 import { PasswordGate } from './password-gate';
-
-/** Terminal copy + tone for each non-openable reason (Toss voice, no blame). */
-const NOTICE: Record<ShareBlockReason, { body: string; title: string; tone: NoticeScreenProps['tone'] }> = {
-  expired: { ...SHARE_RECIPIENT_COPY.notice.expired, tone: 'neutral' },
-  disabled: { ...SHARE_RECIPIENT_COPY.notice.disabled, tone: 'neutral' },
-  invalidLink: { ...SHARE_RECIPIENT_COPY.notice.invalidLink, tone: 'neutral' },
-  notSignable: { ...SHARE_RECIPIENT_COPY.notice.notSignable, tone: 'neutral' },
-  // "Already submitted" is a positive, completed outcome — success tone.
-  alreadySubmitted: { ...SHARE_RECIPIENT_COPY.notice.alreadySubmitted, tone: 'success' },
-};
 
 export function ShareFlow() {
   const { state } = useShare();
@@ -41,7 +28,7 @@ export function ShareFlow() {
     case 'gate':
       return state.meta ? <PasswordGate meta={state.meta} /> : <LoadingScreen />;
     case 'blocked': {
-      const notice = NOTICE[state.blockReason ?? 'invalidLink'];
+      const notice = SHARE_NOTICE[state.blockReason ?? 'invalidLink'];
       return (
         <NoticeScreen
           title={notice.title}

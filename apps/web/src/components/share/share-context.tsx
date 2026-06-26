@@ -32,10 +32,15 @@ import {
   sharePdfUrl,
   submitShare,
   unlockShare,
+  metaBlockReason,
+  unlockBlockReason,
   SHARE_RECIPIENT_COPY,
+  type ShareBlockReason,
   type ShareMeta,
   type SharePayload,
 } from '@/lib/share-recipient';
+
+export type { ShareBlockReason };
 import {
   FillProvider,
   type FillContextValue,
@@ -44,14 +49,6 @@ import {
 } from '@/components/signer/fill-context';
 
 export type SharePhase = 'loading' | 'gate' | 'viewing' | 'done' | 'blocked';
-
-/** Why a link can't be opened/filled, when `phase === 'blocked'`. */
-export type ShareBlockReason =
-  | 'expired'
-  | 'disabled'
-  | 'invalidLink'
-  | 'notSignable'
-  | 'alreadySubmitted';
 
 export interface ShareState {
   phase: SharePhase;
@@ -114,28 +111,6 @@ function reducer(state: ShareState, action: ShareAction): ShareState {
     default:
       return state;
   }
-}
-
-/**
- * Map a pre-auth meta failure to its terminal notice. `meta` guards revocation +
- * expiry (`assertLinkAccessible`), so its 403 means the link was revoked.
- */
-function metaBlockReason(error: unknown): ShareBlockReason {
-  const status = error instanceof ApiError ? error.status : 0;
-  if (status === 410) return 'expired'; // Gone — past its validity window
-  if (status === 404) return 'invalidLink'; // not a LINK / missing token
-  if (status === 403) return 'disabled'; // revoked
-  return 'invalidLink';
-}
-
-/**
- * Map an open-link auto-unlock failure (no gate to retry on). Since meta already
- * cleared revocation/expiry, a 403 here means the contract is no longer fillable.
- */
-function unlockBlockReason(error: unknown): ShareBlockReason {
-  const status = error instanceof ApiError ? error.status : 0;
-  if (status === 403) return 'notSignable'; // cancelled / no longer fillable
-  return 'invalidLink';
 }
 
 interface ShareContextValue {

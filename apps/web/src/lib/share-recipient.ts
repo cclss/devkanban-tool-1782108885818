@@ -21,7 +21,7 @@
  * only ever returns `requiresPassword` (a boolean).
  */
 
-import { apiFetch, apiUrl } from './api';
+import { ApiError, apiFetch, apiUrl } from './api';
 import { SHARE_PASSWORD_MIN_LENGTH } from './sharing';
 import type { SignFieldType, SignerSender, SignRequestStatus } from './signing';
 
@@ -231,3 +231,72 @@ export const SHARE_RECIPIENT_COPY = {
     next: '보낸 분이 확인할 수 있도록 전달했어요. 이제 창을 닫으셔도 돼요.',
   },
 } as const;
+
+// --- terminal (blocked) state mapping ----------------------------------------
+//
+// design-spec: components/share-recipient-flow/base.md "blocked 분기 매핑" +
+// messaging/share-link.md "HTTP 코드 매핑 규칙". This is the single source for the
+// recipient's terminal decision surface: HTTP status → block reason → notice
+// title/body/tone. It mirrors the server catalog so the calm Toss voice (no
+// blame, one next-step sentence) and the 410/403/404 mapping stay auditable.
+
+/**
+ * Why a share link can't be opened/filled — the recipient's terminal "blocked"
+ * reasons. Each renders a `notice-screen` with a calm message + matching tone.
+ */
+export type ShareBlockReason =
+  | 'expired'
+  | 'disabled'
+  | 'invalidLink'
+  | 'notSignable'
+  | 'alreadySubmitted';
+
+/** Tone of a terminal notice: a positive (completed) outcome vs. a neutral end. */
+export type ShareNoticeTone = 'success' | 'neutral';
+
+export interface ShareNotice {
+  title: string;
+  body: string;
+  tone: ShareNoticeTone;
+}
+
+/**
+ * Terminal copy + tone per blocked reason. Bodies mirror the server's
+ * `MESSAGES.share` catalog (via `SHARE_RECIPIENT_COPY.notice`). Only an
+ * "already submitted" link is a positive/success outcome; the rest are calm,
+ * neutral dead-ends — the sender's branding is kept regardless of tone.
+ */
+export const SHARE_NOTICE: Record<ShareBlockReason, ShareNotice> = {
+  expired: { ...SHARE_RECIPIENT_COPY.notice.expired, tone: 'neutral' },
+  disabled: { ...SHARE_RECIPIENT_COPY.notice.disabled, tone: 'neutral' },
+  invalidLink: { ...SHARE_RECIPIENT_COPY.notice.invalidLink, tone: 'neutral' },
+  notSignable: { ...SHARE_RECIPIENT_COPY.notice.notSignable, tone: 'neutral' },
+  alreadySubmitted: { ...SHARE_RECIPIENT_COPY.notice.alreadySubmitted, tone: 'success' },
+};
+
+/**
+ * Map a pre-auth meta failure (the landing fetch guards revocation + expiry) to
+ * its terminal reason, mirroring the server's HTTP codes:
+ *   • 410 Gone      → expired (past its validity window)
+ *   • 404 Not Found → invalidLink (missing token / not a LINK)
+ *   • 403 Forbidden → disabled (revoked by the sender)
+ *   • anything else → invalidLink (safe default)
+ */
+export function metaBlockReason(error: unknown): ShareBlockReason {
+  const status = error instanceof ApiError ? error.status : 0;
+  if (status === 410) return 'expired';
+  if (status === 404) return 'invalidLink';
+  if (status === 403) return 'disabled';
+  return 'invalidLink';
+}
+
+/**
+ * Map an open-link auto-unlock failure (no gate to retry on). Meta already
+ * cleared revocation/expiry, so a 403 here means the contract is no longer
+ * fillable; anything else falls back to invalidLink.
+ */
+export function unlockBlockReason(error: unknown): ShareBlockReason {
+  const status = error instanceof ApiError ? error.status : 0;
+  if (status === 403) return 'notSignable';
+  return 'invalidLink';
+}
