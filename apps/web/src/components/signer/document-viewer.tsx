@@ -1,34 +1,29 @@
 'use client';
 
 /**
- * DocumentViewer — the signer's mobile-first reading + signing surface.
+ * DocumentViewer — the recipient's mobile-first reading + filling surface.
  *
- * After identity is confirmed, this renders the contract PDF fit-to-width as a
+ * After access is granted, this renders the contract PDF fit-to-width as a
  * vertical, multi-page scroll (skeleton-shimmer per page while it rasterizes).
  * Each assigned field is overlaid on its page via `normToPx`: an unfilled field
- * breathes with a pulse highlight and a "여기에 서명" affordance; a filled field
- * shows its captured value inline. A safe-area-aware bottom CTA tracks progress —
- * "서명하기" jumps to (and opens) the next unfilled field, flipping to
- * "서명 완료" once nothing is left.
+ * breathes with a pulse highlight and a "여기에 …" affordance; a filled field
+ * shows its captured value inline. The contract body itself is a rasterized
+ * image — only the overlaid fields are interactive, so the recipient can read
+ * but never edit the document text (grain-6 constraint). A safe-area-aware
+ * bottom CTA tracks progress and finalizes once nothing is left.
  *
- * The signer holds no File, so the document is streamed from the session-guarded
- * `/signing/:token/pdf` endpoint and opened with `loadPdfFromUrl`. Field values
- * and the open-sheet target live in the signer context: the capture BottomSheet
- * (and the real submit/complete) are later grains that bind to that same state.
+ * The recipient holds no File, so the document is streamed from the
+ * session-guarded PDF endpoint (`pdfUrl`) and opened with `loadPdfFromUrl`. All
+ * flow-specific wiring — the PDF URL, the bearer session, the save endpoint, and
+ * copy — comes from the {@link useFill} adapter, so the OTP signer flow and the
+ * link-share recipient flow reuse this one screen verbatim.
  */
 
 import * as React from 'react';
 import { Button, Skeleton, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { brandStyle } from '@/lib/branding';
-import {
-  getSignerSession,
-  signerPdfUrl,
-  SIGNER_COPY,
-  type SignFieldType,
-  type SigningMeta,
-  type SigningPayloadField,
-} from '@/lib/signing';
+import type { SignFieldType } from '@/lib/signing';
 import {
   loadPdfFromUrl,
   renderPageToCanvas,
@@ -37,7 +32,7 @@ import {
   type PdfDocument,
 } from '@/lib/pdf';
 import { normToPx, type PageSize } from '@/lib/field-geometry';
-import { useSigner, type SignerFieldValue } from './signer-context';
+import { useFill, type FillField, type FillFieldValue } from './fill-context';
 import { BrandingHeader } from './branding-header';
 import { SignatureInputSheet } from './signature-sheet';
 
@@ -52,47 +47,57 @@ const TYPE_LABEL: Record<SignFieldType, string> = {
 
 /** Stable DOM id so the CTA / a tap can scroll a field into view. */
 function fieldDomId(id: string): string {
-  return `signer-field-${id}`;
+  return `fill-field-${id}`;
 }
 
-/** A field is done when the signer captured a value, or the server has one. */
-function isFilled(field: SigningPayloadField, values: Record<string, SignerFieldValue>): boolean {
+/** A field is done when a value was captured, or the server already has one. */
+function isFilled(field: FillField, values: Record<string, FillFieldValue>): boolean {
   return values[field.id] != null || field.filled;
 }
 
 /** Top edge (px) of a field on its page — for top-to-bottom reading order. */
-function topOf(field: SigningPayloadField): number {
+function topOf(field: FillField): number {
   return 1 - field.y - field.height; // normalized; page-height-independent ordering
 }
 
-export function DocumentViewer({ meta }: { meta: SigningMeta }) {
-  const { token, state, openField, complete } = useSigner();
-  const { payload, fieldValues } = state;
+export function DocumentViewer() {
+  const {
+    sender,
+    brandColor,
+    documentTitle,
+    payload,
+    fieldValues,
+    pdfUrl,
+    loadSession,
+    openField,
+    complete,
+    copy,
+  } = useFill();
 
   // Finalize state for the bottom CTA. A failed `complete` keeps every captured
-  // value in place (the context never clears them), so the signer just retries.
+  // value in place (the context never clears them), so the recipient just retries.
   const [completing, setCompleting] = React.useState(false);
   const [completeError, setCompleteError] = React.useState<string | null>(null);
 
-  const session = React.useMemo(() => getSignerSession(token), [token]);
+  const session = React.useMemo(() => loadSession(), [loadSession]);
   const fields = React.useMemo(() => payload?.fields ?? [], [payload]);
 
   const [doc, setDoc] = React.useState<PdfDocument | null>(null);
   const [pageCount, setPageCount] = React.useState(0);
   const [status, setStatus] = React.useState<LoadStatus>('loading');
-  const [error, setError] = React.useState<string>(SIGNER_COPY.viewerLoadError);
+  const [error, setError] = React.useState<string>(copy.loadError);
 
   // Open the streamed PDF once per session; dispose on unmount.
   React.useEffect(() => {
     if (!session) {
       setStatus('error');
-      setError(SIGNER_COPY.viewerLoadError);
+      setError(copy.loadError);
       return;
     }
     let disposed = false;
     let opened: PdfDocument | null = null;
     setStatus('loading');
-    loadPdfFromUrl(signerPdfUrl(token), {
+    loadPdfFromUrl(pdfUrl, {
       headers: { Authorization: `Bearer ${session}` },
       cache: 'no-store',
     })
@@ -108,14 +113,14 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
       })
       .catch((err: unknown) => {
         if (disposed) return;
-        setError(err instanceof PdfRenderError ? err.message : SIGNER_COPY.viewerLoadError);
+        setError(err instanceof PdfRenderError ? err.message : copy.loadError);
         setStatus('error');
       });
     return () => {
       disposed = true;
       void opened?.destroy();
     };
-  }, [token, session]);
+  }, [pdfUrl, session, copy.loadError]);
 
   // Measure the page column so each page rasterizes exactly fit-to-width.
   const pagesRef = React.useRef<HTMLDivElement>(null);
@@ -158,7 +163,7 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
   }, []);
 
   const onFieldTap = React.useCallback(
-    (field: SigningPayloadField) => {
+    (field: FillField) => {
       scrollToField(field.id);
       openField(field.id);
     },
@@ -172,37 +177,37 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
       openField(next.id);
       return;
     }
-    // All fields captured: finalize. On success the context flips to `done` and
-    // this viewer unmounts for the completion screen; on failure we surface the
-    // server's Toss-tone message and let the signer retry (values are retained).
+    // All fields captured: finalize. On success the flow flips to `done` and this
+    // viewer unmounts for the completion screen; on failure we surface the
+    // server's Toss-tone message and let the recipient retry (values are kept).
     if (completing) return;
     setCompleting(true);
     setCompleteError(null);
     try {
       await complete();
     } catch (err) {
-      setCompleteError(err instanceof ApiError ? err.message : SIGNER_COPY.completeError);
+      setCompleteError(err instanceof ApiError ? err.message : copy.completeError);
       setCompleting(false);
     }
-  }, [orderedUnfilled, scrollToField, openField, complete, completing]);
+  }, [orderedUnfilled, scrollToField, openField, complete, completing, copy.completeError]);
 
   const progress =
     total === 0
-      ? '서명할 항목이 없어요.'
+      ? copy.progressNone
       : remaining === 0
-        ? '모든 항목을 작성했어요.'
-        : `서명할 항목 ${total}곳 중 ${total - remaining}곳을 작성했어요.`;
+        ? copy.progressAllDone
+        : copy.progress(total, total - remaining);
 
   return (
     <main
-      style={brandStyle(meta.sender.brandColor)}
+      style={brandStyle(brandColor)}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
-      <BrandingHeader sender={meta.sender} />
+      <BrandingHeader sender={sender} />
 
       <div className="mt-lg">
         <h1 className="truncate text-xl font-bold text-foreground">
-          {payload?.documentTitle ?? meta.documentTitle}
+          {payload?.documentTitle ?? documentTitle}
         </h1>
         <p className="mt-2xs text-sm text-foreground-subtle">{progress}</p>
       </div>
@@ -229,6 +234,8 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
               width={pageWidth}
               fields={fields.filter((f) => f.page === pageNumber)}
               fieldValues={fieldValues}
+              affordance={copy.fieldAffordance}
+              pageError={copy.pageError}
               onFieldTap={onFieldTap}
             />
           ))
@@ -251,12 +258,12 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
             </p>
           ) : null}
           <Button fullWidth size="lg" onClick={onCta} isLoading={completing}>
-            {remaining > 0 ? SIGNER_COPY.viewerCtaContinue : SIGNER_COPY.viewerCtaComplete}
+            {remaining > 0 ? copy.ctaContinue : copy.ctaComplete}
           </Button>
         </div>
       </div>
 
-      {/* The capture BottomSheet targets the field opened via the signer context. */}
+      {/* The capture BottomSheet targets the field opened via the fill context. */}
       <SignatureInputSheet />
     </main>
   );
@@ -267,13 +274,24 @@ interface PdfPageViewProps {
   pageNumber: number;
   /** Fit-to-width target in CSS px. */
   width: number;
-  fields: SigningPayloadField[];
-  fieldValues: Record<string, SignerFieldValue>;
-  onFieldTap: (field: SigningPayloadField) => void;
+  fields: FillField[];
+  fieldValues: Record<string, FillFieldValue>;
+  affordance: Record<SignFieldType, string>;
+  pageError: (pageNumber: number) => string;
+  onFieldTap: (field: FillField) => void;
 }
 
 /** One PDF page rasterized fit-to-width, with its field overlay on top. */
-function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }: PdfPageViewProps) {
+function PdfPageView({
+  doc,
+  pageNumber,
+  width,
+  fields,
+  fieldValues,
+  affordance,
+  pageError,
+  onFieldTap,
+}: PdfPageViewProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [pageSize, setPageSize] = React.useState<PageSize | null>(null);
   const [status, setStatus] = React.useState<LoadStatus>('loading');
@@ -304,7 +322,7 @@ function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }
     <div className="relative w-full">
       {ready ? null : status === 'error' ? (
         <div className="flex aspect-[1/1.414] w-full items-center justify-center rounded-sm border border-border bg-surface-muted px-md text-center">
-          <p className="text-sm text-foreground-muted">{`${pageNumber}페이지를 불러올 수 없어요.`}</p>
+          <p className="text-sm text-foreground-muted">{pageError(pageNumber)}</p>
         </div>
       ) : (
         <Skeleton className="aspect-[1/1.414] w-full" />
@@ -328,6 +346,7 @@ function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }
               field={field}
               pageSize={pageSize}
               value={fieldValues[field.id]}
+              affordance={affordance}
               onTap={() => onFieldTap(field)}
             />
           ))}
@@ -338,14 +357,15 @@ function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }
 }
 
 interface FieldOverlayProps {
-  field: SigningPayloadField;
+  field: FillField;
   pageSize: PageSize;
-  value: SignerFieldValue | undefined;
+  value: FillFieldValue | undefined;
+  affordance: Record<SignFieldType, string>;
   onTap: () => void;
 }
 
 /** A single field box positioned over the page: pulse affordance, or its value. */
-function FieldOverlay({ field, pageSize, value, onTap }: FieldOverlayProps) {
+function FieldOverlay({ field, pageSize, value, affordance, onTap }: FieldOverlayProps) {
   const rect = normToPx(field, pageSize);
   const style: React.CSSProperties = {
     left: rect.left,
@@ -383,7 +403,7 @@ function FieldOverlay({ field, pageSize, value, onTap }: FieldOverlayProps) {
       style={style}
     >
       <span className="pointer-events-none truncate px-2xs leading-none">
-        {SIGNER_COPY.fieldAffordance[field.type]}
+        {affordance[field.type]}
       </span>
     </button>
   );
@@ -394,8 +414,8 @@ function FieldValueContent({
   field,
   value,
 }: {
-  field: SigningPayloadField;
-  value: SignerFieldValue | undefined;
+  field: FillField;
+  value: FillFieldValue | undefined;
 }) {
   // Server-saved on a resumed session but not re-fetched into the client.
   if (!value) {

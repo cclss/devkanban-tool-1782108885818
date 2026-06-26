@@ -1,70 +1,51 @@
 'use client';
 
 /**
- * NoticeScreen — friendly terminal for a link that can't be signed.
+ * NoticeScreen — friendly terminal for a link that can't be opened/filled.
  *
- * Covers the three non-signable outcomes with a calm, single-message layout
- * (no error chrome, no blame — the Toss voice): an already-signed contract, a
- * no-longer-signable contract, and an invalid link. A small status glyph sets
- * the tone (success tint for "done", neutral for the rest).
+ * A calm, single-message layout (no error chrome, no blame — the Toss voice):
+ * a status glyph sets the tone (success tint for a "done" outcome, neutral for
+ * the rest), then a title + one guiding sentence. Purely presentational: each
+ * flow computes the copy + tone for its own terminal reasons (the OTP signer's
+ * already-signed / unavailable / invalid-link; the share recipient's expired /
+ * disabled / already-submitted …) and hands them in.
  */
 
 import * as React from 'react';
-import { SIGNER_COPY, type SigningMeta } from '@/lib/signing';
-import type { BlockReason } from './signer-context';
+import type { SignerSender } from '@/lib/signing';
 import { BrandingHeader } from './branding-header';
 import { brandStyle } from '@/lib/branding';
 
-interface NoticeCopy {
+export type NoticeTone = 'success' | 'neutral';
+
+export interface NoticeScreenProps {
   title: string;
   body: string;
-  tone: 'success' | 'neutral';
+  tone: NoticeTone;
+  /** Sender identity for the branding header; omit to drop the header. */
+  sender?: SignerSender | null;
+  /** Brand color for the `brandStyle()` hook. */
+  brandColor?: string | null;
 }
 
-const COPY: Record<BlockReason, NoticeCopy> = {
-  alreadySigned: {
-    title: SIGNER_COPY.alreadySignedTitle,
-    body: SIGNER_COPY.alreadySigned,
-    tone: 'success',
-  },
-  unavailable: {
-    title: SIGNER_COPY.unavailableTitle,
-    body: SIGNER_COPY.unavailable,
-    tone: 'neutral',
-  },
-  invalidLink: {
-    title: SIGNER_COPY.invalidLinkTitle,
-    body: SIGNER_COPY.invalidLink,
-    tone: 'neutral',
-  },
-};
-
-export function NoticeScreen({
-  reason,
-  meta,
-}: {
-  reason: BlockReason;
-  meta: SigningMeta | null;
-}) {
-  const copy = COPY[reason];
-
+export function NoticeScreen({ title, body, tone, sender, brandColor }: NoticeScreenProps) {
   return (
     <main
-      style={brandStyle(meta?.sender.brandColor)}
+      style={brandStyle(brandColor)}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
     >
-      {meta ? <BrandingHeader sender={meta.sender} /> : null}
+      {sender ? <BrandingHeader sender={sender} /> : null}
 
       <div className="motion-stagger flex flex-1 flex-col items-center justify-center text-center">
-        <Glyph tone={copy.tone} />
-        <h1 className="mt-lg text-2xl font-bold text-foreground">{copy.title}</h1>
-        <p className="mt-xs text-base text-foreground-subtle">{copy.body}</p>
+        <Glyph tone={tone} />
+        <h1 className="mt-lg text-2xl font-bold text-foreground">{title}</h1>
+        <p className="mt-xs text-base text-foreground-subtle">{body}</p>
       </div>
     </main>
   );
 }
 
-function Glyph({ tone }: { tone: NoticeCopy['tone'] }) {
+function Glyph({ tone }: { tone: NoticeTone }) {
   if (tone === 'success') {
     return (
       <span

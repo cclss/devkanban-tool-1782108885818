@@ -31,23 +31,19 @@ import {
   SheetTitle,
   cn,
 } from '@repo/ui';
-import {
-  getSignerSession,
-  saveFields,
-  serializeFieldValue,
-  SIGNER_COPY,
-  type SignFieldType,
-  type SigningPayloadField,
-} from '@/lib/signing';
+import { serializeFieldValue } from '@/lib/signing';
 import {
   SIGNATURE_FONTS,
   DEFAULT_SIGNATURE_FONT,
   type SignatureFont,
 } from '@/lib/signature';
-import { useSigner, type SignerFieldValue } from './signer-context';
+import {
+  useFill,
+  type FillField,
+  type FillFieldValue,
+  type SheetCopy,
+} from './fill-context';
 import { SignaturePad, type SignaturePadHandle } from './signature-pad';
-
-const COPY = SIGNER_COPY.sheet;
 
 /** Resolve a design-token color (e.g. `--color-foreground`) to a usable string. */
 function tokenColor(name: string, fallback: string): string {
@@ -105,8 +101,8 @@ async function rasterizeTypedName(text: string, fontFamily: string): Promise<str
 }
 
 export function SignatureInputSheet() {
-  const { token, state, closeField, setFieldValue } = useSigner();
-  const { activeFieldId, payload } = state;
+  const { payload, activeFieldId, persistFields, closeField, setFieldValue, copy } = useFill();
+  const sheetCopy = copy.sheet;
 
   const field = React.useMemo(
     () => payload?.fields.find((f) => f.id === activeFieldId) ?? null,
@@ -126,12 +122,13 @@ export function SignatureInputSheet() {
           <SheetBody
             key={field.id}
             field={field}
-            token={token}
+            copy={sheetCopy}
+            persistFields={persistFields}
             onCommit={(value) => setFieldValue(field.id, value)}
             onCancel={closeField}
           />
         ) : (
-          <SheetTitle className="sr-only">{COPY.title.SIGNATURE}</SheetTitle>
+          <SheetTitle className="sr-only">{sheetCopy.title.SIGNATURE}</SheetTitle>
         )}
       </SheetContent>
     </Sheet>
@@ -139,20 +136,21 @@ export function SignatureInputSheet() {
 }
 
 interface SheetBodyProps {
-  field: SigningPayloadField;
-  token: string;
-  onCommit: (value: SignerFieldValue) => void;
+  field: FillField;
+  copy: SheetCopy;
+  persistFields: (fields: { fieldId: string; value: string }[]) => Promise<void>;
+  onCommit: (value: FillFieldValue) => void;
   onCancel: () => void;
 }
 
-function SheetBody({ field, token, onCommit, onCancel }: SheetBodyProps) {
+function SheetBody({ field, copy, persistFields, onCommit, onCancel }: SheetBodyProps) {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
   // Persist to the server, then commit to context (which reflects on the page
   // and closes the sheet). Keeps the sheet open with a message if the save fails.
   const persistAndCommit = React.useCallback(
-    async (value: SignerFieldValue) => {
+    async (value: FillFieldValue) => {
       const serialized = serializeFieldValue(
         value.type === 'SIGNATURE'
           ? { type: 'SIGNATURE', dataUrl: value.dataUrl }
@@ -162,34 +160,32 @@ function SheetBody({ field, token, onCommit, onCancel }: SheetBodyProps) {
       setError(null);
       setSaving(true);
       try {
-        const session = getSignerSession(token);
-        if (session) {
-          await saveFields(token, session, [{ fieldId: field.id, value: serialized }]);
-        }
+        await persistFields([{ fieldId: field.id, value: serialized }]);
         onCommit(value);
       } catch {
-        setError(COPY.saveError);
+        setError(copy.saveError);
       } finally {
         setSaving(false);
       }
     },
-    [field.id, token, onCommit],
+    [field.id, persistFields, onCommit, copy.saveError],
   );
 
-  const title = COPY.title[field.type];
+  const title = copy.title[field.type];
 
   return (
     <>
       <SheetHeader>
         <SheetTitle>{title}</SheetTitle>
-        <SheetDescription>{hintFor(field.type)}</SheetDescription>
+        <SheetDescription>{copy.hint(field.type)}</SheetDescription>
       </SheetHeader>
 
       {field.type === 'SIGNATURE' ? (
-        <SignatureBody saving={saving} onApply={persistAndCommit} onCancel={onCancel} />
+        <SignatureBody copy={copy} saving={saving} onApply={persistAndCommit} onCancel={onCancel} />
       ) : (
         <InlineValueBody
           type={field.type}
+          copy={copy}
           saving={saving}
           onApply={persistAndCommit}
           onCancel={onCancel}
@@ -205,23 +201,19 @@ function SheetBody({ field, token, onCommit, onCancel }: SheetBodyProps) {
   );
 }
 
-function hintFor(type: SignFieldType): string {
-  if (type === 'DATE') return '서명한 날짜를 입력해 주세요.';
-  if (type === 'TEXT') return '필요한 내용을 입력해 주세요.';
-  return COPY.drawHint;
-}
-
 // --- SIGNATURE: draw / type --------------------------------------------------
 
 type SignMode = 'draw' | 'type';
 
 function SignatureBody({
+  copy,
   saving,
   onApply,
   onCancel,
 }: {
+  copy: SheetCopy;
   saving: boolean;
-  onApply: (value: SignerFieldValue) => void | Promise<void>;
+  onApply: (value: FillFieldValue) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [mode, setMode] = React.useState<SignMode>('draw');
@@ -253,7 +245,7 @@ function SignatureBody({
 
   return (
     <div className="flex flex-col gap-md">
-      <ModeToggle mode={mode} onChange={setMode} />
+      <ModeToggle mode={mode} copy={copy} onChange={setMode} />
 
       {mode === 'draw' ? (
         <div className="flex flex-col gap-xs">
@@ -266,7 +258,7 @@ function SignatureBody({
               onClick={() => padRef.current?.clear()}
               disabled={!hasInk}
             >
-              {COPY.reset}
+              {copy.reset}
             </Button>
           </div>
         </div>
@@ -277,32 +269,40 @@ function SignatureBody({
               className={cn('truncate text-3xl leading-none', name ? 'text-foreground' : 'text-foreground-subtle')}
               style={{ fontFamily: font.fontFamily }}
             >
-              {name || COPY.typePlaceholder}
+              {name || copy.typePlaceholder}
             </span>
           </div>
-          <Field label={COPY.typeHint} htmlFor="signer-typed-name">
+          <Field label={copy.typeHint} htmlFor="signer-typed-name">
             <Input
               id="signer-typed-name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={COPY.typePlaceholder}
+              placeholder={copy.typePlaceholder}
               autoComplete="name"
               maxLength={40}
             />
           </Field>
-          <FontChips name={name} selected={font} onSelect={setFont} />
+          <FontChips name={name} selected={font} copy={copy} onSelect={setFont} />
         </div>
       )}
 
-      <ApplyRow saving={busy} canApply={canApply} onApply={apply} onCancel={onCancel} />
+      <ApplyRow saving={busy} canApply={canApply} copy={copy} onApply={apply} onCancel={onCancel} />
     </div>
   );
 }
 
-function ModeToggle({ mode, onChange }: { mode: SignMode; onChange: (m: SignMode) => void }) {
+function ModeToggle({
+  mode,
+  copy,
+  onChange,
+}: {
+  mode: SignMode;
+  copy: SheetCopy;
+  onChange: (m: SignMode) => void;
+}) {
   const options: { id: SignMode; label: string }[] = [
-    { id: 'draw', label: COPY.modeDraw },
-    { id: 'type', label: COPY.modeType },
+    { id: 'draw', label: copy.modeDraw },
+    { id: 'type', label: copy.modeType },
   ];
   return (
     <div role="tablist" aria-label="서명 입력 방식" className="grid grid-cols-2 gap-2xs rounded-md bg-surface-muted p-2xs">
@@ -333,17 +333,19 @@ function ModeToggle({ mode, onChange }: { mode: SignMode; onChange: (m: SignMode
 function FontChips({
   name,
   selected,
+  copy,
   onSelect,
 }: {
   name: string;
   selected: SignatureFont;
+  copy: SheetCopy;
   onSelect: (f: SignatureFont) => void;
 }) {
   const preview = name.trim();
   return (
     <div className="flex flex-col gap-xs">
-      <span className="text-sm font-semibold text-foreground-muted">{COPY.fontLabel}</span>
-      <div role="radiogroup" aria-label={COPY.fontLabel} className="flex gap-xs overflow-x-auto pb-2xs">
+      <span className="text-sm font-semibold text-foreground-muted">{copy.fontLabel}</span>
+      <div role="radiogroup" aria-label={copy.fontLabel} className="flex gap-xs overflow-x-auto pb-2xs">
         {SIGNATURE_FONTS.map((f) => {
           const active = selected.id === f.id;
           return (
@@ -377,18 +379,20 @@ function FontChips({
 
 function InlineValueBody({
   type,
+  copy,
   saving,
   onApply,
   onCancel,
 }: {
   type: 'DATE' | 'TEXT';
+  copy: SheetCopy;
   saving: boolean;
-  onApply: (value: SignerFieldValue) => void | Promise<void>;
+  onApply: (value: FillFieldValue) => void | Promise<void>;
   onCancel: () => void;
 }) {
   const [value, setValue] = React.useState(() => (type === 'DATE' ? todayIso() : ''));
   const canApply = value.trim().length > 0;
-  const inputId = `signer-inline-${type.toLowerCase()}`;
+  const inputId = `fill-inline-${type.toLowerCase()}`;
 
   const apply = React.useCallback(() => {
     const v = value.trim();
@@ -398,17 +402,17 @@ function InlineValueBody({
 
   return (
     <div className="flex flex-col gap-md">
-      <Field label={type === 'DATE' ? COPY.dateLabel : COPY.textLabel} htmlFor={inputId}>
+      <Field label={type === 'DATE' ? copy.dateLabel : copy.textLabel} htmlFor={inputId}>
         <Input
           id={inputId}
           type={type === 'DATE' ? 'date' : 'text'}
           value={value}
           onChange={(e) => setValue(e.target.value)}
-          placeholder={type === 'TEXT' ? COPY.textPlaceholder : undefined}
+          placeholder={type === 'TEXT' ? copy.textPlaceholder : undefined}
           maxLength={type === 'TEXT' ? 200 : undefined}
         />
       </Field>
-      <ApplyRow saving={saving} canApply={canApply} onApply={apply} onCancel={onCancel} />
+      <ApplyRow saving={saving} canApply={canApply} copy={copy} onApply={apply} onCancel={onCancel} />
     </div>
   );
 }
@@ -418,11 +422,13 @@ function InlineValueBody({
 function ApplyRow({
   saving,
   canApply,
+  copy,
   onApply,
   onCancel,
 }: {
   saving: boolean;
   canApply: boolean;
+  copy: SheetCopy;
   onApply: () => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -439,7 +445,7 @@ function ApplyRow({
         isLoading={saving}
         disabled={!canApply || saving}
       >
-        {COPY.apply}
+        {copy.apply}
       </Button>
     </div>
   );

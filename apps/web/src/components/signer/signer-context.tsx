@@ -24,26 +24,31 @@ import * as React from 'react';
 import { ApiError } from '@/lib/api';
 import {
   completeSigning,
+  downloadSignerArtifact,
   fetchMeta,
   fetchPayload,
   getSignerSession,
+  saveFields,
   setSignerSession,
+  signerPdfUrl,
   verifyCode,
   SIGNER_COPY,
   type SigningMeta,
   type SigningPayload,
 } from '@/lib/signing';
+import {
+  FillProvider,
+  type FillContextValue,
+  type FillCopy,
+  type FillFieldValue,
+} from './fill-context';
 
 /**
  * A value the signer has captured for one field, read back by the viewer to
- * reflect it inline on the page. The capture UI (signature canvas, font picker,
- * date) is a later grain; the viewer only needs the rendered payload, so the
- * shapes here are the read contract that grain binds to.
+ * reflect it inline on the page. Identical to the flow-neutral
+ * {@link FillFieldValue} (the capture surface is shared by the share flow).
  */
-export type SignerFieldValue =
-  | { type: 'SIGNATURE'; /** Captured signature as a PNG data URL. */ dataUrl: string }
-  | { type: 'TEXT'; text: string; /** Optional chosen signature font. */ fontFamily?: string }
-  | { type: 'DATE'; text: string };
+export type SignerFieldValue = FillFieldValue;
 
 export type SignerPhase =
   | 'loading'
@@ -230,8 +235,77 @@ export function SignerProvider({
     [state, token, verify, goSigning, complete, openField, closeField, setFieldValue],
   );
 
-  return <SignerContext.Provider value={value}>{children}</SignerContext.Provider>;
+  // Persist captured values to the signer's `fields` endpoint (a missing session
+  // is a no-op; the value still lives in memory for the active flow).
+  const persistFields = React.useCallback(
+    async (fields: { fieldId: string; value: string }[]) => {
+      const session = getSignerSession(token);
+      if (!session) return;
+      await saveFields(token, session, fields);
+    },
+    [token],
+  );
+
+  // Project the signer state machine onto the flow-neutral fill surface so the
+  // shared viewer / capture sheet / completion screen render the OTP flow.
+  const fillValue = React.useMemo<FillContextValue>(() => {
+    const documentTitle = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
+    return {
+      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null },
+      brandColor: state.meta?.sender.brandColor ?? null,
+      documentTitle,
+      payload: state.payload
+        ? {
+            documentTitle: state.payload.documentTitle,
+            pageCount: state.payload.pageCount,
+            fields: state.payload.fields,
+          }
+        : null,
+      fieldValues: state.fieldValues,
+      activeFieldId: state.activeFieldId,
+      documentCompleted: state.documentCompleted,
+      pdfUrl: signerPdfUrl(token),
+      loadSession: () => getSignerSession(token),
+      persistFields,
+      openField,
+      closeField,
+      setFieldValue,
+      complete,
+      copy: SIGNER_FILL_COPY,
+      download: {
+        onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
+      },
+    };
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete]);
+
+  return (
+    <SignerContext.Provider value={value}>
+      <FillProvider value={fillValue}>{children}</FillProvider>
+    </SignerContext.Provider>
+  );
 }
+
+/** The OTP signer flow's copy for the shared fill surface (speaks "서명"). */
+const SIGNER_FILL_COPY: FillCopy = {
+  ctaContinue: SIGNER_COPY.viewerCtaContinue,
+  ctaComplete: SIGNER_COPY.viewerCtaComplete,
+  loadError: SIGNER_COPY.viewerLoadError,
+  pageError: (n) => `${n}페이지를 불러올 수 없어요.`,
+  progress: (total, done) => `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
+  progressNone: '서명할 항목이 없어요.',
+  progressAllDone: '모든 항목을 작성했어요.',
+  fieldAffordance: SIGNER_COPY.fieldAffordance,
+  completeError: SIGNER_COPY.completeError,
+  sheet: {
+    ...SIGNER_COPY.sheet,
+    hint: (type) => {
+      if (type === 'DATE') return '서명한 날짜를 입력해 주세요.';
+      if (type === 'TEXT') return '필요한 내용을 입력해 주세요.';
+      return SIGNER_COPY.sheet.drawHint;
+    },
+  },
+  done: SIGNER_COPY.done,
+};
 
 export function useSigner(): SignerContextValue {
   const ctx = React.useContext(SignerContext);
