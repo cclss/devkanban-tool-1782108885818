@@ -6,8 +6,11 @@ import { useRouter } from 'next/navigation';
 import { Button, Card, Field, Input } from '@repo/ui';
 import { BlobBackground } from '@/components/blob-background';
 import { PasswordInput } from '@/components/password-input';
-import { ApiError } from '@/lib/api';
-import { isAuthenticated, login } from '@/lib/auth';
+import { GoogleButton } from '@/components/google-button';
+import { AuthDivider } from '@/components/auth-divider';
+import { ApiError, GENERIC_ERROR } from '@/lib/api';
+import { isAuthenticated, login, loginWithGoogle } from '@/lib/auth';
+import { GoogleAuthError, useGoogleAuthCode } from '@/lib/google-oauth';
 
 /** Pragmatic email shape check — the server is the real authority. */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -42,6 +45,14 @@ export default function LoginPage() {
     password: false,
   });
 
+  // Google social sign-in (graceful no-op when the client id isn't configured).
+  const { available: googleAvailable, requestCode } = useGoogleAuthCode();
+  const [googleLoading, setGoogleLoading] = React.useState(false);
+  const [googleError, setGoogleError] = React.useState<string | null>(null);
+
+  // While either auth path is in flight, the whole form is inert.
+  const busy = submitting || googleLoading;
+
   // Already signed in → go straight to the dashboard (session established).
   React.useEffect(() => {
     if (isAuthenticated()) {
@@ -60,6 +71,7 @@ export default function LoginPage() {
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
+    setGoogleError(null);
 
     const errors = validate(email, password);
     setTouched({ email: true, password: true });
@@ -71,12 +83,26 @@ export default function LoginPage() {
       await login(email.trim(), password);
       router.replace('/dashboard');
     } catch (error) {
-      setFormError(
-        error instanceof ApiError
-          ? error.message
-          : '문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
-      );
+      setFormError(error instanceof ApiError ? error.message : GENERIC_ERROR);
       setSubmitting(false);
+    }
+  }
+
+  async function handleGoogle() {
+    setFormError(null);
+    setGoogleError(null);
+    setGoogleLoading(true);
+    try {
+      const code = await requestCode();
+      await loginWithGoogle(code);
+      router.replace('/dashboard');
+    } catch (error) {
+      setGoogleError(
+        error instanceof ApiError || error instanceof GoogleAuthError
+          ? error.message
+          : GENERIC_ERROR,
+      );
+      setGoogleLoading(false);
     }
   }
 
@@ -106,7 +132,7 @@ export default function LoginPage() {
               value={email}
               invalid={touched.email && Boolean(fieldErrors.email)}
               aria-describedby={touched.email && fieldErrors.email ? 'email-message' : undefined}
-              disabled={submitting}
+              disabled={busy}
               onChange={(e) => {
                 setEmail(e.target.value);
                 setFormError(null);
@@ -134,7 +160,7 @@ export default function LoginPage() {
               aria-describedby={
                 touched.password && fieldErrors.password ? 'password-message' : undefined
               }
-              disabled={submitting}
+              disabled={busy}
               onChange={(e) => {
                 setPassword(e.target.value);
                 setFormError(null);
@@ -156,10 +182,30 @@ export default function LoginPage() {
             </p>
           ) : null}
 
-          <Button type="submit" size="lg" fullWidth isLoading={submitting}>
+          <Button type="submit" size="lg" fullWidth isLoading={submitting} disabled={googleLoading}>
             {submitting ? '로그인 중' : '로그인'}
           </Button>
         </form>
+
+        {googleAvailable ? (
+          <div className="mt-lg flex flex-col gap-md">
+            <AuthDivider />
+            {googleError ? (
+              <p
+                role="alert"
+                className="rounded-md bg-danger-subtle px-md py-sm text-sm font-medium text-danger"
+              >
+                {googleError}
+              </p>
+            ) : null}
+            <GoogleButton
+              label="Google로 로그인"
+              isLoading={googleLoading}
+              disabled={submitting}
+              onClick={handleGoogle}
+            />
+          </div>
+        ) : null}
 
         <p className="mt-xl text-center text-sm text-foreground-subtle">
           아직 계정이 없으신가요?{' '}

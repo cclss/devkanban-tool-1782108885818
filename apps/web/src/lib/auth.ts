@@ -99,3 +99,18 @@ export async function register(email: string, password: string): Promise<LoginRe
   setSession(session);
   return session;
 }
+
+/**
+ * Exchange a Google authorization `code` (from the GIS auth-code popup) for a
+ * session. The server upserts the social account and returns the same
+ * `{ accessToken, user }` shape as email login, so a successful Google sign-in
+ * establishes the session identically — first-time users are created on the fly
+ * (sign-up) and returning users are signed in. Throws `ApiError` on failure. */
+export async function loginWithGoogle(code: string): Promise<LoginResponse> {
+  const session = await apiFetch<LoginResponse>('/auth/google', {
+    method: 'POST',
+    json: { code },
+  });
+  setSession(session);
+  return session;
+}
