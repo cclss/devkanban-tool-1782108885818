@@ -30,6 +30,7 @@ import {
   StepIndicator,
   SuccessCheck,
 } from '@repo/ui';
+import { AiBadge, SuggestionBanner } from '@/components/ai';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -299,6 +300,29 @@ export default function DesignSystemPage() {
             <Button onClick={replay}>이펙트 재생</Button>
           </CardContent>
         </Card>
+      </Section>
+
+      <Section
+        title="AI 제안 시각 언어"
+        hint="AI가 배치한 서명란을 사용자 필드와 구분하는 액센트 — 배지 + 제안 요약 배너(분석 중 · N개 · 0개 · 에러)"
+      >
+        <div className="flex flex-wrap items-center gap-md">
+          <AiBadge />
+          <AiBadge size="sm" />
+          <Button variant="ai" size="sm">
+            모두 적용
+          </Button>
+        </div>
+        <div className="grid gap-md sm:grid-cols-2">
+          <SuggestionBanner state={{ status: 'analyzing' }} />
+          <SuggestionBanner
+            state={{ status: 'ready', count: 4 }}
+            onApplyAll={() => undefined}
+            onClear={() => undefined}
+          />
+          <SuggestionBanner state={{ status: 'empty' }} />
+          <SuggestionBanner state={{ status: 'error' }} onRetry={() => undefined} />
+        </div>
       </Section>
 
       <Section title="Brand override hook" hint="발신자 브랜딩 색상으로 primary 토큰을 런타임 교체">

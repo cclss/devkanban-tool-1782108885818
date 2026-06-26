@@ -28,6 +28,7 @@ const buttonVariants = cva(
           'bg-surface-muted text-foreground border border-border hover:bg-grey-100 active:bg-grey-200',
         ghost: 'bg-transparent text-foreground-muted hover:bg-grey-100 active:bg-grey-200',
         danger: 'bg-danger text-danger-foreground hover:brightness-95 active:brightness-90',
+        ai: 'bg-accent-ai text-accent-ai-foreground hover:bg-accent-ai-hover active:bg-accent-ai-pressed focus-visible:ring-focus-ai',
       },
       size: {
         sm: 'h-9 px-md text-sm',

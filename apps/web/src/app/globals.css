@@ -70,6 +70,19 @@
     --color-warning-foreground: #ffffff;
     --color-warning-subtle: #fff4e6;
 
+    /* — AI accent —
+       Marks AI-generated / AI-suggested content so it never reads as one of the
+       status hues. A violet kept clear of primary (blue), success (green),
+       danger (red) and warning (orange). White text on the solid fill clears
+       WCAG AA at ≈7.1:1; the accent over `-subtle` clears AA at ≈6.0:1 for the
+       badge label. Unlike `--color-primary`, this is NOT wired to the sender
+       brand hook — AI provenance stays constant across brand overrides. */
+    --color-accent-ai: #6d28d9;
+    --color-accent-ai-hover: #5b21b6;
+    --color-accent-ai-pressed: #4c1d95;
+    --color-accent-ai-foreground: #ffffff;
+    --color-accent-ai-subtle: #ede9fe;
+
     /* — Interaction — */
     --color-ring: var(--brand-primary);
     --color-overlay: rgba(13, 16, 21, 0.55);
@@ -79,6 +92,7 @@
        `/opacity` modifier to a CSS-variable color, hence the baked tokens.) */
     --color-focus: color-mix(in srgb, var(--brand-primary) 32%, transparent);
     --color-focus-danger: color-mix(in srgb, var(--color-danger) 30%, transparent);
+    --color-focus-ai: color-mix(in srgb, var(--color-accent-ai) 32%, transparent);
 
     /* — Motion (easing + duration tokens) — */
     --ease-standard: cubic-bezier(0.4, 0, 0.2, 1);

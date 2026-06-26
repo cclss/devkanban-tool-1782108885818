@@ -78,6 +78,13 @@ const config: Config = {
           foreground: 'var(--color-warning-foreground)',
           subtle: 'var(--color-warning-subtle)',
         },
+        'accent-ai': {
+          DEFAULT: 'var(--color-accent-ai)',
+          foreground: 'var(--color-accent-ai-foreground)',
+          hover: 'var(--color-accent-ai-hover)',
+          pressed: 'var(--color-accent-ai-pressed)',
+          subtle: 'var(--color-accent-ai-subtle)',
+        },
         grey: {
           50: 'var(--grey-50)',
           100: 'var(--grey-100)',
@@ -94,6 +101,7 @@ const config: Config = {
         focus: {
           DEFAULT: 'var(--color-focus)',
           danger: 'var(--color-focus-danger)',
+          ai: 'var(--color-focus-ai)',
         },
         overlay: 'var(--color-overlay)',
       },
@@ -262,6 +270,13 @@ const config: Config = {
           from: { opacity: '0', transform: 'translateX(-16px)' },
           to: { opacity: '1', transform: 'translateX(0)' },
         },
+        // AI-suggestion entrance — a gentle scale-up + fade that reads as the
+        // suggestion "materialising". Used by the AI summary banner and (in a
+        // later grain) each suggested field as it appears on the canvas.
+        'ai-suggest-in': {
+          from: { opacity: '0', transform: 'scale(0.96)' },
+          to: { opacity: '1', transform: 'scale(1)' },
+        },
       },
       animation: {
         blob: 'blob-flow 18s ease-in-out infinite',
@@ -283,6 +298,7 @@ const config: Config = {
         'sheet-out-right': 'sheet-out-right 0.24s cubic-bezier(0.4, 0, 1, 1)',
         'wizard-forward': 'wizard-in-right 0.35s cubic-bezier(0.16, 1, 0.3, 1) both',
         'wizard-back': 'wizard-in-left 0.35s cubic-bezier(0.16, 1, 0.3, 1) both',
+        'ai-suggest-in': 'ai-suggest-in 0.4s cubic-bezier(0.16, 1, 0.3, 1) both',
       },
     },
   },
