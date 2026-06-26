@@ -17,6 +17,11 @@ model User {
   id           String   @id @default(cuid())
   email        String   @unique
   name         String?
+  // Registered mobile number used for the "find ID" / account-recovery flows
+  // via SMS. Optional: accounts without a phone simply can't use the SMS
+  // channel. Postgres treats multiple NULLs as distinct, so a UNIQUE index on a
+  // nullable column is allowed and prevents two accounts sharing one number.
+  phoneNumber  String?  @unique @map("phone_number")
   passwordHash String?  @map("password_hash")
   // Google account subject (`sub`) for social sign-in. Null for password-only
   // accounts; set when a user signs in/links via Google.
@@ -31,7 +36,43 @@ model User {
   documents Document[]
   auditLogs AuditLog[]
 
+  identityVerifications IdentityVerification[]
+
   @@map("users")
+}
+
+/// One-time identity-verification challenge for account-recovery flows
+/// (currently "find ID"). A row is created when a user requests a verification
+/// code; the code itself is never stored in plaintext — only its hash. Rows are
+/// created even when no matching user exists so the API can return a generic
+/// response without leaking account existence.
+model IdentityVerification {
+  id     String              @id @default(cuid())
+  // Why the challenge was issued. Modeled as an enum so future recovery flows
+  // (e.g. password reset) can reuse this table.
+  purpose VerificationPurpose
+  // Delivery channel the code was sent over.
+  channel VerificationChannel
+  // Normalized recipient: lowercased email or canonicalized phone number.
+  target  String              @map("target")
+  // Hash of the verification code (bcrypt or sha256). Never store the plaintext.
+  codeHash String             @map("code_hash")
+  // Linked user when one matched the target. Null when no account matched (a
+  // row is still created so responses stay generic and rate limiting applies).
+  userId  String?             @map("user_id")
+  // Number of failed verification attempts, for brute-force throttling.
+  attempts Int                @default(0)
+  // Set when the code is successfully used; a non-null value invalidates reuse.
+  consumedAt DateTime?        @map("consumed_at")
+  // When the challenge expires and can no longer be verified.
+  expiresAt DateTime          @map("expires_at")
+  createdAt DateTime          @default(now()) @map("created_at")
+  updatedAt DateTime          @updatedAt @map("updated_at")
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([channel, target])
+  @@map("identity_verifications")
 }
 
 /// An uploaded PDF that a contract is built on top of.
@@ -166,4 +207,16 @@ enum SignFieldType {
   SIGNATURE
   DATE
   TEXT
+}
+
+/// Purpose of an identity-verification challenge. Only FIND_ID is used today;
+/// kept as an enum to accommodate future recovery flows (e.g. password reset).
+enum VerificationPurpose {
+  FIND_ID
+}
+
+/// Delivery channel for a verification code.
+enum VerificationChannel {
+  EMAIL
+  SMS
 }
