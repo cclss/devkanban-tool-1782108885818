@@ -183,7 +183,9 @@ export class CompletionService {
   ): AuditCertificateInput {
     const participants: CertificateParticipant[] = document.signRequests.map((sr, i) => ({
       name: sr.recipientName,
-      email: sr.recipientEmail,
+      // LINK-mode (share link) requests have no addressed recipient, so the
+      // email is null. The certificate masks an empty address to '—'.
+      email: sr.recipientEmail ?? '',
       order: i + 1,
       verificationMethod: VERIFICATION_METHOD,
       signedAt: sr.signedAt,
@@ -280,10 +282,12 @@ export class CompletionService {
     messages.push(build({ email: document.owner.email, name: senderName }, 'SENDER'));
     seen.add(senderEmail);
     for (const sr of document.signRequests) {
-      const key = sr.recipientEmail.trim().toLowerCase();
+      // LINK-mode (share link) recipients are anonymous (no email on file), so
+      // there is nobody to email — the sender still gets the completion notice.
+      const key = sr.recipientEmail?.trim().toLowerCase();
       if (!key || seen.has(key)) continue;
       seen.add(key);
-      messages.push(build({ email: sr.recipientEmail, name: sr.recipientName }, 'SIGNER'));
+      messages.push(build({ email: sr.recipientEmail!, name: sr.recipientName }, 'SIGNER'));
     }
 
     await this.email.sendEach(messages);
@@ -313,7 +317,8 @@ interface DocumentWithRelations {
   owner: { name: string | null; email: string; brandColor: string | null; brandLogoUrl: string | null };
   signRequests: Array<{
     id: string;
-    recipientEmail: string;
+    // Null for LINK-mode share-link requests (no addressed recipient).
+    recipientEmail: string | null;
     recipientName: string | null;
     signedAt: Date | null;
   }>;

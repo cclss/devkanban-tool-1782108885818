@@ -71,6 +71,31 @@ export const MESSAGES = {
     // 완료 성공 헤드라인 — spec의 "…완료되었습니다!" 형식.
     completed: '서명이 완료되었습니다!',
   },
+  // 링크 공유 — 발신자가 만든 고유 열람/기입 링크로 접속한 수신자가 보는 카피.
+  // `design-spec/messaging/share-link.md` 톤 가이드(탓하지 않는 해요체,
+  // 다음 행동만 부드럽게 안내, 시스템 내부 사정 비노출)를 그대로 따른다.
+  share: {
+    // 토큰 자체가 없거나 LINK 링크가 아님 — 다음 행동(링크 재요청)을 안내.
+    invalidLink: '링크가 올바르지 않아요. 보낸 분에게 링크를 다시 요청해 주세요.',
+    // 유효 기간이 지난 링크(`linkExpiresAt` 경과) — spec notice-screen `expired`.
+    expired: '이 링크는 유효 기간이 지났어요. 보낸 분에게 새 링크를 요청해 주세요.',
+    // 보낸 분이 사용 중지한 링크(`linkRevokedAt`) — spec notice-screen `disabled`.
+    revoked: '보낸 분이 이 링크를 사용 중지했어요. 보낸 분에게 문의해 주세요.',
+    // 비밀번호가 필요한 링크인데 비밀번호가 비어 있음 — spec password-gate placeholder.
+    passwordRequired: '비밀번호를 입력해 주세요.',
+    // 비밀번호 불일치 — 어느 자리가 틀렸는지 특정하지 않는다. spec password-gate 오류.
+    wrongPassword: '비밀번호가 일치하지 않아요. 다시 확인해 주세요.',
+    // 연속 실패로 인한 일시 잠금 — 완화는 시간 경과로 자동 해제됨을 알린다.
+    locked: '비밀번호를 여러 번 잘못 입력했어요. 잠시 후 다시 시도해 주세요.',
+    // 단기 share 세션(접속 확인 후 토큰) 만료 — 링크 재진입으로 부드럽게 안내.
+    sessionExpired: '접속 시간이 만료됐어요. 링크를 다시 열어 주세요.',
+    // 더 이상 작성할 수 없는 상태(취소된 계약 등).
+    notSignable: '지금은 작성할 수 없는 계약이에요. 보낸 분에게 문의해 주세요.',
+    // 이미 제출을 마친 링크에 다시 접근.
+    alreadySubmitted: '이미 제출을 완료한 계약이에요.',
+    // 제출 성공 헤드라인 — spec completion-screen 헤드라인.
+    submitted: '제출이 완료되었습니다!',
+  },
 } as const;
 
 /**
@@ -83,6 +108,21 @@ export const SIGNER_VERIFY_MAX_ATTEMPTS = 5;
 export const SIGNER_VERIFY_LOCK_WINDOW_MINUTES = 15;
 /** 서명자 세션(단기 토큰) 유효 시간. */
 export const SIGNER_SESSION_TTL_MINUTES = 30;
+
+/**
+ * 링크 공유 비밀번호 보호 정책 — signer 본인확인 정책을 그대로 참고하되
+ * (`policy` 재사용) share 접근에만 최소 적용한다. 연속 실패가 임계치에 도달하면
+ * 잠금 창 동안 잠그고, 시간이 지나면 자동 완화된다.
+ */
+export const SHARE_UNLOCK_MAX_ATTEMPTS = SIGNER_VERIFY_MAX_ATTEMPTS;
+/** 잠금 창 — 이 시간(분) 내 실패 횟수로 잠금 여부를 판단한다. */
+export const SHARE_UNLOCK_LOCK_WINDOW_MINUTES = SIGNER_VERIFY_LOCK_WINDOW_MINUTES;
+/** 링크 공유 단기 세션(접속 확인 후 토큰) 유효 시간. */
+export const SHARE_SESSION_TTL_MINUTES = SIGNER_SESSION_TTL_MINUTES;
+/** 링크 유효기간 기본값(1주일) — spec 모달 기본 선택과 일치. */
+export const SHARE_LINK_DEFAULT_EXPIRY_DAYS = 7;
+/** 링크 유효기간 상한(일). */
+export const SHARE_LINK_MAX_EXPIRY_DAYS = 365;
 
 /** Free plan monthly send limit. */
 export const FREE_PLAN_MONTHLY_LIMIT = 5;

@@ -438,7 +438,8 @@ export interface DocumentSummary {
 export interface DocumentDetail extends DocumentSummary {
   recipients: Array<{
     id: string;
-    recipientEmail: string;
+    // Null for LINK-mode share links (no addressed recipient).
+    recipientEmail: string | null;
     recipientName: string | null;
     order: number;
     status: SignRequestStatus;

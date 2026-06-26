@@ -19,5 +19,9 @@ import { CompletionModule } from '../completion/completion.module';
   imports: [JwtModule.register({}), CompletionModule],
   controllers: [SigningController],
   providers: [SigningService, SignerSessionService, SignerSessionGuard],
+  // Exported so the LINK share flow (sharing module) can reuse the exact same
+  // session-guarded field/submit machinery (openPdf / saveFields / complete)
+  // without duplicating it. The OTP (CODE) flow is unaffected.
+  exports: [SigningService],
 })
 export class SigningModule {}

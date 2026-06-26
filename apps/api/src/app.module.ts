@@ -8,6 +8,7 @@ import { EmailModule } from './email/email.module';
 import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SigningModule } from './signing/signing.module';
+import { SharingModule } from './sharing/sharing.module';
 import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
 
@@ -21,6 +22,7 @@ import { CompletionModule } from './completion/completion.module';
     AuthModule,
     DocumentsModule,
     SigningModule,
+    SharingModule,
     PdfModule,
     CompletionModule,
     HealthModule,
