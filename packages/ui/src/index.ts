@@ -18,6 +18,7 @@ export {
   type CardProps,
 } from './components/card';
 export { Input, type InputProps } from './components/input';
+export { Checkbox, type CheckboxProps } from './components/checkbox';
 export { Field, Label, type FieldProps, type LabelProps } from './components/field';
 export { Skeleton, type SkeletonProps } from './components/skeleton';
 export { StepIndicator, type StepIndicatorProps } from './components/step-indicator';
