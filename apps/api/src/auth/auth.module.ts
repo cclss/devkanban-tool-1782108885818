@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { FindIdService } from './find-id.service';
 import { JwtStrategy, DEFAULT_JWT_SECRET } from './jwt.strategy';
 
 @Module({
@@ -18,7 +19,7 @@ import { JwtStrategy, DEFAULT_JWT_SECRET } from './jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, FindIdService, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}
