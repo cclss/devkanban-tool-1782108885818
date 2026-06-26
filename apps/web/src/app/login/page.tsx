@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Field, Input } from '@repo/ui';
 import { BlobBackground } from '@/components/blob-background';
+import { PasswordInput } from '@/components/password-input';
 import { ApiError } from '@/lib/api';
 import { isAuthenticated, login } from '@/lib/auth';
 
@@ -123,10 +124,9 @@ export default function LoginPage() {
             htmlFor="password"
             error={touched.password ? fieldErrors.password : undefined}
           >
-            <Input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               autoComplete="current-password"
               placeholder="비밀번호"
               value={password}

@@ -5,6 +5,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Checkbox, Field, Input, SuccessCheck } from '@repo/ui';
 import { BlobBackground } from '@/components/blob-background';
+import { PasswordInput } from '@/components/password-input';
 import { ApiError } from '@/lib/api';
 import { isAuthenticated, register } from '@/lib/auth';
 
@@ -181,10 +182,9 @@ export default function SignupPage() {
             }
             error={touched.password ? fieldErrors.password : undefined}
           >
-            <Input
+            <PasswordInput
               id="password"
               name="password"
-              type="password"
               autoComplete="new-password"
               placeholder="비밀번호"
               value={password}
@@ -208,10 +208,9 @@ export default function SignupPage() {
             htmlFor="passwordConfirm"
             error={touched.passwordConfirm ? fieldErrors.passwordConfirm : undefined}
           >
-            <Input
+            <PasswordInput
               id="passwordConfirm"
               name="passwordConfirm"
-              type="password"
               autoComplete="new-password"
               placeholder="비밀번호를 다시 입력해 주세요"
               value={passwordConfirm}
