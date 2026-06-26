@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Button,
@@ -278,33 +279,22 @@ function DashboardBody({
 
 function ContractCard({ document, highlighted }: { document: DocumentSummary; highlighted: boolean }) {
   const completed = document.status === 'COMPLETED';
-  return (
-    <Card
-      interactive
-      className={
-        'flex flex-col gap-md p-lg transition-shadow ' +
-        (highlighted ? 'ring-2 ring-focus' : '')
-      }
-    >
-      <div className="flex items-center gap-md">
-        <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
-          <DocumentIcon />
-        </span>
-        <div className="flex min-w-0 flex-1 flex-col gap-2xs">
-          <div className="flex items-center gap-xs">
-            <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
-            {/* Completed cards carry the 완료됨 badge inside the download area
-                below, so the title row omits it to avoid a duplicate badge. */}
-            {!completed ? (
-              <StatusBadge status={document.status} label={document.statusLabel} />
-            ) : null}
-          </div>
-          <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
-        </div>
-        {!completed ? <ChevronIcon /> : null}
-      </div>
+  const href = `/contracts/${document.id}`;
+  const cardClass =
+    'flex flex-col gap-md p-lg transition-shadow ' + (highlighted ? 'ring-2 ring-focus' : '');
 
-      {completed ? (
+  // Completed cards hold their own interactive download buttons, so the whole
+  // card can't be a link (no nested interactives). Only the header row navigates;
+  // the download area stays a separate, unaffected region below it.
+  if (completed) {
+    return (
+      <Card className={cardClass}>
+        <Link
+          href={href}
+          className="-m-2xs flex items-center gap-md rounded-md p-2xs transition-colors duration-fast ease-standard hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
+        >
+          <CardHeaderRow document={document} completed />
+        </Link>
         <CompletionDownload
           className="border-t border-border pt-md"
           ready={document.downloadsReady}
@@ -312,8 +302,44 @@ function ContractCard({ document, highlighted }: { document: DocumentSummary; hi
           statusLabel={document.statusLabel}
           onDownload={(kind) => downloadOwnerArtifact(document.id, kind, document.title)}
         />
-      ) : null}
-    </Card>
+      </Card>
+    );
+  }
+
+  // Non-completed cards have no inner interactives, so the entire card navigates.
+  return (
+    <Link
+      href={href}
+      className="block rounded-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
+    >
+      <Card interactive className={cardClass}>
+        <div className="flex items-center gap-md">
+          <CardHeaderRow document={document} completed={false} />
+        </div>
+      </Card>
+    </Link>
+  );
+}
+
+function CardHeaderRow({ document, completed }: { document: DocumentSummary; completed: boolean }) {
+  return (
+    <>
+      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
+        <DocumentIcon />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2xs">
+        <div className="flex items-center gap-xs">
+          <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
+          {/* Completed cards carry the 완료됨 badge inside the download area
+              below, so the title row omits it to avoid a duplicate badge. */}
+          {!completed ? (
+            <StatusBadge status={document.status} label={document.statusLabel} />
+          ) : null}
+        </div>
+        <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
+      </div>
+      <ChevronIcon />
+    </>
   );
 }
 

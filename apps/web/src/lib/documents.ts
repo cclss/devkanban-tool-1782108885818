@@ -37,6 +37,26 @@ export interface DocumentSummary {
   downloadsReady: boolean;
 }
 
+/** A recipient row on a contract's detail (LINK-mode links carry null name/email). */
+export interface ContractRecipient {
+  id: string;
+  recipientEmail: string | null;
+  recipientName: string | null;
+  order: number;
+  status: string;
+}
+
+/**
+ * Full contract detail, mirroring the server's `DocumentDetail` DTO
+ * (`apps/api/src/documents/documents.service.ts`). Extends the dashboard summary
+ * with the recipient roster; the `fields` geometry is unused by the detail screen
+ * so we only declare the subset we read.
+ */
+export interface DocumentDetail extends DocumentSummary {
+  recipients: ContractRecipient[];
+  fields: Array<{ id: string; type: string; recipientIndex: number | null }>;
+}
+
 export interface Quota {
   used: number;
   limit: number;
@@ -45,6 +65,13 @@ export interface Quota {
 
 export function fetchDocuments(): Promise<DocumentSummary[]> {
   return apiFetch<DocumentSummary[]>('/documents', { token: getToken() ?? undefined });
+}
+
+/** Fetch one owned contract's detail for the `/contracts/[id]` screen. */
+export function fetchDocumentDetail(id: string): Promise<DocumentDetail> {
+  return apiFetch<DocumentDetail>(`/documents/${encodeURIComponent(id)}`, {
+    token: getToken() ?? undefined,
+  });
 }
 
 export function fetchQuota(): Promise<Quota> {
