@@ -37,6 +37,7 @@ model User {
   auditLogs AuditLog[]
 
   identityVerifications IdentityVerification[]
+  passwordResetTokens   PasswordResetToken[]
 
   @@map("users")
 }
@@ -73,6 +74,32 @@ model IdentityVerification {
 
   @@index([channel, target])
   @@map("identity_verifications")
+}
+
+/// Single-use, short-lived password-reset token. Issued only after a user has
+/// successfully verified an identity-verification code (purpose RESET_PASSWORD).
+/// The plaintext token is never stored — only its SHA-256 hex digest — and is
+/// handed to the client once. Confirming a reset looks the token up by hash,
+/// checks it is neither expired nor already consumed, then marks it consumed so
+/// it can never be replayed.
+model PasswordResetToken {
+  id     String   @id @default(cuid())
+  userId String   @map("user_id")
+  // SHA-256 hex digest of the reset token. Never store the plaintext.
+  tokenHash String @map("token_hash")
+  // When the token expires and can no longer be used (kept short).
+  expiresAt DateTime  @map("expires_at")
+  // Set when the token is used to set a new password; a non-null value
+  // invalidates reuse (single-use guarantee).
+  consumedAt DateTime? @map("consumed_at")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([tokenHash])
+  @@map("password_reset_tokens")
 }
 
 /// An uploaded PDF that a contract is built on top of.
@@ -209,10 +236,11 @@ enum SignFieldType {
   TEXT
 }
 
-/// Purpose of an identity-verification challenge. Only FIND_ID is used today;
-/// kept as an enum to accommodate future recovery flows (e.g. password reset).
+/// Purpose of an identity-verification challenge. The same table backs both the
+/// "find ID" flow and the password-reset code (email/SMS 6-digit) challenge.
 enum VerificationPurpose {
   FIND_ID
+  RESET_PASSWORD
 }
 
 /// Delivery channel for a verification code.
