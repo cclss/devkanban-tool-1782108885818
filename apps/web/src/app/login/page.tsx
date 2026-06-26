@@ -187,6 +187,16 @@ export default function LoginPage() {
           </Button>
         </form>
 
+        <p className="mt-lg text-center text-sm text-foreground-subtle">
+          아이디가 기억나지 않으세요?{' '}
+          <Link
+            href="/find-id"
+            className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
+          >
+            아이디 찾기
+          </Link>
+        </p>
+
         {googleAvailable ? (
           <div className="mt-lg flex flex-col gap-md">
             <AuthDivider />
