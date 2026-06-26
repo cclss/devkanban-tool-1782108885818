@@ -68,18 +68,39 @@ model Document {
 }
 
 /// A request asking a single recipient to sign a document.
+///
+/// Two access modes are supported (see `SignRequestAccessMode`):
+///   • CODE — the original out-of-band flow: a request is addressed to a known
+///     `recipientEmail` and gated by a one-time `verifyCode`.
+///   • LINK — "share by link": the sender generates a self-serve link that
+///     anyone holding it can open. There is no addressed recipient, so
+///     `recipientEmail`/`verifyCode` are absent; access is instead governed by
+///     the `link*` columns (optional password, expiry, revocation, label).
 model SignRequest {
   id          String            @id @default(cuid())
   documentId  String            @map("document_id")
-  recipientEmail String         @map("recipient_email")
+  // Null in LINK mode (no addressed recipient until they identify themselves).
+  recipientEmail String?        @map("recipient_email")
   recipientName  String?        @map("recipient_name")
   // Signing order for sequential workflows.
   order       Int               @default(0)
   status      SignRequestStatus @default(PENDING)
+  // How this request is accessed. Defaults to CODE to preserve the existing
+  // out-of-band OTP behaviour for all pre-existing rows.
+  accessMode  SignRequestAccessMode @default(CODE) @map("access_mode")
   // Access token embedded in the signing link.
   accessToken String            @unique @map("access_token")
-  // 6-digit verification code delivered out of band.
+  // 6-digit verification code delivered out of band. CODE mode only.
   verifyCode  String?           @map("verify_code")
+  // --- LINK mode access settings (all null/ignored in CODE mode) ---
+  // Hashed link password (bcrypt/argon2). Null = no password required.
+  linkPasswordHash String?      @map("link_password_hash")
+  // When the link stops working. Null = never expires.
+  linkExpiresAt DateTime?       @map("link_expires_at")
+  // When the sender manually revoked the link. Null = still active.
+  linkRevokedAt DateTime?       @map("link_revoked_at")
+  // Sender-facing label to tell multiple links apart. Null = unlabelled.
+  linkLabel   String?           @map("link_label")
   signedAt    DateTime?         @map("signed_at")
   createdAt   DateTime          @default(now()) @map("created_at")
   updatedAt   DateTime          @updatedAt @map("updated_at")
@@ -160,6 +181,14 @@ enum SignRequestStatus {
   VIEWED
   SIGNED
   DECLINED
+}
+
+/// How a SignRequest is accessed by the signer.
+enum SignRequestAccessMode {
+  /// Addressed recipient gated by an out-of-band one-time code (default).
+  CODE
+  /// Self-serve share link gated by the optional `link*` settings.
+  LINK
 }
 
 enum SignFieldType {
