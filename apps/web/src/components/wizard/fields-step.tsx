@@ -11,9 +11,11 @@
  * both. Everything writes straight to wizard state, so leaving and returning to
  * the step restores each field at its exact spot.
  *
- * Field placement is a desktop interaction (mouse + room to work); smaller /
- * touch viewports get a guidance fallback instead (mobile placement is out of
- * scope — the signer flow is the mobile-first surface).
+ * Precise drag-placement is a desktop interaction (mouse + room to work); on a
+ * touch / narrow viewport the step swaps to a touch-friendly "확인" review
+ * surface (`MobileFieldsReview`) — same AI suggestions + confirm/adjust state,
+ * tap-driven instead of drag-driven. Both share one analysis run and one set of
+ * suggestion handlers below, so neither path re-derives anything.
  */
 
 import * as React from 'react';
@@ -33,6 +35,7 @@ import {
 } from '@/lib/signfield-suggestion';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
+import { MobileFieldsReview } from './mobile-fields-review';
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
@@ -82,20 +85,24 @@ export function FieldsStep() {
   }, [file, dispatch]);
 
   React.useEffect(() => {
-    if (!file || !isDesktop) return;
+    // Runs on every viewport: desktop drag-placement and the mobile "확인"
+    // review both consume the same suggestions, so analysis is no longer gated.
+    if (!file) return;
     if (analyzedFileRef.current === file) return; // already kicked off here
     // idle = fresh; analyzing = a prior mount's run was abandoned, so restart.
     if (analysis.status !== 'idle' && analysis.status !== 'analyzing') return;
     runAnalysis();
-  }, [file, isDesktop, analysis.status, runAnalysis]);
+  }, [file, analysis.status, runAnalysis]);
 
   const acceptSuggestion = React.useCallback(
-    (id: string) => {
+    (id: string): string | void => {
       const s = suggestions.find((x) => x.id === id);
       if (!s) return;
       const field = suggestionToFieldDraft(s, nextFieldId());
       dispatch({ type: 'ACCEPT_SUGGESTION', field, suggestionId: id });
       setSelectedId(field.id);
+      // Return the new field id so the mobile review can re-select it for adjust.
+      return field.id;
     },
     [suggestions, dispatch],
   );
@@ -142,7 +149,22 @@ export function FieldsStep() {
   }
 
   if (!isDesktop) {
-    return <DesktopOnlyFallback />;
+    // Touch / narrow viewport: review + confirm the AI suggestions instead of
+    // precise drag-placement. Same suggestions, analysis state, and handlers.
+    return (
+      <MobileFieldsReview
+        file={file}
+        fields={fields}
+        suggestions={suggestions}
+        bannerState={bannerState}
+        onAcceptSuggestion={acceptSuggestion}
+        onDismissSuggestion={dismissSuggestion}
+        onApplyAll={applyAllSuggestions}
+        onClear={clearSuggestions}
+        onRetry={runAnalysis}
+        onFieldsChange={setFields}
+      />
+    );
   }
 
   const total = Math.max(pageCount, 1);
@@ -287,25 +309,10 @@ function FieldTool({ type, onAdd }: { type: SignFieldType; onAdd: () => void }) 
   );
 }
 
-function DesktopOnlyFallback() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-sm rounded-lg border border-dashed border-border-strong bg-surface-muted px-md py-3xl text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-subtle text-primary">
-        <DesktopIcon />
-      </span>
-      <div className="flex flex-col gap-2xs">
-        <h2 className="text-lg font-bold text-foreground">데스크톱에서 필드를 배치해 주세요</h2>
-        <p className="max-w-[420px] text-sm text-foreground-subtle">
-          서명 필드 배치는 마우스가 있는 큰 화면에 맞춰져 있어요. 데스크톱에서 이어서 진행해 주세요.
-        </p>
-      </div>
-    </div>
-  );
-}
-
 /**
  * True on a desktop-class viewport: a precise pointer (mouse) and room to work.
- * Field placement is a mouse interaction, so coarse/narrow devices fall back.
+ * Precise drag-placement is a mouse interaction, so coarse/narrow devices get
+ * the touch "확인" review surface instead.
  */
 const DESKTOP_QUERY = '(min-width: 1024px) and (pointer: fine)';
 
@@ -402,15 +409,6 @@ function MinusIcon() {
   return (
     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
       <path d="M5 10h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-    </svg>
-  );
-}
-
-function DesktopIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 20h6M12 16v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
     </svg>
   );
 }

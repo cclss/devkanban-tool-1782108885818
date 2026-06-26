@@ -672,7 +672,7 @@ const HANDLE_CURSOR: Record<ResizeHandle, string> = {
   w: 'cursor-ew-resize',
 };
 
-function FieldGlyph({ type }: { type: SignFieldType }) {
+export function FieldGlyph({ type }: { type: SignFieldType }) {
   if (type === 'SIGNATURE') {
     return (
       <svg viewBox="0 0 16 16" className="h-3.5 w-3.5" fill="none" aria-hidden="true">
