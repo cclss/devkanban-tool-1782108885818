@@ -18,6 +18,9 @@ model User {
   email        String   @unique
   name         String?
   passwordHash String?  @map("password_hash")
+  // Google account subject (`sub`) for social sign-in. Null for password-only
+  // accounts; set when a user signs in/links via Google.
+  googleId     String?  @unique @map("google_id")
   // Sender branding (logo + brand color) — available on all plans per spec.
   brandLogoUrl String?  @map("brand_logo_url")
   brandColor   String?  @map("brand_color")

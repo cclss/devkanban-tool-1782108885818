@@ -1,4 +1,4 @@
-import { IsEmail, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -22,4 +22,12 @@ export class LoginDto {
   @IsString()
   @MinLength(1)
   password!: string;
+}
+
+export class GoogleAuthDto {
+  // Authorization `code` from Google Identity Services (auth-code flow with
+  // `redirect_uri: 'postmessage'`). Exchanged server-side for tokens.
+  @IsString()
+  @IsNotEmpty()
+  code!: string;
 }

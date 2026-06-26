@@ -17,6 +17,14 @@ export const MESSAGES = {
     emailTaken: '이미 가입된 이메일이에요. 로그인해 주세요.',
     unauthorized: '로그인이 필요해요. 다시 로그인해 주세요.',
     sessionExpired: '로그인 정보가 만료됐어요. 다시 로그인해 주세요.',
+    // Google 소셜 인증 실패 — 잘못/만료된 인가 코드, 토큰 교환·검증 실패 등.
+    // 실패 원인(코드 만료/검증 오류 등 내부 사정)을 특정하지 않고 다음 행동만 안내.
+    googleAuthFailed: 'Google 로그인에 실패했어요. 다시 시도해 주세요.',
+    // Google 계정의 이메일이 아직 인증되지 않음 — 다음 행동(이메일 인증)을 안내.
+    googleEmailUnverified: 'Google 계정의 이메일 인증이 필요해요. 이메일 인증을 마친 뒤 다시 시도해 주세요.',
+    // 서버에 Google 자격증명이 설정되지 않아 일시적으로 사용할 수 없음 —
+    // 내부 설정 사정을 노출하지 않고 일시적 불가로만 안내(503).
+    googleUnavailable: '지금은 Google 로그인을 사용할 수 없어요. 잠시 후 다시 시도해 주세요.',
   },
   document: {
     notFound: '요청한 계약을 찾을 수 없어요.',
