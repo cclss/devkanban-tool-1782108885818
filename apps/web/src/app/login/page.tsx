@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Button, Card, Field, Input } from '@repo/ui';
 import { BlobBackground } from '@/components/blob-background';
@@ -159,6 +160,16 @@ export default function LoginPage() {
             {submitting ? '로그인 중' : '로그인'}
           </Button>
         </form>
+
+        <p className="mt-xl text-center text-sm text-foreground-subtle">
+          아직 계정이 없으신가요?{' '}
+          <Link
+            href="/signup"
+            className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
+          >
+            회원가입
+          </Link>
+        </p>
       </Card>
     </main>
   );

@@ -85,3 +85,17 @@ export async function login(email: string, password: string): Promise<LoginRespo
   setSession(session);
   return session;
 }
+
+/**
+ * Create an account and establish the session. The server returns the same
+ * `{ accessToken, user }` shape as login, so registration logs the user in
+ * immediately (no separate sign-in step). Throws `ApiError` on failure — e.g.
+ * the email is already taken. */
+export async function register(email: string, password: string): Promise<LoginResponse> {
+  const session = await apiFetch<LoginResponse>('/auth/register', {
+    method: 'POST',
+    json: { email, password },
+  });
+  setSession(session);
+  return session;
+}
