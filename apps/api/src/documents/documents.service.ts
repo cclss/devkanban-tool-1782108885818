@@ -11,6 +11,7 @@ import {
   DocumentStatus,
   Plan,
   Prisma,
+  SignFieldSource,
   SignRequestStatus,
   type Document,
 } from '@repo/db';
@@ -108,32 +109,67 @@ export class DocumentsService {
     return this.toSummary(document, 0);
   }
 
-  /** Replace the placed sign fields for a draft document. */
-  async saveFields(ownerId: string, documentId: string, dto: SaveFieldsDto): Promise<{ count: number }> {
+  /**
+   * Replace the placed sign fields for a not-yet-sent document and persist their
+   * provenance (AI-as-is vs hand-placed/adjusted, confidence, confirmation time).
+   *
+   * Saving fields *is* the confirm action, so it doubles as the send-readiness
+   * gate: a document with ≥1 confirmed field flips to READY ("발송 준비 완료") —
+   * ready to dispatch, but sending stays a separate action. Clearing all fields
+   * drops it back to DRAFT. Re-confirming an already-READY document is allowed
+   * (the "확인" step can be revisited); a sent/completed contract is not.
+   */
+  async saveFields(
+    ownerId: string,
+    documentId: string,
+    dto: SaveFieldsDto,
+  ): Promise<{ count: number; status: DocumentStatus; statusLabel: string; readyToSend: boolean }> {
     const document = await this.requireOwnedDocument(ownerId, documentId);
-    if (document.status !== DocumentStatus.DRAFT) {
+    if (!this.isFieldsMutable(document.status)) {
       throw new BadRequestException(MESSAGES.send.alreadySent);
     }
 
-    const count = await this.prisma.$transaction(async (tx) => {
+    const confirmedAt = new Date();
+    const status = await this.prisma.$transaction(async (tx) => {
       await tx.signField.deleteMany({ where: { documentId } });
-      if (dto.fields.length === 0) return 0;
-      const created = await tx.signField.createMany({
-        data: dto.fields.map((f) => ({
-          documentId,
-          type: f.type,
-          page: f.page,
-          x: f.x,
-          y: f.y,
-          width: f.width,
-          height: f.height,
-          recipientIndex: f.recipientIndex ?? 0,
-        })),
-      });
-      return created.count;
+      if (dto.fields.length > 0) {
+        await tx.signField.createMany({
+          data: dto.fields.map((f) => {
+            const source = (f.source as SignFieldSource | undefined) ?? SignFieldSource.MANUAL;
+            return {
+              documentId,
+              type: f.type,
+              page: f.page,
+              x: f.x,
+              y: f.y,
+              width: f.width,
+              height: f.height,
+              recipientIndex: f.recipientIndex ?? 0,
+              source,
+              // Confidence is provenance for AI-as-is fields only; a hand-placed
+              // or user-adjusted (MANUAL) field carries none even if one is sent.
+              confidence: source === SignFieldSource.AI ? f.confidence ?? null : null,
+              confirmedAt,
+            };
+          }),
+        });
+      }
+      // Confirmed fields → 발송 준비 완료; cleared → back to a plain draft. Only
+      // ever transition between DRAFT and READY here, never out of a sent state.
+      const nextStatus =
+        dto.fields.length > 0 ? DocumentStatus.READY : DocumentStatus.DRAFT;
+      if (document.status !== nextStatus) {
+        await tx.document.update({ where: { id: documentId }, data: { status: nextStatus } });
+      }
+      return nextStatus;
     });
 
-    return { count };
+    return {
+      count: dto.fields.length,
+      status,
+      statusLabel: DOCUMENT_STATUS_LABEL[status],
+      readyToSend: status === DocumentStatus.READY,
+    };
   }
 
   /**
@@ -148,7 +184,9 @@ export class DocumentsService {
     ip?: string,
   ): Promise<DocumentSummary> {
     const document = await this.requireOwnedDocument(ownerId, documentId);
-    if (document.status !== DocumentStatus.DRAFT) {
+    // Dispatchable from DRAFT (legacy save-then-send) or READY (fields already
+    // confirmed); anything past that has already been sent.
+    if (!this.isFieldsMutable(document.status)) {
       throw new BadRequestException(MESSAGES.send.alreadySent);
     }
 
@@ -270,6 +308,9 @@ export class DocumentsService {
             height: true,
             recipientIndex: true,
             signRequestId: true,
+            source: true,
+            confidence: true,
+            confirmedAt: true,
           },
         },
       },
@@ -280,7 +321,12 @@ export class DocumentsService {
     return {
       ...this.toSummary(document, document.signRequests.length),
       recipients: document.signRequests,
-      fields: document.signFields,
+      // Restore the confirmed placements with their provenance so a revisit to the
+      // "확인" step shows exactly what was confirmed (AI-as-is vs adjusted) and when.
+      fields: document.signFields.map((f) => ({
+        ...f,
+        confirmedAt: f.confirmedAt ? f.confirmedAt.toISOString() : null,
+      })),
     };
   }
 
@@ -349,6 +395,14 @@ export class DocumentsService {
     });
   }
 
+  /**
+   * Whether sign fields can still be (re)placed and the contract dispatched.
+   * True only before send — for a DRAFT or a READY ("발송 준비 완료") document.
+   */
+  private isFieldsMutable(status: DocumentStatus): boolean {
+    return status === DocumentStatus.DRAFT || status === DocumentStatus.READY;
+  }
+
   private async requireOwnedDocument(ownerId: string, documentId: string): Promise<Document> {
     const document = await this.prisma.document.findUnique({ where: { id: documentId } });
     if (!document) throw new NotFoundException(MESSAGES.document.notFound);
@@ -410,6 +464,9 @@ export class DocumentsService {
       sentAt: document.sentAt ? document.sentAt.toISOString() : null,
       createdAt: document.createdAt.toISOString(),
       completedAt: document.completedAt ? document.completedAt.toISOString() : null,
+      // Fields confirmed + persisted, contract not yet dispatched. Lets the UI
+      // surface "발송 준비 완료" and offer send as the next, separate step.
+      readyToSend: document.status === DocumentStatus.READY,
       // The dashboard download area only appears once post-processing has stored
       // both artifacts; until then it shows a "준비 중" placeholder.
       downloadsReady:
@@ -433,6 +490,8 @@ export interface DocumentSummary {
   completedAt: string | null;
   /** True when both completion artifacts are stored and downloadable. */
   downloadsReady: boolean;
+  /** True when fields are confirmed/persisted and the contract awaits send. */
+  readyToSend: boolean;
 }
 
 export interface DocumentDetail extends DocumentSummary {
@@ -453,5 +512,11 @@ export interface DocumentDetail extends DocumentSummary {
     height: number;
     recipientIndex: number | null;
     signRequestId: string | null;
+    /** Placement provenance: AI (accepted as-is) vs MANUAL (placed/adjusted). */
+    source: SignFieldSource;
+    /** AI-as-is confidence (0..1); null for manual/adjusted fields. */
+    confidence: number | null;
+    /** ISO confirmation timestamp (null for legacy pre-provenance rows). */
+    confirmedAt: string | null;
   }>;
 }

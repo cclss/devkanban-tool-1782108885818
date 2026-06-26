@@ -22,6 +22,12 @@ export enum SignFieldTypeDto {
   TEXT = 'TEXT',
 }
 
+/** Mirrors Prisma's SignFieldSource enum (kept local to avoid a value import). */
+export enum SignFieldSourceDto {
+  AI = 'AI',
+  MANUAL = 'MANUAL',
+}
+
 export class PresignDto {
   @IsString()
   @MaxLength(200)
@@ -81,6 +87,25 @@ export class SignFieldDto {
   @IsInt()
   @Min(0)
   recipientIndex?: number;
+
+  /**
+   * Provenance of the placement. `AI` = accepted straight from an AI suggestion;
+   * `MANUAL` = hand-placed or an AI suggestion the user adjusted. Optional +
+   * defaults to `MANUAL` server-side so older clients (which omit it) stay valid.
+   */
+  @IsOptional()
+  @IsEnum(SignFieldSourceDto)
+  source?: SignFieldSourceDto;
+
+  /**
+   * The suggestion model's internal confidence (0..1), kept only for AI-as-is
+   * fields. Non-visual provenance metadata — never surfaced as a grade.
+   */
+  @IsOptional()
+  @IsNumber()
+  @Min(0)
+  @Max(1)
+  confidence?: number;
 }
 
 export class SaveFieldsDto {

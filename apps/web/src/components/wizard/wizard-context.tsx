@@ -37,6 +37,14 @@ export interface SignFieldDraft {
   height: number;
   /** 0-based recipient index this field is assigned to. */
   recipientIndex?: number;
+  /**
+   * Placement provenance, persisted on save. `'ai'` = accepted straight from an
+   * AI suggestion; `'manual'` (default) = hand-placed or an AI suggestion the
+   * user adjusted. Omitted on hand-placed drafts → persisted as manual.
+   */
+  source?: 'ai' | 'manual';
+  /** AI suggestion confidence (0..1), carried only for an unadjusted `'ai'` field. */
+  confidence?: number;
 }
 
 export interface RecipientDraft {

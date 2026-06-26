@@ -265,8 +265,9 @@ describe('Sender flow (e2e)', () => {
       '이번 달 무료 발송 5건을 모두 사용했어요. 다음 달에 다시 발송하거나 플랜을 업그레이드해 주세요.',
     );
 
-    // The blocked document stays a draft.
-    const stillDraft = await prisma.document.findUnique({ where: { id: sixthId } });
-    expect(stillDraft?.status).toBe('DRAFT');
+    // Saving fields confirmed it (→ READY); the blocked send leaves it there,
+    // un-dispatched — never advancing to IN_PROGRESS.
+    const stillReady = await prisma.document.findUnique({ where: { id: sixthId } });
+    expect(stillReady?.status).toBe('READY');
   });
 });

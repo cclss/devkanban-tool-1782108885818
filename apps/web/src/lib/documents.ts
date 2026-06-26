@@ -19,7 +19,7 @@ import {
   type CompletionArtifact,
 } from './completion-download';
 
-export type DocumentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type DocumentStatus = 'DRAFT' | 'READY' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
 export interface DocumentSummary {
   id: string;
@@ -35,6 +35,8 @@ export interface DocumentSummary {
   completedAt: string | null;
   /** True when both completion artifacts are stored and downloadable. */
   downloadsReady: boolean;
+  /** True when fields are confirmed/persisted and the contract awaits send. */
+  readyToSend: boolean;
 }
 
 export interface Quota {

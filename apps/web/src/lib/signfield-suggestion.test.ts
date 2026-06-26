@@ -2,8 +2,8 @@
  * Tests for the AI-suggestion ↔ wizard-state glue.
  *
  *   • suggestionToFieldDraft / suggestionsToFieldDrafts — an accepted suggestion
- *     becomes a plain field: AI metadata dropped, geometry preserved + clamped,
- *     fresh id applied.
+ *     becomes an editable field: provenance (source/confidence) preserved, the
+ *     UI-only anchorLabel dropped, geometry preserved + clamped, fresh id applied.
  *   • deriveBannerState — the analysis lifecycle + live count maps to the
  *     banner's state, and collapses to `null` once nothing is pending.
  */
@@ -34,7 +34,7 @@ function suggestion(over: Partial<SignFieldSuggestion> = {}): SignFieldSuggestio
 }
 
 describe('suggestionToFieldDraft', () => {
-  it('keeps type/page/geometry and applies the supplied id', () => {
+  it('keeps type/page/geometry + provenance and applies the supplied id', () => {
     const draft = suggestionToFieldDraft(suggestion(), 'field-9');
     expect(draft).toEqual({
       id: 'field-9',
@@ -44,16 +44,18 @@ describe('suggestionToFieldDraft', () => {
       y: 0.2,
       width: 0.26,
       height: 0.08,
+      source: 'ai',
+      confidence: 0.9,
     });
   });
 
-  it('drops the AI-only metadata (confidence/source/anchorLabel)', () => {
+  it('preserves AI provenance (source/confidence) but drops the UI-only anchorLabel', () => {
     const draft = suggestionToFieldDraft(suggestion(), 'field-1') as unknown as Record<
       string,
       unknown
     >;
-    expect(draft).not.toHaveProperty('confidence');
-    expect(draft).not.toHaveProperty('source');
+    expect(draft.source).toBe('ai');
+    expect(draft.confidence).toBe(0.9);
     expect(draft).not.toHaveProperty('anchorLabel');
   });
 

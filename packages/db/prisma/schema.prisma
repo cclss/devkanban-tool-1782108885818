@@ -110,6 +110,19 @@ model SignField {
   height        Float
   // Captured value once signed (signature image ref / text / date).
   value         String?
+  // Provenance of this placement, persisted so a confirmed contract records how
+  // each field came to be:
+  //   • source      — AI (accepted an AI suggestion as-is) vs MANUAL (hand-placed
+  //                   or an AI suggestion the user adjusted). Defaults to MANUAL
+  //                   so pre-provenance rows and hand-placed fields read correctly.
+  //   • confidence  — the suggestion model's internal score (0..1), kept only for
+  //                   AI-as-is fields. Non-visual metadata (never surfaced as a
+  //                   "92% 확실" grade); cleared once a user adjusts the geometry.
+  //   • confirmedAt — when the field was confirmed/saved (the "확정시각"). Null
+  //                   until the placement is saved through the confirm path.
+  source        SignFieldSource @default(MANUAL)
+  confidence    Float?
+  confirmedAt   DateTime?     @map("confirmed_at")
   createdAt     DateTime      @default(now()) @map("created_at")
   updatedAt     DateTime      @updatedAt @map("updated_at")
 
@@ -150,6 +163,10 @@ enum Plan {
 
 enum DocumentStatus {
   DRAFT
+  // Sign fields confirmed and persisted ("발송 준비 완료"): the contract is ready
+  // to dispatch, but sending stays a separate, explicit action (DRAFT → READY →
+  // IN_PROGRESS). Clearing all fields drops it back to DRAFT.
+  READY
   IN_PROGRESS
   COMPLETED
   CANCELLED
@@ -166,4 +183,12 @@ enum SignFieldType {
   SIGNATURE
   DATE
   TEXT
+}
+
+/// How a sign field came to be placed — used to distinguish a field the user
+/// accepted straight from the AI suggestion (AI) from one they hand-placed or
+/// adjusted (MANUAL).
+enum SignFieldSource {
+  AI
+  MANUAL
 }

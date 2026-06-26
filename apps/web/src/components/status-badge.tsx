@@ -13,6 +13,9 @@ import type { DocumentStatus } from '@/lib/documents';
  */
 const TONE: Record<DocumentStatus, { tint: string; dot: string; text: string }> = {
   IN_PROGRESS: { tint: 'bg-primary-subtle', dot: 'bg-primary', text: 'text-primary' },
+  // 발송 준비 완료: design-spec status-badge `ready-to-send` = success tone. The
+  // Korean label ("발송 준비 완료" vs "완료됨") carries the distinction from COMPLETED.
+  READY: { tint: 'bg-success-subtle', dot: 'bg-success', text: 'text-foreground-muted' },
   COMPLETED: { tint: 'bg-success-subtle', dot: 'bg-success', text: 'text-foreground-muted' },
   DRAFT: { tint: 'bg-grey-100', dot: 'bg-grey-400', text: 'text-foreground-muted' },
   CANCELLED: { tint: 'bg-grey-100', dot: 'bg-grey-300', text: 'text-foreground-subtle' },

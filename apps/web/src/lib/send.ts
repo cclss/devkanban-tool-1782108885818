@@ -27,6 +27,21 @@ interface SignFieldPayload {
   width: number;
   height: number;
   recipientIndex: number;
+  /** Provenance the server persists with the confirmed field. */
+  source: 'AI' | 'MANUAL';
+  /** Confidence (0..1) sent only for an unadjusted AI field. */
+  confidence?: number;
+}
+
+/** Result of persisting fields: how many, and the resulting send-readiness. */
+export interface SaveFieldsResult {
+  count: number;
+  /** Server document status after the save (e.g. 'READY' once confirmed). */
+  status: string;
+  /** Server-authored Korean status label (single source of truth). */
+  statusLabel: string;
+  /** True once fields are confirmed/persisted and the contract awaits send. */
+  readyToSend: boolean;
 }
 
 interface RecipientPayload {
@@ -35,24 +50,36 @@ interface RecipientPayload {
   order: number;
 }
 
-/** Persist the draft's sign fields (replaces any previously saved set). */
+/**
+ * Persist the draft's sign fields (replaces any previously saved set) and their
+ * provenance. Saving ≥1 field confirms the placement: the server marks the
+ * document "발송 준비 완료" (READY) while keeping send a separate action.
+ */
 export function saveFields(
   documentId: string,
   fields: SignFieldDraft[],
   token?: string,
-): Promise<{ count: number }> {
-  const payload: SignFieldPayload[] = fields.map((f) => ({
-    type: f.type,
-    page: f.page,
-    x: f.x,
-    y: f.y,
-    width: f.width,
-    height: f.height,
-    // Every field is homed onto a recipient by the recipients step's
-    // autoAssignFields invariant; default to the first signer just in case.
-    recipientIndex: f.recipientIndex ?? 0,
-  }));
-  return apiFetch<{ count: number }>(`/documents/${documentId}/fields`, {
+): Promise<SaveFieldsResult> {
+  const payload: SignFieldPayload[] = fields.map((f) => {
+    const isAi = f.source === 'ai';
+    return {
+      type: f.type,
+      page: f.page,
+      x: f.x,
+      y: f.y,
+      width: f.width,
+      height: f.height,
+      // Every field is homed onto a recipient by the recipients step's
+      // autoAssignFields invariant; default to the first signer just in case.
+      recipientIndex: f.recipientIndex ?? 0,
+      // Default to MANUAL: a hand-placed field (no source) or one the user
+      // adjusted is the sender's own placement. Confidence rides along only for
+      // an untouched AI suggestion (and the server drops it for MANUAL anyway).
+      source: isAi ? 'AI' : 'MANUAL',
+      ...(isAi && f.confidence !== undefined ? { confidence: f.confidence } : {}),
+    };
+  });
+  return apiFetch<SaveFieldsResult>(`/documents/${documentId}/fields`, {
     method: 'PUT',
     json: { fields: payload },
     token,

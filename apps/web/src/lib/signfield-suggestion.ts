@@ -8,11 +8,14 @@
  * they unit-test in the node jest env (same reason the engine + orchestration
  * already live in `lib/`).
  *
- *   • {@link suggestionToFieldDraft} — strip the AI-only metadata (confidence /
- *     source / anchorLabel) so an accepted suggestion becomes indistinguishable
- *     from a hand-placed field and flows through the existing normalize/save
- *     path unchanged. Geometry is re-clamped for the same in-page guarantee the
- *     manual drop path gives.
+ *   • {@link suggestionToFieldDraft} — turn an accepted suggestion into an
+ *     editable field draft, *preserving its provenance* (`source: 'ai'` +
+ *     `confidence`) so the save path can persist how the placement came to be
+ *     (grain-2: AI-accepted-as-is vs hand-placed/adjusted). Only the UI-only
+ *     `anchorLabel` is dropped. Geometry is re-clamped for the same in-page
+ *     guarantee the manual drop path gives. If the user later adjusts the field
+ *     (move/resize), the editor flips `source` to `'manual'` and clears
+ *     `confidence` — an adjusted field is no longer the AI's untouched proposal.
  *   • {@link deriveBannerState} — collapse the analysis lifecycle + the live
  *     suggestion count into the presentational SuggestionBanner's state (or
  *     `null` when there is nothing to announce), so the banner stays a dumb
@@ -33,6 +36,10 @@ export interface FieldDraftShape {
   width: number;
   height: number;
   recipientIndex?: number;
+  /** Provenance: 'ai' (accepted as-is) vs 'manual' (placed/adjusted). */
+  source?: 'ai' | 'manual';
+  /** AI suggestion confidence (0..1), carried only for an unadjusted 'ai' field. */
+  confidence?: number;
 }
 
 /**
@@ -60,13 +67,13 @@ export type BannerState =
   | { status: 'error'; message?: string };
 
 /**
- * Convert one accepted suggestion into a plain, editable field draft.
- *
- * Drops the AI-only metadata so the result is byte-for-byte a normal field, and
- * re-clamps the geometry (the engine already clamps, but doing it here keeps the
- * accept path identical to the manual drop path and defends against any
- * future/looser extractor). The caller supplies a fresh id so an accepted field
- * never collides with a later re-analysis's `ai-N` ids.
+ * Convert one accepted suggestion into an editable field draft, keeping its
+ * provenance (`source: 'ai'` + `confidence`) so the save path can record that
+ * this placement was accepted straight from the AI. Drops only the UI-only
+ * `anchorLabel`, and re-clamps the geometry (the engine already clamps, but doing
+ * it here keeps the accept path identical to the manual drop path and defends
+ * against any future/looser extractor). The caller supplies a fresh id so an
+ * accepted field never collides with a later re-analysis's `ai-N` ids.
  */
 export function suggestionToFieldDraft(
   suggestion: SignFieldSuggestion,
@@ -78,7 +85,14 @@ export function suggestionToFieldDraft(
     width: suggestion.width,
     height: suggestion.height,
   });
-  return { id, type: suggestion.type, page: suggestion.page, ...norm };
+  return {
+    id,
+    type: suggestion.type,
+    page: suggestion.page,
+    ...norm,
+    source: suggestion.source,
+    confidence: suggestion.confidence,
+  };
 }
 
 /**
