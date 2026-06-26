@@ -15,12 +15,17 @@ import {
   clampPxRect,
   defaultPxRectAt,
   resizePxRect,
+  resizeProportionalPx,
+  scalePxRectAroundCenter,
+  scaleNormRectAroundCenter,
+  pointerDistance,
   snapMove,
   FIELD_TYPE_META,
   MIN_NORM_WIDTH,
   MIN_NORM_HEIGHT,
   type PageSize,
   type PxRect,
+  type NormRect,
 } from './field-geometry';
 
 const A4: PageSize = { width: 595, height: 842 };
@@ -190,5 +195,158 @@ describe('snapMove', () => {
     const rect: PxRect = { left: 153, top: 100, width: 80, height: 40 };
     const { rect: snapped } = snapMove(rect, page, [peer], 6);
     expect(snapped.left).toBeCloseTo(150, 6);
+  });
+});
+
+// --- Mobile / tablet touch-review gestures -----------------------------------
+//
+// These pin the direct-manipulation math the "확인" review surface composes
+// (mobile-fields-review.tsx): proportional corner resize, two-finger pinch, the
+// size stepper, and — most importantly for the grain — that every gesture stays
+// inside the page raster after the shared clamp. The component drives only the
+// React/pointer plumbing on top of these pure helpers, so the geometry is
+// verified here in the node env (no jsdom), matching the repo's headless seam.
+
+describe('resizeProportionalPx (touch corner handles)', () => {
+  const base: PxRect = { left: 100, top: 100, width: 200, height: 100 }; // 2:1
+
+  it('se corner scales width+height together, keeping aspect, pinning top-left', () => {
+    // Drag the SE corner out by +100px in x. The longer growth axis (x) drives a
+    // uniform scale, so height grows proportionally too (aspect ratio held).
+    const r = resizeProportionalPx(base, 'se', 100, 0);
+    expect(r.left).toBe(100);
+    expect(r.top).toBe(100);
+    expect(r.width / r.height).toBeCloseTo(2, 6); // 2:1 preserved
+    expect(r.width).toBeGreaterThan(base.width);
+    expect(r.height).toBeGreaterThan(base.height);
+  });
+
+  it('nw corner scales proportionally and pins the bottom-right corner', () => {
+    const r = resizeProportionalPx(base, 'nw', -50, 0); // drag NW outward (left)
+    expect(r.width / r.height).toBeCloseTo(2, 6);
+    // Opposite (SE) corner held fixed.
+    expect(r.left + r.width).toBeCloseTo(base.left + base.width, 6);
+    expect(r.top + r.height).toBeCloseTo(base.top + base.height, 6);
+  });
+
+  it('never collapses below a 1% floor on a fully inward drag', () => {
+    // Dragging far past the opposite edge can only shrink to the 0.01 scale floor.
+    const r = resizeProportionalPx(base, 'se', -10000, -10000);
+    expect(r.width).toBeCloseTo(base.width * 0.01, 6);
+    expect(r.height).toBeCloseTo(base.height * 0.01, 6);
+  });
+});
+
+describe('scalePxRectAroundCenter (pinch) + clamp', () => {
+  const A4: PageSize = { width: 595, height: 842 };
+
+  it('scales about the center, holding the center point still', () => {
+    const rect: PxRect = { left: 200, top: 300, width: 100, height: 80 };
+    const cx = rect.left + rect.width / 2;
+    const cy = rect.top + rect.height / 2;
+    const scaled = scalePxRectAroundCenter(rect, 1.5);
+    expect(scaled.width).toBeCloseTo(150, 6);
+    expect(scaled.height).toBeCloseTo(120, 6);
+    expect(scaled.left + scaled.width / 2).toBeCloseTo(cx, 6);
+    expect(scaled.top + scaled.height / 2).toBeCloseTo(cy, 6);
+  });
+
+  it('a pinch that overflows the page is clamped back inside (boundary)', () => {
+    const rect: PxRect = { left: 40, top: 40, width: 400, height: 600 };
+    const blownUp = clampPxRect(scalePxRectAroundCenter(rect, 4), A4);
+    expect(blownUp.left).toBeGreaterThanOrEqual(0);
+    expect(blownUp.top).toBeGreaterThanOrEqual(0);
+    expect(blownUp.left + blownUp.width).toBeLessThanOrEqual(A4.width + 1e-9);
+    expect(blownUp.top + blownUp.height).toBeLessThanOrEqual(A4.height + 1e-9);
+  });
+});
+
+describe('scaleNormRectAroundCenter (size stepper) + clamp', () => {
+  it('grow/shrink scale about the center in normalized space', () => {
+    const rect: NormRect = { x: 0.4, y: 0.4, width: 0.2, height: 0.1 };
+    const cx = rect.x + rect.width / 2;
+    const grown = scaleNormRectAroundCenter(rect, 1.12);
+    expect(grown.width).toBeCloseTo(0.2 * 1.12, 9);
+    expect(grown.x + grown.width / 2).toBeCloseTo(cx, 9);
+
+    const shrunk = scaleNormRectAroundCenter(rect, 0.89);
+    expect(shrunk.width).toBeCloseTo(0.2 * 0.89, 9);
+  });
+
+  it('growing a near-edge field clamps to a server-valid in-page box', () => {
+    const rect: NormRect = { x: 0.85, y: 0.05, width: 0.2, height: 0.1 };
+    const c = clampNormRect(scaleNormRectAroundCenter(rect, 1.12));
+    for (const v of [c.x, c.y, c.width, c.height]) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(1);
+    }
+    expect(c.x + c.width).toBeLessThanOrEqual(1 + 1e-9);
+    expect(c.y + c.height).toBeLessThanOrEqual(1 + 1e-9);
+  });
+
+  it('shrinking can never go below the minimum field size', () => {
+    const rect: NormRect = { x: 0.5, y: 0.5, width: MIN_NORM_WIDTH, height: MIN_NORM_HEIGHT };
+    const c = clampNormRect(scaleNormRectAroundCenter(rect, 0.5));
+    expect(c.width).toBeCloseTo(MIN_NORM_WIDTH, 9);
+    expect(c.height).toBeCloseTo(MIN_NORM_HEIGHT, 9);
+  });
+});
+
+describe('pointerDistance (pinch tracking)', () => {
+  it('measures the gap between the two tracked pointers', () => {
+    const pts = new Map([
+      [1, { x: 0, y: 0 }],
+      [2, { x: 3, y: 4 }],
+    ]);
+    expect(pointerDistance(pts)).toBeCloseTo(5, 9);
+  });
+
+  it('returns 0 when fewer than two pointers are down', () => {
+    expect(pointerDistance(new Map([[1, { x: 10, y: 10 }]]))).toBe(0);
+    expect(pointerDistance(new Map())).toBe(0);
+  });
+});
+
+describe('drag-move pipeline: stays in-page after the page-edge clamp', () => {
+  // Mirrors the touch surface's move gesture: shift the start rect by the finger
+  // delta, clamp to the raster, snap to guides, clamp again, then normalize +
+  // clamp on commit. The whole chain must keep the box inside the page no matter
+  // how far the finger travels past an edge — the grain's boundary-clamp guard.
+  const A4: PageSize = { width: 595, height: 842 };
+
+  function dragCommit(start: PxRect, dx: number, dy: number): NormRect {
+    const moved = clampPxRect({ ...start, left: start.left + dx, top: start.top + dy }, A4);
+    const snapped = snapMove(moved, A4, [], 8);
+    const final = clampPxRect(snapped.rect, A4);
+    return clampNormRect(pxToNorm(final, A4));
+  }
+
+  it('a drag far past the bottom-right corner settles flush inside the page', () => {
+    const start: PxRect = { left: 400, top: 600, width: 150, height: 80 };
+    const committed = dragCommit(start, 9999, 9999);
+    expect(committed.x).toBeGreaterThanOrEqual(0);
+    expect(committed.y).toBeGreaterThanOrEqual(0);
+    expect(committed.x + committed.width).toBeLessThanOrEqual(1 + 1e-9);
+    expect(committed.y + committed.height).toBeLessThanOrEqual(1 + 1e-9);
+  });
+
+  it('a drag far past the top-left corner pins the box to the origin edges', () => {
+    const start: PxRect = { left: 120, top: 200, width: 150, height: 80 };
+    const committed = dragCommit(start, -9999, -9999);
+    // Pinned to the left edge (x≈0) and the page top (norm y = 1 − height).
+    expect(committed.x).toBeCloseTo(0, 6);
+    expect(committed.y + committed.height).toBeCloseTo(1, 6);
+    // Size is preserved by the move (no resize), modulo float.
+    expect(committed.width).toBeCloseTo(150 / A4.width, 6);
+    expect(committed.height).toBeCloseTo(80 / A4.height, 6);
+  });
+
+  it('a small in-bounds drag just translates the box by the delta', () => {
+    const start: PxRect = { left: 100, top: 100, width: 120, height: 60 };
+    const committed = dragCommit(start, 30, -20);
+    // No clamping engaged → the normalized round-trip reproduces left/top exactly.
+    const back = normToPx(committed, A4);
+    expect(back.left).toBeCloseTo(130, 4);
+    expect(back.top).toBeCloseTo(80, 4);
   });
 });

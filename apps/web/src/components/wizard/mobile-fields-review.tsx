@@ -48,6 +48,10 @@ import {
   clampNormRect,
   clampPxRect,
   resizePxRect,
+  resizeProportionalPx,
+  scalePxRectAroundCenter,
+  scaleNormRectAroundCenter,
+  pointerDistance,
   snapMove,
   RESIZE_HANDLES,
   FIELD_TYPE_META,
@@ -78,32 +82,6 @@ const DRAG_ACTIVATE_PX = 4;
 /** Corner handles resize proportionally; edge handles resize a single axis. */
 function isCornerHandle(handle: ResizeHandle): boolean {
   return handle.length === 2;
-}
-
-/**
- * Proportional corner resize (px space): scale the box uniformly so it keeps its
- * aspect ratio, pinning the corner opposite the dragged one. Caller clamps.
- */
-function resizeProportionalPx(start: PxRect, handle: ResizeHandle, dx: number, dy: number): PxRect {
-  const raw = resizePxRect(start, handle, dx, dy);
-  const scale = Math.max(raw.width / start.width, raw.height / start.height, 0.01);
-  const width = start.width * scale;
-  const height = start.height * scale;
-  const right = start.left + start.width;
-  const bottom = start.top + start.height;
-  return {
-    left: handle.includes('w') ? right - width : start.left,
-    top: handle.includes('n') ? bottom - height : start.top,
-    width,
-    height,
-  };
-}
-
-/** Distance between two tracked pointer positions (px). */
-function pointerDistance(points: Map<number, { x: number; y: number }>): number {
-  const [a, b] = [...points.values()];
-  if (!a || !b) return 0;
-  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 /** Page-relative percentages for the live readout (always 0..100, rounded). */
@@ -188,13 +166,7 @@ export function MobileFieldsReview({
 
   const resize = React.useCallback(
     (factor: number) =>
-      adjustSelectedField((f) => {
-        const cx = f.x + f.width / 2;
-        const cy = f.y + f.height / 2;
-        const width = f.width * factor;
-        const height = f.height * factor;
-        return { ...f, ...clampNormRect({ x: cx - width / 2, y: cy - height / 2, width, height }) };
-      }),
+      adjustSelectedField((f) => ({ ...f, ...clampNormRect(scaleNormRectAroundCenter(f, factor)) })),
     [adjustSelectedField],
   );
 
@@ -563,11 +535,7 @@ function ReviewCanvas({
     if (g.kind === 'pinch') {
       if (pointersRef.current.size < 2) return;
       const scale = (pointerDistance(pointersRef.current) || g.startDist) / g.startDist;
-      const cx = g.startRect.left + g.startRect.width / 2;
-      const cy = g.startRect.top + g.startRect.height / 2;
-      const width = g.startRect.width * scale;
-      const height = g.startRect.height * scale;
-      const next = clampPxRect({ left: cx - width / 2, top: cy - height / 2, width, height }, page);
+      const next = clampPxRect(scalePxRectAroundCenter(g.startRect, scale), page);
       setLiveRect({ id: g.id, rect: next });
       setReadout(pctSize(next, page));
       return;

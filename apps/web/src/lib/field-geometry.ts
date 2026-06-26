@@ -184,6 +184,65 @@ export function resizePxRect(rect: PxRect, handle: ResizeHandle, dx: number, dy:
   return { left, top, width, height };
 }
 
+/**
+ * Proportional corner resize (px space): scale the box uniformly so it keeps its
+ * aspect ratio, pinning the corner opposite the dragged one. Returns the new
+ * (unclamped) px rect; caller clamps. Used by the touch review's corner handles,
+ * where a single drag should grow/shrink width and height together.
+ */
+export function resizeProportionalPx(
+  start: PxRect,
+  handle: ResizeHandle,
+  dx: number,
+  dy: number,
+): PxRect {
+  const raw = resizePxRect(start, handle, dx, dy);
+  const scale = Math.max(raw.width / start.width, raw.height / start.height, 0.01);
+  const width = start.width * scale;
+  const height = start.height * scale;
+  const right = start.left + start.width;
+  const bottom = start.top + start.height;
+  return {
+    left: handle.includes('w') ? right - width : start.left,
+    top: handle.includes('n') ? bottom - height : start.top,
+    width,
+    height,
+  };
+}
+
+/**
+ * Scale a px rect around its own center (the two-finger pinch gesture). The
+ * center holds still while width/height scale by `scale`. Unclamped; caller
+ * clamps to the page.
+ */
+export function scalePxRectAroundCenter(rect: PxRect, scale: number): PxRect {
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const width = rect.width * scale;
+  const height = rect.height * scale;
+  return { left: cx - width / 2, top: cy - height / 2, width, height };
+}
+
+/**
+ * Scale a normalized rect around its own center (the size stepper's grow/shrink).
+ * Inverse-free counterpart of {@link scalePxRectAroundCenter} in normalized
+ * space. Unclamped; caller clamps to keep it in-page.
+ */
+export function scaleNormRectAroundCenter(rect: NormRect, factor: number): NormRect {
+  const cx = rect.x + rect.width / 2;
+  const cy = rect.y + rect.height / 2;
+  const width = rect.width * factor;
+  const height = rect.height * factor;
+  return { x: cx - width / 2, y: cy - height / 2, width, height };
+}
+
+/** Distance (px) between two tracked pointer positions, for pinch scaling. */
+export function pointerDistance(points: Map<number, { x: number; y: number }>): number {
+  const [a, b] = [...points.values()];
+  if (!a || !b) return 0;
+  return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
 /** Candidate snap line in one axis (px), with the value it represents. */
 export interface SnapLine {
   axis: 'x' | 'y';
