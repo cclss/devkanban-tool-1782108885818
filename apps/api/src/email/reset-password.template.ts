@@ -1,12 +1,13 @@
 /* ────────────────────────────────────────────────────────────────────────────
- * Find-ID emails (account recovery): verification-code mail + recovered-ID mail.
+ * Reset-password emails: verification-code mail (request stage) +
+ * password-changed notice (confirm stage).
  *
- * Layout/token values come from the shared `account-email.layout` helper so the
- * single-column account-email shell lives in one place (no duplication). These
- * are system/account messages with no sender branding — the default Toss-blue
- * accent and the product service name.
+ * Layout/token values are reused from the shared `account-email.layout` helper
+ * (same single-column account-email shell as `find-id.template.ts`); nothing is
+ * re-implemented here. The password-changed notice carries no value to surface,
+ * so it omits the highlight box.
  *
- * All copy is fixed in `common/messages.ts` (MESSAGES.findId.*); do not
+ * All copy is fixed in `common/messages.ts` (MESSAGES.resetPassword.*); do not
  * improvise wording here.
  * ──────────────────────────────────────────────────────────────────────────── */
 
@@ -22,11 +23,11 @@ import {
 export type { RenderedEmail };
 
 /** Verification-code email (request stage, email channel). */
-export function renderFindIdCodeEmail(input: {
+export function renderResetPasswordCodeEmail(input: {
   code: string;
   serviceName?: string;
 }): RenderedEmail {
-  const copy = MESSAGES.findId.codeEmail;
+  const copy = MESSAGES.resetPassword.codeEmail;
   const serviceName = input.serviceName?.trim() || DEFAULT_SERVICE_NAME;
   const args: ContentEmailArgs = {
     serviceName,
@@ -40,18 +41,16 @@ export function renderFindIdCodeEmail(input: {
   return { subject: copy.subject, html: renderContentHtml(args), text: renderContentText(args) };
 }
 
-/** Recovered-ID email (verify success, email channel) — carries the full ID. */
-export function renderFindIdResultEmail(input: {
-  accountId: string;
+/** Password-changed notice (confirm success, email channel) — no value to surface. */
+export function renderResetPasswordDoneEmail(input: {
   serviceName?: string;
-}): RenderedEmail {
-  const copy = MESSAGES.findId.resultEmail;
+} = {}): RenderedEmail {
+  const copy = MESSAGES.resetPassword.doneEmail;
   const serviceName = input.serviceName?.trim() || DEFAULT_SERVICE_NAME;
   const args: ContentEmailArgs = {
     serviceName,
     headline: copy.headline,
     bodyAbove: [copy.intro],
-    highlight: input.accountId,
     bodyBelow: [copy.outro],
     disclaimer: copy.disclaimer,
   };
