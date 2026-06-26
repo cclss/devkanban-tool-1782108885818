@@ -27,7 +27,7 @@ import { KOREAN_MOBILE_REGEX, normalizeKoreanMobile } from '../../common/phone';
 export type FindIdChannel = 'email' | 'phone';
 
 /** Normalize `target` based on the sibling `channel` value. */
-function normalizeTarget(value: unknown, channel: unknown): unknown {
+export function normalizeTarget(value: unknown, channel: unknown): unknown {
   if (typeof value !== 'string') return value;
   return channel === 'phone'
     ? normalizeKoreanMobile(value)
@@ -35,7 +35,7 @@ function normalizeTarget(value: unknown, channel: unknown): unknown {
 }
 
 /** Validate `target` as an email or Korean mobile, picked by sibling `channel`. */
-function IsFindIdTarget(options?: ValidationOptions) {
+export function IsFindIdTarget(options?: ValidationOptions) {
   return function (object: object, propertyName: string) {
     registerDecorator({
       name: 'isFindIdTarget',

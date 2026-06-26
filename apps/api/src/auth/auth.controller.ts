@@ -1,8 +1,14 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { FindIdService } from './find-id.service';
+import { ResetPasswordService } from './reset-password.service';
 import { GoogleAuthDto, LoginDto, RegisterDto } from './dto/auth.dto';
 import { FindIdRequestDto, FindIdVerifyDto } from './dto/find-id.dto';
+import {
+  ResetPasswordConfirmDto,
+  ResetPasswordRequestDto,
+  ResetPasswordVerifyDto,
+} from './dto/reset-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -12,6 +18,7 @@ export class AuthController {
   constructor(
     private readonly auth: AuthService,
     private readonly findId: FindIdService,
+    private readonly resetPassword: ResetPasswordService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -44,6 +51,26 @@ export class AuthController {
   @HttpCode(HttpStatus.OK)
   findIdVerify(@Body() dto: FindIdVerifyDto) {
     return this.findId.verify(dto);
+  }
+
+  // --- 비밀번호 재설정 ------------------------------------------------------
+
+  @Post('reset-password/request')
+  @HttpCode(HttpStatus.OK)
+  resetPasswordRequest(@Body() dto: ResetPasswordRequestDto) {
+    return this.resetPassword.request(dto);
+  }
+
+  @Post('reset-password/verify')
+  @HttpCode(HttpStatus.OK)
+  resetPasswordVerify(@Body() dto: ResetPasswordVerifyDto) {
+    return this.resetPassword.verify(dto);
+  }
+
+  @Post('reset-password/confirm')
+  @HttpCode(HttpStatus.OK)
+  resetPasswordConfirm(@Body() dto: ResetPasswordConfirmDto) {
+    return this.resetPassword.confirm(dto);
   }
 
   @Get('me')
