@@ -15,6 +15,11 @@ import { GoogleAuthError, useGoogleAuthCode } from '@/lib/google-oauth';
 /** Pragmatic email shape check — the server is the real authority. */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** Secondary-link styling shared with find-id/signup ("아이디 찾기" / "회원가입"). */
+const SECONDARY_LINK =
+  'font-semibold text-primary underline-offset-4 hover:underline ' +
+  'focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus';
+
 type FieldErrors = { email?: string; password?: string };
 
 function validate(email: string, password: string): FieldErrors {
@@ -187,15 +192,20 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <p className="mt-lg text-center text-sm text-foreground-subtle">
-          아이디가 기억나지 않으세요?{' '}
-          <Link
-            href="/find-id"
-            className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
-          >
-            아이디 찾기
-          </Link>
-        </p>
+        <div className="mt-lg flex flex-col gap-xs text-center text-sm text-foreground-subtle">
+          <p>
+            아이디가 기억나지 않으세요?{' '}
+            <Link href="/find-id" className={SECONDARY_LINK}>
+              아이디 찾기
+            </Link>
+          </p>
+          <p>
+            비밀번호를 잊으셨나요?{' '}
+            <Link href="/reset-password" className={SECONDARY_LINK}>
+              비밀번호 찾기
+            </Link>
+          </p>
+        </div>
 
         {googleAvailable ? (
           <div className="mt-lg flex flex-col gap-md">
@@ -219,10 +229,7 @@ export default function LoginPage() {
 
         <p className="mt-xl text-center text-sm text-foreground-subtle">
           아직 계정이 없으신가요?{' '}
-          <Link
-            href="/signup"
-            className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
-          >
+          <Link href="/signup" className={SECONDARY_LINK}>
             회원가입
           </Link>
         </p>
