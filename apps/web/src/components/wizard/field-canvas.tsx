@@ -44,6 +44,8 @@ import {
   type SnapLine,
 } from '@/lib/field-geometry';
 import type { SignFieldDraft } from './wizard-context';
+import type { SignFieldSuggestion } from '@/lib/signfield-suggest';
+import { SparkleGlyph } from '@/components/ai';
 
 const SNAP_THRESHOLD = 6; // px
 const NUDGE_PX = 1;
@@ -64,6 +66,16 @@ interface FieldCanvasProps {
   onSelect: (id: string | null) => void;
   /** Replace the full field list (single source lives in wizard state). */
   onFieldsChange: (fields: SignFieldDraft[]) => void;
+  /**
+   * Pending AI suggestions to preview on the page. Rendered in the AI-accent
+   * treatment, kept visually distinct from `fields`, and not editable until
+   * accepted. Empty when there is nothing to suggest.
+   */
+  suggestions?: SignFieldSuggestion[];
+  /** Confirm one suggestion → it becomes an ordinary field. */
+  onAcceptSuggestion?: (id: string) => void;
+  /** Discard one suggestion without accepting it. */
+  onDismissSuggestion?: (id: string) => void;
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
@@ -97,6 +109,9 @@ export function FieldCanvas({
   selectedId,
   onSelect,
   onFieldsChange,
+  suggestions,
+  onAcceptSuggestion,
+  onDismissSuggestion,
   onPageCount,
   className,
 }: FieldCanvasProps) {
@@ -180,6 +195,10 @@ export function FieldCanvas({
   }, [docReady, page, cssWidth]);
 
   const pageFields = React.useMemo(() => fields.filter((f) => f.page === page), [fields, page]);
+  const pageSuggestions = React.useMemo(
+    () => (suggestions ?? []).filter((s) => s.page === page),
+    [suggestions, page],
+  );
 
   const updateField = React.useCallback(
     (id: string, patch: Partial<SignFieldDraft>) => {
@@ -415,6 +434,18 @@ export function FieldCanvas({
               />
             );
           })}
+
+          {/* AI suggestions — distinct accent treatment, accept/dismiss inline.
+              Rendered above user fields so a proposal is never hidden behind one. */}
+          {pageSuggestions.map((suggestion) => (
+            <SuggestionBox
+              key={suggestion.id}
+              suggestion={suggestion}
+              rect={normToPx(suggestion, pageSize)}
+              onAccept={() => onAcceptSuggestion?.(suggestion.id)}
+              onDismiss={() => onDismissSuggestion?.(suggestion.id)}
+            />
+          ))}
         </div>
       </div>
     </div>
@@ -517,6 +548,105 @@ function FieldBox({
           ))
         : null}
     </div>
+  );
+}
+
+/**
+ * A pending AI suggestion drawn on the page.
+ *
+ * Wears the `sign-field-box/ai-suggested` treatment — accent-ai dashed border +
+ * accent-ai-subtle fill + sparkle provenance — so it never reads as one of the
+ * user's own (primary) fields, and materialises with the shared
+ * `accent-ai-entrance` motion. It is intentionally *not* draggable/resizable: a
+ * proposal is confirmed or discarded, not edited in place. Hover/focus reveals
+ * an 적용 / 해제 toolbar; Enter/Space accepts, Delete/Backspace dismisses.
+ */
+function SuggestionBox({
+  suggestion,
+  rect,
+  onAccept,
+  onDismiss,
+}: {
+  suggestion: SignFieldSuggestion;
+  rect: PxRect;
+  onAccept: () => void;
+  onDismiss: () => void;
+}) {
+  const meta = FIELD_TYPE_META[suggestion.type];
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      onAccept();
+    } else if (e.key === 'Delete' || e.key === 'Backspace') {
+      e.preventDefault();
+      onDismiss();
+    }
+  };
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      aria-label={`AI 제안: ${meta.label} 필드. Enter로 적용, Delete로 해제`}
+      onKeyDown={onKeyDown}
+      className={cn(
+        'group absolute flex animate-ai-suggest-in select-none items-center justify-center',
+        'rounded-sm border-2 border-dashed border-accent-ai/70 bg-accent-ai-subtle/50 text-accent-ai',
+        'outline-none transition-[box-shadow,background-color,border-color] duration-fast ease-standard',
+        'cursor-pointer hover:border-accent-ai hover:bg-accent-ai-subtle/70',
+        'focus-visible:border-accent-ai focus-visible:bg-accent-ai-subtle/70 focus-visible:ring-2 focus-visible:ring-focus-ai',
+      )}
+      style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
+    >
+      <span className="pointer-events-none flex items-center gap-2xs truncate px-2xs text-xs font-semibold">
+        <SparkleGlyph className="h-3 w-3 shrink-0" />
+        {meta.label}
+      </span>
+
+      {/* Accept / dismiss toolbar — revealed on hover or keyboard focus. */}
+      <div
+        className={cn(
+          'absolute -top-3 right-0 flex translate-y-[-2px] items-center gap-2xs',
+          'opacity-0 transition-opacity duration-fast',
+          'group-hover:opacity-100 group-focus-within:opacity-100',
+        )}
+      >
+        <button
+          type="button"
+          aria-label={`${meta.label} 제안 적용`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onAccept();
+          }}
+          className="flex h-6 items-center gap-2xs rounded-full bg-accent-ai px-xs text-2xs font-semibold text-accent-ai-foreground shadow-sm transition-transform duration-fast hover:bg-accent-ai-hover active:scale-95"
+        >
+          <CheckIcon />
+          적용
+        </button>
+        <button
+          type="button"
+          aria-label={`${meta.label} 제안 해제`}
+          onPointerDown={(e) => e.stopPropagation()}
+          onClick={(e) => {
+            e.stopPropagation();
+            onDismiss();
+          }}
+          className="flex h-6 w-6 items-center justify-center rounded-full border border-border bg-surface text-foreground-muted shadow-sm transition-colors duration-fast hover:bg-grey-100 hover:text-foreground active:scale-95"
+        >
+          <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
+            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+          </svg>
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function CheckIcon() {
+  return (
+    <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
+      <path d="M2.5 6.5l2.5 2.5 4.5-5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   );
 }
 

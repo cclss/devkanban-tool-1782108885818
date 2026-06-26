@@ -18,12 +18,19 @@
 
 import * as React from 'react';
 import { cn } from '@repo/ui';
+import { SuggestionBanner } from '@/components/ai';
 import {
   FIELD_TYPE_META,
   FIELD_TYPES,
   clampNormRect,
   type SignFieldType,
 } from '@/lib/field-geometry';
+import { analyzeForSuggestions } from '@/lib/signfield-analyze';
+import {
+  deriveBannerState,
+  suggestionToFieldDraft,
+  suggestionsToFieldDrafts,
+} from '@/lib/signfield-suggestion';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
 
@@ -36,7 +43,7 @@ const BASE_FIT_WIDTH = 640;
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
   const { state, dispatch } = useWizard();
-  const { file, document, fields } = state;
+  const { file, document, fields, suggestions, analysis } = state;
 
   const [page, setPage] = React.useState(1);
   const [zoom, setZoom] = React.useState(1);
@@ -47,6 +54,70 @@ export function FieldsStep() {
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
     [dispatch],
   );
+
+  // --- AI auto-placement: run once per document on entering this step --------
+  // Non-blocking — the canvas stays fully interactive while analysis is in
+  // flight, and any outcome (suggestions / none / error) leaves manual placement
+  // working. Results live in wizard state, so leaving and returning to the step
+  // keeps them without re-running.
+  const analyzedFileRef = React.useRef<File | null>(null);
+  const latestFileRef = React.useRef(file);
+  latestFileRef.current = file;
+
+  const runAnalysis = React.useCallback(() => {
+    if (!file) return;
+    analyzedFileRef.current = file;
+    dispatch({ type: 'ANALYSIS_START' });
+    void analyzeForSuggestions(file).then((result) => {
+      // A re-upload swaps the file (and resets state); drop a stale run's result.
+      if (latestFileRef.current !== file) return;
+      if (result.status === 'done') {
+        dispatch({ type: 'ANALYSIS_DONE', suggestions: result.suggestions });
+      } else if (result.status === 'empty') {
+        dispatch({ type: 'ANALYSIS_EMPTY', message: result.message });
+      } else {
+        dispatch({ type: 'ANALYSIS_ERROR', message: result.message });
+      }
+    });
+  }, [file, dispatch]);
+
+  React.useEffect(() => {
+    if (!file || !isDesktop) return;
+    if (analyzedFileRef.current === file) return; // already kicked off here
+    // idle = fresh; analyzing = a prior mount's run was abandoned, so restart.
+    if (analysis.status !== 'idle' && analysis.status !== 'analyzing') return;
+    runAnalysis();
+  }, [file, isDesktop, analysis.status, runAnalysis]);
+
+  const acceptSuggestion = React.useCallback(
+    (id: string) => {
+      const s = suggestions.find((x) => x.id === id);
+      if (!s) return;
+      const field = suggestionToFieldDraft(s, nextFieldId());
+      dispatch({ type: 'ACCEPT_SUGGESTION', field, suggestionId: id });
+      setSelectedId(field.id);
+    },
+    [suggestions, dispatch],
+  );
+
+  const dismissSuggestion = React.useCallback(
+    (id: string) => dispatch({ type: 'DISMISS_SUGGESTION', suggestionId: id }),
+    [dispatch],
+  );
+
+  const applyAllSuggestions = React.useCallback(() => {
+    dispatch({
+      type: 'ACCEPT_ALL_SUGGESTIONS',
+      fields: suggestionsToFieldDrafts(suggestions, nextFieldId),
+    });
+  }, [suggestions, dispatch]);
+
+  const clearSuggestions = React.useCallback(
+    () => dispatch({ type: 'CLEAR_SUGGESTIONS' }),
+    [dispatch],
+  );
+
+  const bannerState = deriveBannerState(analysis, suggestions.length);
 
   const addAtCenter = React.useCallback(
     (type: SignFieldType) => {
@@ -85,6 +156,16 @@ export function FieldsStep() {
           받는 분이 서명할 위치에 필드를 끌어다 놓으세요. 클릭하면 가운데에 추가돼요.
         </p>
       </div>
+
+      {/* AI auto-placement summary — non-blocking; manual placement always works. */}
+      {bannerState ? (
+        <SuggestionBanner
+          state={bannerState}
+          onApplyAll={applyAllSuggestions}
+          onClear={clearSuggestions}
+          onRetry={runAnalysis}
+        />
+      ) : null}
 
       {/* Tool palette */}
       <div className="flex flex-wrap items-center gap-xs">
@@ -156,11 +237,14 @@ export function FieldsStep() {
           selectedId={selectedId}
           onSelect={setSelectedId}
           onFieldsChange={setFields}
+          suggestions={suggestions}
+          onAcceptSuggestion={acceptSuggestion}
+          onDismissSuggestion={dismissSuggestion}
           onPageCount={setPageCount}
           className="max-h-[60vh]"
         />
 
-        {fields.length === 0 ? (
+        {fields.length === 0 && suggestions.length === 0 ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-md text-center text-xs font-medium text-foreground-subtle">
             위 도구를 PDF 위로 끌어다 놓아 필드를 배치하세요
           </p>
