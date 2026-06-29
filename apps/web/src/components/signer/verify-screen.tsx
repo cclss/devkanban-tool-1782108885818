@@ -13,7 +13,7 @@
 import * as React from 'react';
 import { Button } from '@repo/ui';
 import { ApiError } from '@/lib/api';
-import { brandStyle } from '@/lib/branding';
+import { brandStyle, ensureBrandFontLoaded } from '@/lib/branding';
 import { SIGNER_COPY, type SigningMeta } from '@/lib/signing';
 import { useSigner } from './signer-context';
 import { BrandingHeader } from './branding-header';
@@ -28,6 +28,11 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
   const [submitting, setSubmitting] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
   const [shakeNonce, setShakeNonce] = React.useState(0);
+
+  // Load the sender's brand web font so the screen renders in it.
+  React.useEffect(() => {
+    ensureBrandFontLoaded(meta.sender.brandFont);
+  }, [meta.sender.brandFont]);
 
   const submit = React.useCallback(
     async (value: string) => {
@@ -53,7 +58,12 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
 
   return (
     <main
-      style={brandStyle(meta.sender.brandColor)}
+      style={{
+        ...brandStyle(meta.sender.brandColor, meta.sender.brandFont),
+        // Brand font applies to body/UI text; absent/invalid → inherits the
+        // default sans. Typed-signature fonts set their own family inline.
+        fontFamily: 'var(--brand-font)',
+      }}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
     >
       <BrandingHeader sender={meta.sender} />

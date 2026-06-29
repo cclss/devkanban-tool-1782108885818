@@ -39,6 +39,12 @@ export type SignFieldType = 'SIGNATURE' | 'DATE' | 'TEXT';
 export interface SignerSender {
   name: string | null;
   brandColor: string | null;
+  /**
+   * Brand font catalog key (resolved via `lib/branding`), or null for default.
+   * Optional because the admin preview reuses {@link BrandingHeader} with a
+   * synthetic sender that omits it; the signing API always supplies it.
+   */
+  brandFont?: string | null;
   brandLogoUrl: string | null;
 }
 

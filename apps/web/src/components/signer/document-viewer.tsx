@@ -20,7 +20,7 @@
 import * as React from 'react';
 import { Button, Skeleton, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
-import { brandStyle } from '@/lib/branding';
+import { brandStyle, ensureBrandFontLoaded } from '@/lib/branding';
 import {
   getSignerSession,
   signerPdfUrl,
@@ -73,6 +73,11 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
   // value in place (the context never clears them), so the signer just retries.
   const [completing, setCompleting] = React.useState(false);
   const [completeError, setCompleteError] = React.useState<string | null>(null);
+
+  // Load the sender's brand web font so the screen renders in it.
+  React.useEffect(() => {
+    ensureBrandFontLoaded(meta.sender.brandFont);
+  }, [meta.sender.brandFont]);
 
   const session = React.useMemo(() => getSignerSession(token), [token]);
   const fields = React.useMemo(() => payload?.fields ?? [], [payload]);
@@ -195,7 +200,12 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
 
   return (
     <main
-      style={brandStyle(meta.sender.brandColor)}
+      style={{
+        ...brandStyle(meta.sender.brandColor, meta.sender.brandFont),
+        // Brand font applies to body/UI text; absent/invalid → inherits the
+        // default sans. Typed-signature fonts set their own family inline.
+        fontFamily: 'var(--brand-font)',
+      }}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={meta.sender} />

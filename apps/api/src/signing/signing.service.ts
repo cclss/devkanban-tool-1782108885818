@@ -58,7 +58,14 @@ export class SigningService {
       include: {
         document: {
           include: {
-            owner: { select: { name: true, brandColor: true, brandLogoUrl: true } },
+            owner: {
+              select: {
+                name: true,
+                brandColor: true,
+                brandFont: true,
+                brandLogoUrl: true,
+              },
+            },
           },
         },
       },
@@ -73,6 +80,7 @@ export class SigningService {
       sender: {
         name: document.owner.name,
         brandColor: document.owner.brandColor,
+        brandFont: document.owner.brandFont,
         brandLogoUrl: document.owner.brandLogoUrl,
       },
       recipientNameMasked: maskName(signRequest.recipientName),
@@ -496,6 +504,8 @@ export interface SigningMeta {
   sender: {
     name: string | null;
     brandColor: string | null;
+    /** Brand font catalog key (see branding.constants `BRAND_FONTS`), or null. */
+    brandFont: string | null;
     brandLogoUrl: string | null;
   };
   recipientNameMasked: string | null;

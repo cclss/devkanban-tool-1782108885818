@@ -20,7 +20,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Confetti, SuccessCheck } from '@repo/ui';
-import { brandStyle } from '@/lib/branding';
+import { brandStyle, ensureBrandFontLoaded } from '@/lib/branding';
 import { CompletionDownload } from '@/components/completion-download';
 import { SIGNER_COPY, downloadSignerArtifact, type SigningMeta } from '@/lib/signing';
 import { useSigner } from './signer-context';
@@ -32,6 +32,12 @@ export function CompletionScreen({ meta }: { meta: SigningMeta }) {
   // Portals need the DOM; gate on mount so SSR/first paint stays clean.
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
+
+  // Load the sender's brand web font so the takeover renders in it.
+  React.useEffect(() => {
+    ensureBrandFontLoaded(meta.sender.brandFont);
+  }, [meta.sender.brandFont]);
+
   if (!mounted) return null;
 
   const documentTitle = payload?.documentTitle ?? meta.documentTitle;
@@ -45,7 +51,10 @@ export function CompletionScreen({ meta }: { meta: SigningMeta }) {
       aria-modal="true"
       aria-label={SIGNER_COPY.done.title}
       style={{
-        ...brandStyle(meta.sender.brandColor),
+        ...brandStyle(meta.sender.brandColor, meta.sender.brandFont),
+        // Brand font applies to body/UI text; absent/invalid → inherits the
+        // default sans.
+        fontFamily: 'var(--brand-font)',
         // Safe-area aware: keep clear of notch/home-indicator on mobile.
         paddingTop: 'max(env(safe-area-inset-top), 24px)',
         paddingBottom: 'max(env(safe-area-inset-bottom), 24px)',
