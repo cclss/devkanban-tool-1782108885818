@@ -49,14 +49,44 @@ export class StorageService {
     );
   }
 
-  /** Build a unique, namespaced storage key for a user's upload. */
+  /** Build a unique, namespaced storage key for a user's PDF upload. */
   buildKey(ownerId: string, originalName: string): string {
     const safe = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
     return `documents/${ownerId}/${randomUUID()}-${safe}`;
   }
 
-  /** Persist raw bytes (used by the multipart upload path). */
-  async save(key: string, data: Buffer): Promise<void> {
+  /**
+   * Build a unique, namespaced storage key for a user's brand logo image.
+   *
+   * Deliberately namespaced under `branding/` — kept separate from the
+   * `documents/` PDF namespace so logo bytes never collide with contract files
+   * and the public logo-serving path can be safely restricted to this prefix.
+   * The extension carries the (already content-verified) image type so the
+   * serving path can derive its `Content-Type` statelessly.
+   */
+  buildImageKey(ownerId: string, extension: string): string {
+    const ext = extension.replace(/[^a-z0-9]/gi, '').toLowerCase() || 'bin';
+    return `branding/${ownerId}/logo-${randomUUID()}.${ext}`;
+  }
+
+  /** Derive the wire `Content-Type` for an object from its key extension. */
+  contentTypeForKey(key: string): string {
+    const lower = key.toLowerCase();
+    if (lower.endsWith('.png')) return 'image/png';
+    if (lower.endsWith('.jpg') || lower.endsWith('.jpeg')) return 'image/jpeg';
+    if (lower.endsWith('.svg')) return 'image/svg+xml';
+    if (lower.endsWith('.pdf')) return 'application/pdf';
+    return 'application/octet-stream';
+  }
+
+  /**
+   * Persist raw bytes (used by the multipart upload path).
+   *
+   * `contentType` defaults to `application/pdf` so existing PDF callers are
+   * unchanged; image callers pass the per-file MIME so S3 stores/serves the
+   * correct type.
+   */
+  async save(key: string, data: Buffer, contentType = 'application/pdf'): Promise<void> {
     if (this.usesS3) {
       const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
       const client = new S3Client({ region: this.region });
@@ -65,7 +95,7 @@ export class StorageService {
           Bucket: this.bucket,
           Key: key,
           Body: data,
-          ContentType: 'application/pdf',
+          ContentType: contentType,
         }),
       );
       return;
@@ -74,6 +104,26 @@ export class StorageService {
     const full = this.localPath(key);
     await fs.mkdir(join(full, '..'), { recursive: true });
     await fs.writeFile(full, data);
+  }
+
+  /** Best-effort delete of an object (used when a logo is replaced/removed). */
+  async remove(key: string): Promise<void> {
+    if (this.usesS3) {
+      const { S3Client, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+      const client = new S3Client({ region: this.region });
+      await client.send(
+        new DeleteObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      return;
+    }
+    try {
+      await fs.unlink(this.localPath(key));
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== 'ENOENT') {
+        this.logger.warn(`로컬 객체 삭제 실패 key=${key}: ${String(err)}`);
+      }
+    }
   }
 
   /** Read bytes back (used by later grains for PDF rendering / synthesis). */
