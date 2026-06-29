@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Button,
@@ -132,6 +133,9 @@ function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogou
       <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-md py-sm">
         <span className="text-base font-bold tracking-tight text-primary">전자계약</span>
         <div className="flex items-center gap-xs">
+          <Button variant="ghost" size="sm" asChild>
+            <Link href="/settings/branding">브랜딩</Link>
+          </Button>
           {user?.email ? (
             <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
           ) : null}

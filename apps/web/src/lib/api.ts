@@ -10,7 +10,12 @@
  * Toss-tone Korean line when the network itself fails or the body is unreadable.
  */
 
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+/**
+ * Server origin (no `/api` suffix). Exported so callers can resolve an
+ * already-prefixed server path — e.g. a `brandLogoUrl` of `/api/branding/...`
+ * returned by the API — to an absolute URL that works cross-origin in dev.
+ */
+export const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_BASE = `${API_ORIGIN}/api`;
 
 /** Neutral fallback when we can't read a server-provided message. */
