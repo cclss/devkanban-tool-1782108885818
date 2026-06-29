@@ -21,9 +21,14 @@ model User {
   // Google account subject (`sub`) for social sign-in. Null for password-only
   // accounts; set when a user signs in/links via Google.
   googleId     String?  @unique @map("google_id")
-  // Sender branding (logo + brand color) — available on all plans per spec.
+  // Sender branding (logo + brand color + font). The logo & color columns
+  // predate the gated branding feature; `brandFont` references a key in the
+  // server-side brand font catalog (apps/api/src/branding/branding.constants.ts).
+  // Editing branding is gated to Team+ plans (see common/entitlements.ts), but
+  // the columns themselves carry no plan constraint at the persistence layer.
   brandLogoUrl String?  @map("brand_logo_url")
   brandColor   String?  @map("brand_color")
+  brandFont    String?  @map("brand_font")
   plan         Plan     @default(FREE)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -145,6 +150,7 @@ model AuditLog {
 enum Plan {
   FREE
   PRO
+  TEAM
   ENTERPRISE
 }
 
