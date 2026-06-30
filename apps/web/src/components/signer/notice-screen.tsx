@@ -13,7 +13,7 @@ import * as React from 'react';
 import { SIGNER_COPY, type SigningMeta } from '@/lib/signing';
 import type { BlockReason } from './signer-context';
 import { BrandingHeader } from './branding-header';
-import { brandStyle } from '@/lib/branding';
+import { brandFontStyle, brandStyle } from '@/lib/branding';
 
 interface NoticeCopy {
   title: string;
@@ -50,7 +50,7 @@ export function NoticeScreen({
 
   return (
     <main
-      style={brandStyle(meta?.sender.brandColor)}
+      style={{ ...brandStyle(meta?.sender.brandColor), ...brandFontStyle(meta?.sender.brandFont) }}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
     >
       {meta ? <BrandingHeader sender={meta.sender} /> : null}

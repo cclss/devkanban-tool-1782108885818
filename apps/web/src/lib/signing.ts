@@ -23,6 +23,7 @@ import {
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
+import type { BrandFont } from './branding-settings';
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -39,6 +40,8 @@ export type SignFieldType = 'SIGNATURE' | 'DATE' | 'TEXT';
 export interface SignerSender {
   name: string | null;
   brandColor: string | null;
+  /** Chosen signer-screen font; `null` falls back to the default sans family. */
+  brandFont: BrandFont | null;
   brandLogoUrl: string | null;
 }
 

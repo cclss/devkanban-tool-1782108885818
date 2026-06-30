@@ -20,7 +20,7 @@
 import * as React from 'react';
 import { Button, Skeleton, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
-import { brandStyle } from '@/lib/branding';
+import { brandFontStyle, brandStyle } from '@/lib/branding';
 import {
   getSignerSession,
   signerPdfUrl,
@@ -195,7 +195,7 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
 
   return (
     <main
-      style={brandStyle(meta.sender.brandColor)}
+      style={{ ...brandStyle(meta.sender.brandColor), ...brandFontStyle(meta.sender.brandFont) }}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={meta.sender} />

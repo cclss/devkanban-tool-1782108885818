@@ -8,13 +8,16 @@ import {
 import { timingSafeEqual } from 'crypto';
 import { Readable } from 'stream';
 import {
+  BrandFont,
   DocumentStatus,
+  Plan,
   Prisma,
   SignFieldType,
   SignRequestStatus,
 } from '@repo/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
+import { isBrandingEnabled } from '../common/plan';
 import {
   MESSAGES,
   SIGNER_VERIFY_LOCK_WINDOW_MINUTES,
@@ -58,7 +61,15 @@ export class SigningService {
       include: {
         document: {
           include: {
-            owner: { select: { name: true, brandColor: true, brandLogoUrl: true } },
+            owner: {
+              select: {
+                name: true,
+                plan: true,
+                brandColor: true,
+                brandFont: true,
+                brandLogoUrl: true,
+              },
+            },
           },
         },
       },
@@ -70,11 +81,7 @@ export class SigningService {
       documentTitle: document.title,
       pageCount: document.pageCount,
       documentStatus: document.status,
-      sender: {
-        name: document.owner.name,
-        brandColor: document.owner.brandColor,
-        brandLogoUrl: document.owner.brandLogoUrl,
-      },
+      sender: senderBranding(document.owner),
       recipientNameMasked: maskName(signRequest.recipientName),
       status: signRequest.status,
       alreadySigned: signRequest.status === SignRequestStatus.SIGNED,
@@ -443,6 +450,32 @@ export class SigningService {
 
 // --- pure helpers ----------------------------------------------------------
 
+/**
+ * Resolve the sender's signer-facing branding, gated on plan eligibility.
+ *
+ * A sender whose plan no longer qualifies for branding (a downgrade, or one
+ * that never qualified) has their brand color, logo, AND font stripped here —
+ * so non-eligible branding can never leak to a signer. The signer screen then
+ * falls back to the default design tokens (default action color, monogram, and
+ * the default sans font). Eligibility funnels through the single source of
+ * truth `isBrandingEnabled` so it can't drift from the `/branding` write gate.
+ */
+function senderBranding(owner: {
+  name: string | null;
+  plan: Plan;
+  brandColor: string | null;
+  brandFont: BrandFont | null;
+  brandLogoUrl: string | null;
+}): SigningMeta['sender'] {
+  const eligible = isBrandingEnabled(owner.plan);
+  return {
+    name: owner.name,
+    brandColor: eligible ? owner.brandColor : null,
+    brandFont: eligible ? owner.brandFont : null,
+    brandLogoUrl: eligible ? owner.brandLogoUrl : null,
+  };
+}
+
 /** Constant-time string compare; false on length mismatch. */
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a, 'utf8');
@@ -496,6 +529,7 @@ export interface SigningMeta {
   sender: {
     name: string | null;
     brandColor: string | null;
+    brandFont: BrandFont | null;
     brandLogoUrl: string | null;
   };
   recipientNameMasked: string | null;

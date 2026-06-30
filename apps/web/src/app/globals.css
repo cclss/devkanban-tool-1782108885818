@@ -28,6 +28,16 @@
     --brand-primary-foreground: #ffffff;
     --brand-primary-subtle: #e8f1ff;
 
+    /* — Brand font hook (sender override point) —
+       Typography's single override point, the typographic twin of
+       `--brand-primary`. Defaults to the sans family stack (matching the
+       Tailwind `font-sans` token); a sender re-skins the signer subtree by
+       resetting this var on a wrapping element (see `brandFontStyle`). */
+    --brand-font:
+      'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
+      system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo',
+      'Noto Sans KR', sans-serif;
+
     /* — Greyscale ramp — */
     --grey-50: #f9fafb;
     --grey-100: #f2f4f6;
@@ -99,10 +109,8 @@
   body {
     background-color: var(--color-background);
     color: var(--color-foreground);
-    font-family:
-      'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont,
-      system-ui, Roboto, 'Helvetica Neue', 'Segoe UI', 'Apple SD Gothic Neo',
-      'Noto Sans KR', sans-serif;
+    /* Inherits the brand font hook; defaults to the sans stack above. */
+    font-family: var(--brand-font);
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
   }
