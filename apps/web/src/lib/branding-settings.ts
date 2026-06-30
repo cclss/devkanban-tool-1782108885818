@@ -303,16 +303,40 @@ export const BRANDING_COPY = {
     placeholder: '글꼴을 선택하세요',
   },
 
-  // Live preview.
+  // Live preview — renders the *real* signer chrome (BrandingHeader + the shared
+  // Button) inside a device frame, toggled across the three signing-journey
+  // states. The copy below is the single source for each state; it mirrors the
+  // real screens' Toss voice (verify-screen / document-viewer / completion-screen)
+  // so the preview reads exactly like what the signer gets.
   preview: {
     label: '미리보기',
     note: '서명자에게 이렇게 보여요.',
+    // The mock sender shown in the frame; BrandingHeader appends its own
+    // "님이 보낸 계약" caption, so it isn't duplicated here.
     senderName: '우리 회사',
-    caption: '님이 보낸 계약',
     docTitle: '서비스 이용 계약서',
-    body: '아래에서 내용을 확인하고 서명을 진행해 주세요. 모든 항목을 작성하면 완료할 수 있어요.',
-    primaryCta: '서명하기',
-    link: '계약 내용 다시 보기',
+    // Accessible label for the stage toggle (a WAI-ARIA tablist).
+    stageGroupLabel: '미리보기 화면',
+    // Per-state chrome for the three device-frame stages, in journey order.
+    stages: {
+      verify: {
+        tab: '본인확인',
+        title: '본인확인',
+        hint: '문자로 받은 6자리 인증 코드를 입력해 주세요.',
+        cta: '본인확인',
+      },
+      sign: {
+        tab: '문서 서명',
+        progress: '서명할 항목 2곳 중 0곳을 작성했어요.',
+        affordance: '여기에 서명',
+        cta: '서명하기',
+      },
+      done: {
+        tab: '완료',
+        title: '서명이 완료되었습니다!',
+        body: '작성하신 서명이 안전하게 전달됐어요.',
+      },
+    },
   },
 
   // Save action.
