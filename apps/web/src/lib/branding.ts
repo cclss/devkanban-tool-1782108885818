@@ -19,6 +19,7 @@
 
 import type * as React from 'react';
 import type { BrandFont } from './branding-settings';
+import type { SignerSender } from './signing';
 
 /** CSS custom properties are not in the typed `CSSProperties` surface. */
 type BrandStyle = React.CSSProperties & Record<`--${string}`, string>;
@@ -72,4 +73,26 @@ export function brandFontStyle(brandFont: string | null | undefined): BrandStyle
     '--brand-font': stack,
     fontFamily: 'var(--brand-font)',
   };
+}
+
+/**
+ * Single source of truth for re-skinning a signer subtree to a sender's brand:
+ * merges the color hook ({@link brandStyle}) and the font hook
+ * ({@link brandFontStyle}) into one style object so color and font are *always*
+ * applied together on the same wrapping element — no surface can drift by
+ * carrying one without the other.
+ *
+ * Apply it on every signer surface, including portaled ones (e.g. the signature
+ * capture sheet) whose content escapes the parent `<main>` and so cannot inherit
+ * its `--brand-*` / `--brand-font` vars: setting `brandScope` on the portal's own
+ * root re-establishes the full brand context inside it.
+ *
+ * A missing sender, or color/font the server has gated to `null` for an
+ * unentitled plan, yields an empty object so the default tokens stay in force.
+ */
+export function brandScope(
+  sender: Pick<SignerSender, 'brandColor' | 'brandFont'> | null | undefined,
+): BrandStyle {
+  if (!sender) return {};
+  return { ...brandStyle(sender.brandColor), ...brandFontStyle(sender.brandFont) };
 }

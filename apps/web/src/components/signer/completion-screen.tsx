@@ -20,7 +20,7 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Confetti, SuccessCheck } from '@repo/ui';
-import { brandFontStyle, brandStyle } from '@/lib/branding';
+import { brandScope } from '@/lib/branding';
 import { CompletionDownload } from '@/components/completion-download';
 import { SIGNER_COPY, downloadSignerArtifact, type SigningMeta } from '@/lib/signing';
 import { useSigner } from './signer-context';
@@ -45,8 +45,7 @@ export function CompletionScreen({ meta }: { meta: SigningMeta }) {
       aria-modal="true"
       aria-label={SIGNER_COPY.done.title}
       style={{
-        ...brandStyle(meta.sender.brandColor),
-        ...brandFontStyle(meta.sender.brandFont),
+        ...brandScope(meta.sender),
         // Safe-area aware: keep clear of notch/home-indicator on mobile.
         paddingTop: 'max(env(safe-area-inset-top), 24px)',
         paddingBottom: 'max(env(safe-area-inset-bottom), 24px)',

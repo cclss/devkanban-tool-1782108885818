@@ -4,8 +4,8 @@
  * BrandingHeader — the sender's identity atop the signer screens.
  *
  * Shows the sender's logo (when set) or a primary-tinted monogram fallback, the
- * sender name, and a quiet "보낸 계약" caption. The brand color is applied by the
- * caller via `brandStyle()` on a wrapping element, so the monogram and any
+ * sender name, and a quiet "보낸 계약" caption. The brand color + font are applied
+ * by the caller via `brandScope()` on a wrapping element, so the monogram and any
  * primary accents here re-skin automatically through the `--brand-*` hook.
  */
 

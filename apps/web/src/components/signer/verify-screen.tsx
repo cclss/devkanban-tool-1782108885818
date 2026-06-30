@@ -3,7 +3,7 @@
 /**
  * VerifyScreen — the branded identity-check landing.
  *
- * Sender branding header (brand color applied via `brandStyle`), the document
+ * Sender branding header (brand color + font applied via `brandScope`), the document
  * title, and the segmented 6-digit code entry. Entering all six digits
  * auto-submits (Toss "one decision per screen" feel); a button is kept as an
  * explicit/accessible fallback. A wrong or expired code shakes the cells, wipes
@@ -13,7 +13,7 @@
 import * as React from 'react';
 import { Button } from '@repo/ui';
 import { ApiError } from '@/lib/api';
-import { brandFontStyle, brandStyle } from '@/lib/branding';
+import { brandScope } from '@/lib/branding';
 import { SIGNER_COPY, type SigningMeta } from '@/lib/signing';
 import { useSigner } from './signer-context';
 import { BrandingHeader } from './branding-header';
@@ -53,7 +53,7 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
 
   return (
     <main
-      style={{ ...brandStyle(meta.sender.brandColor), ...brandFontStyle(meta.sender.brandFont) }}
+      style={brandScope(meta.sender)}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
     >
       <BrandingHeader sender={meta.sender} />

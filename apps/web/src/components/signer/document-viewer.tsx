@@ -20,7 +20,7 @@
 import * as React from 'react';
 import { Button, Skeleton, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
-import { brandFontStyle, brandStyle } from '@/lib/branding';
+import { brandScope } from '@/lib/branding';
 import {
   getSignerSession,
   signerPdfUrl,
@@ -195,7 +195,7 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
 
   return (
     <main
-      style={{ ...brandStyle(meta.sender.brandColor), ...brandFontStyle(meta.sender.brandFont) }}
+      style={brandScope(meta.sender)}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={meta.sender} />
@@ -256,8 +256,10 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
         </div>
       </div>
 
-      {/* The capture BottomSheet targets the field opened via the signer context. */}
-      <SignatureInputSheet />
+      {/* The capture BottomSheet targets the field opened via the signer context.
+          It portals to <body>, escaping this <main>'s branded subtree, so we hand
+          it the sender to re-apply `brandScope` on its own portal root. */}
+      <SignatureInputSheet sender={meta.sender} />
     </main>
   );
 }

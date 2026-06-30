@@ -17,6 +17,14 @@
  * it immediately) and persists it to the grain-1 `fields` endpoint before the
  * sheet closes. The Sheet/Button/Field primitives come from @repo/ui; every
  * visual value is a design token.
+ *
+ * The `Sheet` portals to <body>, so its content does not inherit the signer
+ * `<main>`'s `--brand-*` / `--brand-font` vars. The viewer hands us its `sender`
+ * and we re-apply `brandScope` on the portal's own content root, so the mode
+ * toggle, font chips, apply/cancel buttons, inputs and body text inside the sheet
+ * inherit the same brand color (primary buttons, focus ring, accents) and brand
+ * font as the rest of the screen — with a safe fallback to default tokens when
+ * the sender has no (or a plan-gated) color/font.
  */
 
 import * as React from 'react';
@@ -36,9 +44,11 @@ import {
   saveFields,
   serializeFieldValue,
   SIGNER_COPY,
+  type SignerSender,
   type SignFieldType,
   type SigningPayloadField,
 } from '@/lib/signing';
+import { brandScope } from '@/lib/branding';
 import {
   SIGNATURE_FONTS,
   DEFAULT_SIGNATURE_FONT,
@@ -104,7 +114,7 @@ async function rasterizeTypedName(text: string, fontFamily: string): Promise<str
   return out.toDataURL('image/png');
 }
 
-export function SignatureInputSheet() {
+export function SignatureInputSheet({ sender }: { sender: SignerSender }) {
   const { token, state, closeField, setFieldValue } = useSigner();
   const { activeFieldId, payload } = state;
 
@@ -120,7 +130,9 @@ export function SignatureInputSheet() {
         if (!open) closeField();
       }}
     >
-      <SheetContent side="bottom">
+      {/* The sheet portals to <body>; re-establish the sender's brand context on
+          the portal's own content root so the captured surface re-skins too. */}
+      <SheetContent side="bottom" style={brandScope(sender)}>
         {field ? (
           // Key by field id so each capture starts from a fresh, reset state.
           <SheetBody
