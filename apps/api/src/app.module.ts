@@ -6,6 +6,7 @@ import { StorageModule } from './storage/storage.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { EmailModule } from './email/email.module';
 import { AuthModule } from './auth/auth.module';
+import { BrandingModule } from './branding/branding.module';
 import { DocumentsModule } from './documents/documents.module';
 import { SigningModule } from './signing/signing.module';
 import { PdfModule } from './pdf/pdf.module';
@@ -19,6 +20,7 @@ import { CompletionModule } from './completion/completion.module';
     NotificationsModule,
     EmailModule,
     AuthModule,
+    BrandingModule,
     DocumentsModule,
     SigningModule,
     PdfModule,

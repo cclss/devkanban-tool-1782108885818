@@ -21,10 +21,15 @@ model User {
   // Google account subject (`sub`) for social sign-in. Null for password-only
   // accounts; set when a user signs in/links via Google.
   googleId     String?  @unique @map("google_id")
-  // Sender branding (logo + brand color) — available on all plans per spec.
-  brandLogoUrl String?  @map("brand_logo_url")
-  brandColor   String?  @map("brand_color")
-  plan         Plan     @default(FREE)
+  // Sender branding (logo + brand color + signer-screen font). Gated to paid
+  // plans by `isBrandingEnabled` at the API layer; the columns stay nullable so
+  // unset branding falls back to the default design tokens.
+  brandLogoUrl String?    @map("brand_logo_url")
+  brandColor   String?    @map("brand_color")
+  // Signer-screen font family. Maps 1:1 to the typography `family-*` tokens
+  // (SANS→family-sans, SERIF→family-serif, SCRIPT→family-script).
+  brandFont    BrandFont? @map("brand_font")
+  plan         Plan       @default(FREE)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
@@ -146,6 +151,14 @@ enum Plan {
   FREE
   PRO
   ENTERPRISE
+}
+
+/// Predefined, web-safe signer-screen fonts a sender can pick. Mirrors the
+/// typography `family-*` tokens — no custom font uploads (out of scope).
+enum BrandFont {
+  SANS
+  SERIF
+  SCRIPT
 }
 
 enum DocumentStatus {
