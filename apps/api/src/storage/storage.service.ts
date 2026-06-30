@@ -55,6 +55,19 @@ export class StorageService {
     return `documents/${ownerId}/${randomUUID()}-${safe}`;
   }
 
+  /**
+   * Stable, public storage key for a user's single brand logo.
+   *
+   * A user has at most one logo, so the key is deterministic (no UUID): a
+   * re-upload overwrites in place, and the public serving route can locate the
+   * bytes from the userId alone. The format isn't encoded in the key — the
+   * serving path sniffs the Content-Type from the stored bytes instead.
+   */
+  buildBrandingLogoKey(userId: string): string {
+    const safe = userId.replace(/[^a-zA-Z0-9._-]/g, '_');
+    return `branding/${safe}/logo`;
+  }
+
   /** Persist raw bytes (used by the multipart upload path). */
   async save(key: string, data: Buffer): Promise<void> {
     if (this.usesS3) {

