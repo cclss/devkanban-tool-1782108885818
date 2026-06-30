@@ -36,6 +36,15 @@ export {
   type DialogContentProps,
 } from './components/dialog';
 export {
+  Select,
+  SelectGroup,
+  SelectValue,
+  SelectTrigger,
+  SelectContent,
+  SelectItem,
+  type SelectTriggerProps,
+} from './components/select';
+export {
   Sheet,
   SheetTrigger,
   SheetClose,

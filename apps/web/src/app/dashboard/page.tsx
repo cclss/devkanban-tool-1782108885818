@@ -127,6 +127,7 @@ export default function DashboardPage() {
 }
 
 function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogout: () => void }) {
+  const router = useRouter();
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface">
       <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-md py-sm">
@@ -135,6 +136,9 @@ function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogou
           {user?.email ? (
             <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
           ) : null}
+          <Button variant="ghost" size="sm" onClick={() => router.push('/settings/branding')}>
+            회사 설정
+          </Button>
           <Button variant="ghost" size="sm" onClick={onLogout}>
             로그아웃
           </Button>
