@@ -37,7 +37,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
             aria-controls={id}
             aria-label={revealed ? '비밀번호 숨기기' : '비밀번호 표시'}
             className={cn(
-              'inline-flex h-8 w-8 items-center justify-center rounded-xs',
+              'hit-target-expand inline-flex h-8 w-8 items-center justify-center rounded-xs',
               'text-foreground-subtle transition-colors duration-fast ease-standard hover:text-foreground',
               'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
               'disabled:cursor-not-allowed disabled:opacity-60',

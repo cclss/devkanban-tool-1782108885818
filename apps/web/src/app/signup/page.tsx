@@ -153,7 +153,7 @@ export default function SignupPage() {
 
   if (succeeded) {
     return (
-      <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-md py-2xl">
+      <main className="relative flex min-h-dvh-safe items-center justify-center overflow-hidden bg-background px-md py-2xl">
         <BlobBackground />
         <Card className="motion-stagger relative z-10 flex w-full max-w-[420px] flex-col items-center gap-md p-xl text-center shadow-lg sm:p-2xl">
           <SuccessCheck />
@@ -268,6 +268,7 @@ export default function SignupPage() {
             <Checkbox
               id="terms"
               name="terms"
+              className="min-hit-target"
               checked={agreed}
               invalid={touched.terms && Boolean(fieldErrors.terms)}
               aria-describedby={touched.terms && fieldErrors.terms ? 'terms-message' : undefined}
@@ -328,7 +329,7 @@ export default function SignupPage() {
           이미 계정이 있으신가요?{' '}
           <Link
             href="/login"
-            className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
+            className="hit-target-expand font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
           >
             로그인
           </Link>

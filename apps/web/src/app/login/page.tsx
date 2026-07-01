@@ -107,7 +107,7 @@ export default function LoginPage() {
   }
 
   return (
-    <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-md py-2xl">
+    <main className="relative flex min-h-dvh-safe items-center justify-center overflow-hidden bg-background px-md py-2xl">
       <BlobBackground />
 
       <Card className="motion-stagger relative z-10 w-full max-w-[420px] p-xl shadow-lg sm:p-2xl">
@@ -211,7 +211,7 @@ export default function LoginPage() {
           아직 계정이 없으신가요?{' '}
           <Link
             href="/signup"
-            className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
+            className="hit-target-expand font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
           >
             회원가입
           </Link>
