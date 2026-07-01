@@ -1,19 +1,19 @@
 'use client';
 
 /**
- * Wizard step 2 — place sign fields on the contract (desktop only).
+ * Wizard step 2 — place sign fields on the contract.
  *
  * A toolbar of three field tools (서명 / 날짜 / 텍스트) sits above an interactive
- * PDF page. Tools are dragged onto the page to drop a field where the cursor is,
- * or clicked/Enter-ed to drop one at page center (keyboard path). The page can be
+ * PDF page. Tapping (or clicking / Enter-ing) a tool adds a field at page center
+ * and selects it, so placement flows straight into a pointer drag to reposition
+ * it — one gesture model that works with both mouse and touch. The page can be
  * paged through and zoomed; fields are stored as normalized, page-relative boxes
  * (`FieldCanvas` owns the canvas↔PDF conversion), so they hold position across
  * both. Everything writes straight to wizard state, so leaving and returning to
  * the step restores each field at its exact spot.
  *
- * Field placement is a desktop interaction (mouse + room to work); smaller /
- * touch viewports get a guidance fallback instead (mobile placement is out of
- * scope — the signer flow is the mobile-first surface).
+ * Placement is pointer-based (tap to add → drag to move), so it works on small
+ * touch viewports too — no desktop-only gate.
  */
 
 import * as React from 'react';
@@ -25,7 +25,7 @@ import {
   type SignFieldType,
 } from '@/lib/field-geometry';
 import { useWizard, type SignFieldDraft } from './wizard-context';
-import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
+import { FieldCanvas, nextFieldId } from './field-canvas';
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
@@ -34,7 +34,6 @@ const ZOOM_STEP = 0.25;
 const BASE_FIT_WIDTH = 640;
 
 export function FieldsStep() {
-  const isDesktop = useIsDesktop();
   const { state, dispatch } = useWizard();
   const { file, document, fields } = state;
 
@@ -70,10 +69,6 @@ export function FieldsStep() {
     return null;
   }
 
-  if (!isDesktop) {
-    return <DesktopOnlyFallback />;
-  }
-
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
 
@@ -82,7 +77,7 @@ export function FieldsStep() {
       <div className="flex flex-col gap-2xs">
         <h2 className="text-xl font-bold text-foreground">서명 필드를 배치해 주세요</h2>
         <p className="text-sm text-foreground-subtle">
-          받는 분이 서명할 위치에 필드를 끌어다 놓으세요. 클릭하면 가운데에 추가돼요.
+          아래 도구를 눌러 필드를 추가한 뒤, 손가락으로 끌어 받는 분이 서명할 위치로 옮기세요.
         </p>
       </div>
 
@@ -162,7 +157,7 @@ export function FieldsStep() {
 
         {fields.length === 0 ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-md text-center text-xs font-medium text-foreground-subtle">
-            위 도구를 PDF 위로 끌어다 놓아 필드를 배치하세요
+            위 도구를 눌러 필드를 추가한 뒤 끌어서 위치를 옮기세요
           </p>
         ) : null}
       </div>
@@ -174,25 +169,20 @@ export function FieldsStep() {
   );
 }
 
-/** A draggable + clickable palette tool. */
+/** A tap/click palette tool — adds a field at page center, then it's dragged. */
 function FieldTool({ type, onAdd }: { type: SignFieldType; onAdd: () => void }) {
   const meta = FIELD_TYPE_META[type];
   return (
     <button
       type="button"
-      draggable
-      onDragStart={(e) => {
-        e.dataTransfer.setData(FIELD_DND_TYPE, type);
-        e.dataTransfer.effectAllowed = 'copy';
-      }}
       onClick={onAdd}
-      aria-label={`${meta.label} 필드 추가 (끌어다 놓거나 클릭)`}
+      aria-label={`${meta.label} 필드 추가`}
       className={cn(
-        'inline-flex cursor-grab items-center gap-xs rounded-md border border-border bg-surface px-sm py-2xs',
+        'min-hit-target inline-flex items-center gap-xs rounded-md border border-border bg-surface px-sm py-2xs',
         'text-sm font-semibold text-foreground shadow-xs',
         'transition-[transform,border-color,background-color] duration-fast ease-standard',
         'hover:border-primary hover:bg-primary-subtle/50 hover:text-primary',
-        'focus-visible:ring-2 focus-visible:ring-focus active:scale-[0.97] active:cursor-grabbing',
+        'focus-visible:ring-2 focus-visible:ring-focus active:scale-[0.97]',
       )}
     >
       <span className="flex h-6 w-6 items-center justify-center rounded-sm bg-primary-subtle text-primary">
@@ -201,44 +191,6 @@ function FieldTool({ type, onAdd }: { type: SignFieldType; onAdd: () => void }) 
       {meta.label}
     </button>
   );
-}
-
-function DesktopOnlyFallback() {
-  return (
-    <div className="flex flex-col items-center justify-center gap-sm rounded-lg border border-dashed border-border-strong bg-surface-muted px-md py-3xl text-center">
-      <span className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-subtle text-primary">
-        <DesktopIcon />
-      </span>
-      <div className="flex flex-col gap-2xs">
-        <h2 className="text-lg font-bold text-foreground">데스크톱에서 필드를 배치해 주세요</h2>
-        <p className="max-w-[420px] text-sm text-foreground-subtle">
-          서명 필드 배치는 마우스가 있는 큰 화면에 맞춰져 있어요. 데스크톱에서 이어서 진행해 주세요.
-        </p>
-      </div>
-    </div>
-  );
-}
-
-/**
- * True on a desktop-class viewport: a precise pointer (mouse) and room to work.
- * Field placement is a mouse interaction, so coarse/narrow devices fall back.
- */
-const DESKTOP_QUERY = '(min-width: 1024px) and (pointer: fine)';
-
-function useIsDesktop(): boolean {
-  // Lazy init avoids a fallback flash on desktop (and is SSR-safe — the wizard
-  // route is client-gated, so there is no server render to mismatch).
-  const [isDesktop, setIsDesktop] = React.useState(() =>
-    typeof window !== 'undefined' ? window.matchMedia(DESKTOP_QUERY).matches : false,
-  );
-  React.useEffect(() => {
-    const mq = window.matchMedia(DESKTOP_QUERY);
-    const update = () => setIsDesktop(mq.matches);
-    update();
-    mq.addEventListener('change', update);
-    return () => mq.removeEventListener('change', update);
-  }, []);
-  return isDesktop;
 }
 
 function IconButton({
@@ -322,11 +274,3 @@ function MinusIcon() {
   );
 }
 
-function DesktopIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" aria-hidden="true">
-      <rect x="3" y="4" width="18" height="12" rx="2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M9 20h6M12 16v4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
-  );
-}

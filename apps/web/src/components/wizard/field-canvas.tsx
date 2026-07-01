@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * The interactive PDF page + field overlay (desktop placement surface).
+ * The interactive PDF page + field overlay (placement surface).
  *
  * Renders one page of the open document into a raster `<canvas>` (pointer-inert)
  * and lays an absolutely-positioned overlay of exactly the rendered CSS size on
@@ -11,11 +11,17 @@
  * and round-trip-stable.
  *
  * Interactions:
- *   • place — drop a palette tool (HTML5 DnD) onto the page, centered at cursor
+ *   • place — tap a palette tool (in fields-step) to add a field at page center,
+ *     which is auto-selected so it can be dragged into position right away
  *   • move  — pointer-drag a field body (pointer capture, snap guides)
  *   • resize— pointer-drag any of 8 handles
  *   • select/hover — click / pointer-enter, with clear visual feedback
  *   • keyboard — focus a field, arrows move, Shift+arrows resize, Delete removes
+ *
+ * Move/resize use Pointer Events (mouse + touch + stylus). The dragged field box
+ * and each resize handle carry `touch-none` so a touch-drag never doubles as a
+ * page/document scroll; the empty overlay keeps its default touch-action so the
+ * PDF stays pannable. `pointercancel` tears the gesture down cleanly.
  */
 
 import * as React from 'react';
@@ -32,7 +38,6 @@ import {
   pxToNorm,
   clampPxRect,
   clampNormRect,
-  defaultPxRectAt,
   resizePxRect,
   snapMove,
   FIELD_TYPE_META,
@@ -48,8 +53,6 @@ import type { SignFieldDraft } from './wizard-context';
 const SNAP_THRESHOLD = 6; // px
 const NUDGE_PX = 1;
 const NUDGE_PX_LARGE = 12;
-/** dataTransfer key carrying the field type during a palette → canvas drag. */
-export const FIELD_DND_TYPE = 'application/x-esign-field';
 
 type RenderStatus = 'loading' | 'ready' | 'error';
 
@@ -196,27 +199,12 @@ export function FieldCanvas({
     [fields, onFieldsChange, selectedId, onSelect],
   );
 
-  // --- placement (HTML5 drag-and-drop from the palette) --------------------
-
-  const onDrop = React.useCallback(
-    (event: React.DragEvent) => {
-      event.preventDefault();
-      const type = event.dataTransfer.getData(FIELD_DND_TYPE) as SignFieldType;
-      if (!type || !FIELD_TYPE_META[type]) return;
-      const overlay = overlayRef.current;
-      if (!overlay) return;
-      const rect = overlay.getBoundingClientRect();
-      const center = { x: event.clientX - rect.left, y: event.clientY - rect.top };
-      const px = defaultPxRectAt(type, center, pageSize);
-      const norm = clampNormRect(pxToNorm(px, pageSize));
-      const id = nextFieldId();
-      onFieldsChange([...fields, { id, type, page, ...norm }]);
-      onSelect(id);
-    },
-    [fields, onFieldsChange, onSelect, page, pageSize],
-  );
-
   // --- move / resize (pointer events with capture) -------------------------
+  //
+  // Fields are added from the palette (fields-step `addAtCenter`) and land at
+  // page center already selected, so placement flows straight into a drag. This
+  // surface only owns the pointer move/resize gestures — no HTML5 drop path,
+  // which never worked on touch.
 
   const peerRects = React.useCallback(
     (excludeId: string): PxRect[] =>
@@ -266,6 +254,20 @@ export function FieldCanvas({
     },
     [liveRect, pageSize, updateField],
   );
+
+  // Gesture interrupted (e.g. an OS gesture, incoming call, or another touch):
+  // drop the transient state without committing so the field stays where it was.
+  const cancelGesture = React.useCallback((event: React.PointerEvent) => {
+    if (!gestureRef.current) return;
+    gestureRef.current = null;
+    setGuides([]);
+    setLiveRect(null);
+    try {
+      (event.target as Element).releasePointerCapture?.(event.pointerId);
+    } catch {
+      /* capture may already be gone */
+    }
+  }, []);
 
   const startMove = React.useCallback(
     (event: React.PointerEvent, field: SignFieldDraft) => {
@@ -361,15 +363,11 @@ export function FieldCanvas({
           </div>
         ) : null}
 
-        {/* Field overlay — receives drops + clears selection on empty click. */}
+        {/* Field overlay — clears selection on empty click. Default touch-action
+            (no `touch-none`) so a touch on empty space still pans the PDF. */}
         <div
           ref={overlayRef}
           className="absolute inset-0"
-          onDragOver={(e) => {
-            e.preventDefault();
-            e.dataTransfer.dropEffect = 'copy';
-          }}
-          onDrop={onDrop}
           onPointerDown={() => onSelect(null)}
         >
           {/* Snap guides */}
@@ -410,6 +408,7 @@ export function FieldCanvas({
                 onPointerDownHandle={(e, h) => startResize(e, field, h)}
                 onPointerMove={onGesturePointerMove}
                 onPointerUp={endGesture}
+                onPointerCancel={cancelGesture}
                 onKeyDown={(e) => onFieldKeyDown(e, field)}
                 onDelete={() => removeField(field.id)}
               />
@@ -433,6 +432,7 @@ interface FieldBoxProps {
   onPointerDownHandle: (e: React.PointerEvent, handle: ResizeHandle) => void;
   onPointerMove: (e: React.PointerEvent) => void;
   onPointerUp: (e: React.PointerEvent) => void;
+  onPointerCancel: (e: React.PointerEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onDelete: () => void;
 }
@@ -449,6 +449,7 @@ function FieldBox({
   onPointerDownHandle,
   onPointerMove,
   onPointerUp,
+  onPointerCancel,
   onKeyDown,
   onDelete,
 }: FieldBoxProps) {
@@ -464,11 +465,12 @@ function FieldBox({
       onPointerDown={onPointerDownBody}
       onPointerMove={onPointerMove}
       onPointerUp={onPointerUp}
+      onPointerCancel={onPointerCancel}
       onKeyDown={onKeyDown}
       onFocus={onPointerEnter}
       onBlur={onPointerLeave}
       className={cn(
-        'group absolute flex select-none items-center justify-center rounded-sm border-2 text-xs font-semibold',
+        'group absolute flex touch-none select-none items-center justify-center rounded-sm border-2 text-xs font-semibold',
         'outline-none transition-[box-shadow,background-color,border-color]',
         dragging ? 'cursor-grabbing duration-0' : 'cursor-grab duration-fast ease-standard',
         selected
@@ -508,8 +510,11 @@ function FieldBox({
             <span
               key={h}
               onPointerDown={(e) => onPointerDownHandle(e, h)}
+              // `hit-target-expand` sets `position: relative`, which would beat
+              // Tailwind's `absolute` in the cascade; `!absolute` keeps the handle
+              // corner-pinned while the pseudo-element grows the tap area to 44px.
               className={cn(
-                'absolute h-2.5 w-2.5 rounded-full border border-primary bg-surface shadow-xs',
+                'hit-target-expand !absolute h-2.5 w-2.5 touch-none rounded-full border border-primary bg-surface shadow-xs',
                 HANDLE_POSITION[h],
                 HANDLE_CURSOR[h],
               )}
