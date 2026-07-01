@@ -9,6 +9,10 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
+  // Extend content under the notch/home indicator so `env(safe-area-inset-*)`
+  // resolves to non-zero on iOS — required by the `.*-safe` utilities in
+  // globals.css. Screens opt into the insets via those utilities.
+  viewportFit: 'cover',
 };
 
 export default function RootLayout({

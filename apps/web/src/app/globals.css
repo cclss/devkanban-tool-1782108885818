@@ -90,6 +90,13 @@
     --duration-base: 250ms;
     --duration-slow: 400ms;
     --duration-slower: 600ms;
+
+    /* — Touch / mobile foundations —
+       Minimum interactive touch-target size (WCAG 2.5.5 / Apple HIG). A
+       functional accessibility floor — interactive elements must be at least
+       this large regardless of their visual size. Exposed as a variable so the
+       hit-area utilities below share one source of truth. */
+    --hit-target-min: 44px;
   }
 
   html {
@@ -169,6 +176,85 @@
    */
   .field-pulse {
     border-radius: inherit;
+  }
+
+  /*
+   * ── Mobile foundations ───────────────────────────────────────────────
+   * Reusable touch-target, iOS safe-area, and dynamic-viewport helpers that
+   * every screen can build on. Added at the base (mobile) level ONLY — desktop
+   * is unaffected because `env(safe-area-inset-*)` resolves to 0 without a
+   * notch/home-indicator and `dvh` equals `vh` on viewports with no dynamic
+   * toolbar. Spacing values reuse the `theme('spacing.*')` scale (see
+   * tailwind.config.ts) rather than magic numbers.
+   */
+
+  /* Minimum hit area — guarantees a 44×44px touch target (WCAG 2.5.5 / Apple
+     HIG) for interactive elements that would otherwise render smaller. */
+  .min-hit-target {
+    min-height: var(--hit-target-min);
+    min-width: var(--hit-target-min);
+  }
+
+  /* Hit-area expansion for small icon buttons that must stay visually compact
+     (e.g. a 24px close icon) while still offering a full 44×44px touch target.
+     A transparent, centered pseudo-element enlarges the tappable region without
+     affecting layout or visual size. Sets `position: relative` to establish the
+     positioning context the pseudo-element needs. */
+  .hit-target-expand {
+    position: relative;
+  }
+  .hit-target-expand::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: var(--hit-target-min);
+    height: var(--hit-target-min);
+    transform: translate(-50%, -50%);
+  }
+
+  /* iOS safe-area insets (notch / home indicator). No-ops on devices without
+     insets, so they are safe to apply unconditionally. Requires
+     `viewport-fit=cover` (set in layout.tsx) for `env()` to resolve non-zero. */
+  .pb-safe {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .pt-safe {
+    padding-top: env(safe-area-inset-top);
+  }
+  .px-safe {
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  /* Bottom-fixed CTA padding: clears the home indicator AND keeps the CTA's own
+     base breathing room. Base reuses the `md` spacing token (16px), not a magic
+     number. Apply to a bottom-fixed action bar so the button is never occluded
+     by the home indicator. */
+  .pb-safe-cta {
+    padding-bottom: calc(env(safe-area-inset-bottom) + theme('spacing.md'));
+  }
+
+  /*
+   * Dynamic-viewport full-height helper.
+   *
+   * Policy: full-height mobile layouts use `dvh`, never `vh`. On mobile Safari /
+   * Chrome the URL/toolbar shrinks and grows the viewport; `100vh` maps to the
+   * LARGE viewport height, so a `100vh` box is taller than the visible area
+   * while the toolbar is shown — pushing a bottom-fixed CTA off-screen. `100dvh`
+   * tracks the *current* visible height, so the layout and its bottom CTA stay
+   * reachable as the toolbar shows/hides. Pair with `.pb-safe`/`.pb-safe-cta`
+   * for notch/home-indicator clearance.
+   *
+   * Exception: reach for `svh`/`lvh` only when a fixed target height is required
+   * and the dynamic resize would cause distracting reflow (rare).
+   *
+   * `100vh` is declared first as a fallback for browsers without `dvh` support;
+   * supporting browsers apply the `100dvh` line that follows. Desktop is
+   * unaffected — `dvh` equals `vh` without a dynamic toolbar.
+   */
+  .min-h-dvh-safe {
+    min-height: 100vh;
+    min-height: 100dvh;
   }
 }
 
