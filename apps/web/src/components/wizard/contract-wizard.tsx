@@ -45,9 +45,10 @@ function WizardShell() {
   const exit = React.useCallback(() => router.push('/dashboard'), [router]);
 
   return (
-    <div className="flex min-h-[100dvh] flex-col bg-background">
+    <div className="flex min-h-dvh-safe flex-col bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-surface">
-        <div className="mx-auto flex w-full max-w-[760px] items-center justify-between px-md py-sm">
+        {/* Slim the header on small screens (py-xs); restore py-sm at `sm:`. */}
+        <div className="mx-auto flex w-full max-w-[760px] items-center justify-between px-md py-xs sm:py-sm">
           <span className="text-base font-bold tracking-tight text-primary">전자계약</span>
           <Button variant="ghost" size="sm" onClick={exit} aria-label="계약 생성 나가기">
             나가기
@@ -55,7 +56,7 @@ function WizardShell() {
         </div>
       </header>
 
-      <div className="mx-auto w-full max-w-[760px] px-md pt-lg">
+      <div className="mx-auto w-full max-w-[760px] px-md pt-md sm:pt-lg">
         <StepIndicator steps={[...WIZARD_STEPS]} current={state.step} />
       </div>
 
@@ -70,7 +71,9 @@ function WizardShell() {
       </main>
 
       <footer className="sticky bottom-0 z-20 border-t border-border bg-surface">
-        <div className="mx-auto flex w-full max-w-[760px] items-center justify-between gap-md px-md py-md">
+        {/* `.pb-safe-cta` clears the iOS home indicator (= inset + spacing.md);
+            desktop insets resolve to 0, so pt-md/pb match the previous py-md. */}
+        <div className="mx-auto flex w-full max-w-[760px] items-center justify-between gap-md px-md pt-md pb-safe-cta">
           <Button
             variant="ghost"
             size="md"
