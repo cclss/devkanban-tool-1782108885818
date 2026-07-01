@@ -261,7 +261,9 @@ export const SignaturePad = React.forwardRef<SignaturePadHandle, SignaturePadPro
         aria-label={aria['aria-label'] ?? '서명 그리기 영역'}
         role="img"
         className={cn(
-          'block h-44 w-full touch-none rounded-md border border-border bg-surface',
+          // Height is responsive: shorter on small/low viewports so the capture
+          // surface never crowds the sheet, restored to the desktop value at sm.
+          'block h-36 w-full touch-none rounded-md border border-border bg-surface sm:h-44',
           'cursor-crosshair select-none',
           className,
         )}

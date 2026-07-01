@@ -120,7 +120,17 @@ export function SignatureInputSheet() {
         if (!open) closeField();
       }}
     >
-      <SheetContent side="bottom">
+      <SheetContent
+        side="bottom"
+        // Small-screen tuning over the shared bottom sheet:
+        //  • cap height at one dynamic viewport (minus a 2rem peek gap) and scroll
+        //    inside, so the '적용' CTA stays reachable when content is tall or the
+        //    viewport is short. `dvh` follows the mobile toolbar show/hide.
+        //  • trim the primitive's p-xl (32px) to p-lg (24px) on mobile via px/pt
+        //    only — the inherited pb-[max(env(safe-area-inset-bottom),1.5rem)]
+        //    must survive, so we never reset padding-bottom. Desktop keeps p-xl.
+        className="max-h-[calc(100dvh-2rem)] overflow-y-auto px-lg pt-lg sm:px-xl sm:pt-xl"
+      >
         {field ? (
           // Key by field id so each capture starts from a fresh, reset state.
           <SheetBody
@@ -272,7 +282,7 @@ function SignatureBody({
         </div>
       ) : (
         <div className="flex flex-col gap-md">
-          <div className="flex h-44 items-center justify-center overflow-hidden rounded-md border border-border bg-surface px-md">
+          <div className="flex h-36 items-center justify-center overflow-hidden rounded-md border border-border bg-surface px-md sm:h-44">
             <span
               className={cn('truncate text-3xl leading-none', name ? 'text-foreground' : 'text-foreground-subtle')}
               style={{ fontFamily: font.fontFamily }}
@@ -316,7 +326,9 @@ function ModeToggle({ mode, onChange }: { mode: SignMode; onChange: (m: SignMode
             aria-selected={active}
             onClick={() => onChange(o.id)}
             className={cn(
-              'h-10 rounded-sm text-sm font-semibold',
+              // Meet the 44px touch floor (token `touch/hit-target-min`); the
+              // previous h-10 (40px) sat below it.
+              'min-h-[var(--hit-target-min)] rounded-sm text-sm font-semibold',
               'transition-[background-color,color,box-shadow] duration-fast ease-standard',
               'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
               active ? 'bg-surface text-foreground shadow-xs' : 'text-foreground-subtle',
