@@ -164,6 +164,17 @@ export const SHARE_COPY = {
     create: '링크를 만들지 못했어요. 잠시 후 다시 시도해 주세요.',
     copy: '링크를 복사하지 못했어요. 링크를 직접 선택해 복사해 주세요.',
   },
+  /**
+   * Copy for the create wizard's 링크 공유 terminal step (shares the same body as
+   * the modal, but adds a step header + a "done" confirmation and a
+   * dashboard hand-off, matching the review step's success tone).
+   */
+  wizard: {
+    title: '링크로 공유할게요',
+    intro: '유효 기간과 비밀번호를 정하면 공유 링크를 만들어 드려요.',
+    done: '링크가 준비됐어요. 복사해서 받는 분에게 전달해 주세요.',
+    toDashboard: '대시보드로 가기',
+  },
   /** Sender-facing labels for a link's lifecycle state (list pills). */
   state: {
     active: '사용 중',
