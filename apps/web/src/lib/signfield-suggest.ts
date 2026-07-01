@@ -87,24 +87,42 @@ interface AnchorRule {
 }
 
 /**
+ * A single-token Korean date line: the ubiquitous "년 월 일" fill-in the vast
+ * majority of Korean contracts use for the date (there is usually NO "날짜"/
+ * "일자" label at all). Matches the whole run when the extractor keeps it as one
+ * token — "년 월 일", "20__년 __월 __일", "2024년 1월 1일". The split-across-tokens
+ * case (년 / 월 / 일 as separate runs) is handled by {@link detectDateLines}.
+ */
+const DATE_LINE_RE = /년[\s\d_.~-]*월[\s\d_.~-]*일/;
+
+/**
  * Anchor lexicon. Evaluated top-to-bottom; the first rule a token matches wins,
  * so order encodes precedence. Word boundaries (`\b`) keep the Latin anchors
  * from firing inside larger words (`design`, `username`).
  */
 const ANCHOR_RULES: readonly AnchorRule[] = [
-  // SIGNATURE — explicit signature/seal markers. "(인)" is a Korean seal stamp.
+  // SIGNATURE — signature / seal markers. "(인)" (also full-width "（인）" and
+  // bracketed "[인]") is a Korean seal stamp; 도장/직인 are stamp/official-seal.
   {
-    pattern: /서명|날인|서명란|\(\s*인\s*\)|\bsign(ature)?\b/i,
+    pattern: /서명|날인|서명란|도장|직인|[(（[]\s*인\s*[)）\]]|\bsign(ature)?\b/i,
     type: 'SIGNATURE',
     placement: 'right',
     baseConfidence: 0.92,
   },
-  // DATE — date labels.
+  // DATE — explicit date labels. 계약일/발행일/체결일 are common contract dates.
   {
-    pattern: /날짜|일자|작성일|\bdate\b/i,
+    pattern: /날짜|일자|작성일|계약일|발행일|체결일|\bdate\b/i,
     type: 'DATE',
     placement: 'right',
     baseConfidence: 0.88,
+  },
+  // DATE — the "년 월 일" fill-in line (single token). The field sits ON the line
+  // so the signer writes the date over the existing markers.
+  {
+    pattern: DATE_LINE_RE,
+    type: 'DATE',
+    placement: 'onBlank',
+    baseConfidence: 0.74,
   },
   // TEXT label — name/identity labels that expect a written value beside them.
   {
@@ -121,6 +139,9 @@ const ANCHOR_RULES: readonly AnchorRule[] = [
     baseConfidence: 0.62,
   },
 ] as const;
+
+/** Base confidence for a date line reassembled from separate 년/월/일 tokens. */
+const DATE_LINE_SPLIT_CONFIDENCE = 0.7;
 
 /** Normalized gap placed to the right of an anchor before the field starts. */
 const ANCHOR_GAP = 0.012;
@@ -156,6 +177,109 @@ function matchAnchor(text: string): AnchorRule | null {
     if (rule.pattern.test(text)) return rule;
   }
   return null;
+}
+
+/** A cleaned token carrying its global reading-order index. */
+interface OrderedToken extends TextToken {
+  order: number;
+}
+
+/**
+ * Classify a token as a single date part (년 / 월 / 일) when it is *only* that
+ * marker, optionally prefixed by digits/underscores/spaces ("년", "2024년",
+ * "__년"). Anything with other letters (e.g. "일요일", "금일") is rejected so we
+ * never mistake prose for a date. Returns the part char, or null.
+ */
+function dateMarkerPart(text: string): '년' | '월' | '일' | null {
+  const m = /^[\s\d_.~-]*([년월일])$/.exec(text.trim());
+  return m ? (m[1] as '년' | '월' | '일') : null;
+}
+
+/** Vertical center of a normalized rect (for same-line grouping). */
+function centerY(r: NormRect): number {
+  return r.y + r.height / 2;
+}
+
+/**
+ * Reassemble a "년 월 일" date line that the extractor split into separate 년 /
+ * 월 / 일 tokens (the common pdfjs outcome when the markers are spaced out on a
+ * fill-in line). Groups date-part markers by page, clusters them into lines by
+ * shared baseline, and — for any line that has a 년 followed by a 월 — emits one
+ * DATE field spanning the markers, sat ON the line. Lines with only a lone 년
+ * (e.g. a "2024년" mention in body prose) are ignored, keeping false positives
+ * out. The single-token "년 월 일" case is already covered by {@link DATE_LINE_RE}.
+ */
+function detectDateLines(tokens: readonly OrderedToken[]): Candidate[] {
+  const markers = tokens
+    .map((t) => ({ t, part: dateMarkerPart(t.text) }))
+    .filter((m): m is { t: OrderedToken; part: '년' | '월' | '일' } => m.part !== null);
+  if (markers.length === 0) return [];
+
+  const byPage = new Map<number, typeof markers>();
+  for (const m of markers) {
+    const list = byPage.get(m.t.page);
+    if (list) list.push(m);
+    else byPage.set(m.t.page, [m]);
+  }
+
+  const out: Candidate[] = [];
+  for (const [page, list] of byPage) {
+    // Top-to-bottom, then cluster consecutive markers sharing a baseline.
+    const sorted = [...list].sort((a, b) => centerY(b.t.rect) - centerY(a.t.rect));
+    let line: typeof markers = [];
+    const flush = () => {
+      const built = line.length > 0 ? buildDateLine(line, page) : null;
+      if (built) out.push(built);
+      line = [];
+    };
+    for (const m of sorted) {
+      const ref = line[line.length - 1]?.t.rect;
+      const sameLine =
+        ref != null &&
+        Math.abs(centerY(m.t.rect) - centerY(ref)) <= Math.max(ref.height, m.t.rect.height) * 0.8;
+      if (line.length === 0 || sameLine) line.push(m);
+      else {
+        flush();
+        line.push(m);
+      }
+    }
+    flush();
+  }
+  return out;
+}
+
+/** Build one DATE candidate from a same-line marker cluster, or null if it isn't
+ *  a real date line (needs a 년 with a 월 to its right). */
+function buildDateLine(
+  line: ReadonlyArray<{ t: OrderedToken; part: '년' | '월' | '일' }>,
+  page: number,
+): Candidate | null {
+  const byX = [...line].sort((a, b) => a.t.rect.x - b.t.rect.x);
+  const parts = byX.map((m) => m.part);
+  const yearAt = parts.indexOf('년');
+  const monthAt = parts.indexOf('월');
+  if (yearAt === -1 || monthAt === -1 || monthAt < yearAt) return null;
+
+  const year = byX[yearAt]!.t.rect;
+  const last = byX[byX.length - 1]!.t.rect;
+  const { width: defW, height: defH } = FIELD_TYPE_META.DATE.defaultSize;
+  const left = year.x;
+  const right = last.x + last.width;
+  const rect = clampNormRect({
+    x: left,
+    y: Math.min(...byX.map((m) => m.t.rect.y)),
+    width: Math.max(right - left, defW),
+    height: defH,
+  });
+
+  return {
+    type: 'DATE',
+    page,
+    rect,
+    confidence: DATE_LINE_SPLIT_CONFIDENCE,
+    anchorLabel: byX.map((m) => m.t.text.trim()).join(' '),
+    order: Math.min(...byX.map((m) => m.t.order)),
+  };
 }
 
 /** Compute the field rect for an anchor token, per its placement mode. */
@@ -261,19 +385,25 @@ export function suggestSignFields(
     );
 
   // 2. Detect anchors → candidates.
+  const ordered: OrderedToken[] = clean.map((token, order) => ({ ...token, order }));
   const candidates: Candidate[] = [];
-  clean.forEach((token, order) => {
+  for (const token of ordered) {
     const rule = matchAnchor(token.text);
-    if (!rule) return;
+    if (!rule) continue;
     candidates.push({
       type: rule.type,
       page: token.page,
       rect: placeField(rule, token.rect),
       confidence: rule.baseConfidence,
       anchorLabel: token.text.trim(),
-      order,
+      order: token.order,
     });
-  });
+  }
+
+  // 2b. Reassemble "년 월 일" date lines split across separate tokens (the common
+  // pdfjs outcome). Overlap resolution below drops any that clash with a stronger
+  // candidate, so this never double-places a date already caught single-token.
+  candidates.push(...detectDateLines(ordered));
 
   if (candidates.length === 0) return [];
 

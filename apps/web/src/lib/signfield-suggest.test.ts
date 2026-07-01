@@ -162,6 +162,91 @@ describe('classification by anchor', () => {
   });
 });
 
+describe('expanded signature / date lexicon (real contract markers)', () => {
+  it('classifies 도장 / 직인 seal markers → SIGNATURE', () => {
+    for (const label of ['도장', '직인', '도장 날인']) {
+      const f = only(
+        suggestSignFields([tok(label, 1, { x: 0.1, y: 0.2, width: 0.08, height: 0.03 })]),
+      );
+      expect(f.type).toBe('SIGNATURE');
+    }
+  });
+
+  it('classifies full-width / bracketed 인 seal markers → SIGNATURE', () => {
+    for (const label of ['（인）', '[인]', '( 인 )']) {
+      const f = only(
+        suggestSignFields([tok(label, 1, { x: 0.6, y: 0.2, width: 0.06, height: 0.03 })]),
+      );
+      expect(f.type).toBe('SIGNATURE');
+    }
+  });
+
+  it('classifies 계약일 / 발행일 / 체결일 date labels → DATE', () => {
+    for (const label of ['계약일', '발행일', '체결일', '계약일자']) {
+      const f = only(
+        suggestSignFields([tok(label, 1, { x: 0.1, y: 0.2, width: 0.08, height: 0.03 })]),
+      );
+      expect(f.type).toBe('DATE');
+    }
+  });
+
+  it('classifies a single-token "년 월 일" date line → DATE, placed on the line', () => {
+    const line: NormRect = { x: 0.3, y: 0.1, width: 0.3, height: 0.03 };
+    for (const label of ['년    월    일', '20__년 __월 __일', '2024년 1월 1일']) {
+      const f = only(suggestSignFields([tok(label, 1, line)]));
+      expect(f.type).toBe('DATE');
+      // sits ON the line (shares its left + baseline), not off to the right.
+      expect(f.x).toBeCloseTo(line.x, 6);
+      expect(f.y).toBeCloseTo(line.y, 6);
+    }
+  });
+
+  it('reassembles a "년 / 월 / 일" date line split across separate tokens → one DATE', () => {
+    // pdfjs commonly splits a spaced fill-in line into individual runs.
+    const out = suggestSignFields([
+      tok('2024', 1, { x: 0.30, y: 0.1, width: 0.05, height: 0.03 }),
+      tok('년', 1, { x: 0.36, y: 0.1, width: 0.03, height: 0.03 }),
+      tok('월', 1, { x: 0.46, y: 0.1, width: 0.03, height: 0.03 }),
+      tok('일', 1, { x: 0.56, y: 0.1, width: 0.03, height: 0.03 }),
+    ]);
+    expect(out).toHaveLength(1);
+    const f = out[0]!;
+    expect(f.type).toBe('DATE');
+    // spans from the 년 marker to past the 일 marker.
+    expect(f.x).toBeCloseTo(0.36, 6);
+    expect(f.x + f.width).toBeGreaterThanOrEqual(0.59 - 1e-9);
+    expect(within01(f)).toBe(true);
+  });
+
+  it('does not invent a date from a lone 년 (a year mention in prose)', () => {
+    const out = suggestSignFields([
+      tok('2024년', 1, { x: 0.1, y: 0.8, width: 0.08, height: 0.03 }),
+      tok('상반기', 1, { x: 0.2, y: 0.8, width: 0.08, height: 0.03 }),
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it('does not treat 일요일 / 금일 as date markers', () => {
+    const out = suggestSignFields([
+      tok('일요일', 1, { x: 0.1, y: 0.5, width: 0.08, height: 0.03 }),
+      tok('금일', 1, { x: 0.3, y: 0.5, width: 0.08, height: 0.03 }),
+    ]);
+    expect(out).toEqual([]);
+  });
+
+  it('places both a signature seal and a "년 월 일" date on a closing line', () => {
+    // A realistic Korean closing block with NO 날짜/서명 labels at all.
+    const out = suggestSignFields([
+      tok('년   월   일', 1, { x: 0.4, y: 0.2, width: 0.25, height: 0.03 }),
+      tok('홍길동', 1, { x: 0.4, y: 0.1, width: 0.1, height: 0.03 }),
+      tok('(인)', 1, { x: 0.55, y: 0.1, width: 0.05, height: 0.03 }),
+    ]);
+    const types = out.map((o) => o.type).sort();
+    expect(types).toContain('DATE');
+    expect(types).toContain('SIGNATURE');
+  });
+});
+
 describe('placement', () => {
   it('places a right-aligned signature field to the right of its anchor', () => {
     const anchor: NormRect = { x: 0.6, y: 0.15, width: 0.08, height: 0.03 };
