@@ -20,6 +20,7 @@ import {
   COMPLETION_ARTIFACTS,
   COMPLETION_DOWNLOAD_COPY,
   formatKstDateTime,
+  supportsFileShare,
   type CompletionArtifact,
 } from '@/lib/completion-download';
 
@@ -47,6 +48,14 @@ export function CompletionDownload({
 }: CompletionDownloadProps) {
   const completedLabel = formatKstDateTime(completedAt ?? null);
 
+  // Progressive enhancement: on file-share-capable browsers (iOS Safari,
+  // Android Chrome) the action opens the system share sheet, so the CTA reads
+  // "공유" there. Detect after mount so SSR/first paint stays "내려받기" (no
+  // hydration mismatch); desktop/legacy never flips → identical to before.
+  const [shareMode, setShareMode] = React.useState(false);
+  React.useEffect(() => setShareMode(supportsFileShare()), []);
+  const ctaLabel = shareMode ? COMPLETION_DOWNLOAD_COPY.shareCta : COMPLETION_DOWNLOAD_COPY.cta;
+
   return (
     <section
       className={cn('flex flex-col gap-sm text-left', className)}
@@ -69,7 +78,7 @@ export function CompletionDownload({
         <ul className="flex flex-col gap-sm">
           {COMPLETION_ARTIFACTS.map((kind) => (
             <li key={kind}>
-              <DownloadRow kind={kind} onDownload={onDownload} />
+              <DownloadRow kind={kind} onDownload={onDownload} ctaLabel={ctaLabel} />
             </li>
           ))}
         </ul>
@@ -83,9 +92,11 @@ export function CompletionDownload({
 function DownloadRow({
   kind,
   onDownload,
+  ctaLabel,
 }: {
   kind: CompletionArtifact;
   onDownload: (kind: CompletionArtifact) => Promise<void>;
+  ctaLabel: string;
 }) {
   const item = COMPLETION_DOWNLOAD_COPY.items[kind];
   const [loading, setLoading] = React.useState(false);
@@ -120,7 +131,7 @@ function DownloadRow({
           onClick={handle}
           className="min-hit-target shrink-0"
         >
-          {COMPLETION_DOWNLOAD_COPY.cta}
+          {ctaLabel}
         </Button>
       </div>
       {error ? (

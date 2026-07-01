@@ -15,7 +15,7 @@ import { apiDownload, apiFetch } from './api';
 import { getToken } from './auth';
 import {
   COMPLETION_DOWNLOAD_COPY,
-  saveBlob,
+  deliverArtifact,
   type CompletionArtifact,
 } from './completion-download';
 
@@ -65,7 +65,10 @@ export async function downloadOwnerArtifact(
     `/documents/${encodeURIComponent(documentId)}/download/${kind}`,
     { token: getToken() ?? undefined },
   );
-  saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
+  const name = filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`;
+  // Same shared delivery branch as the signer: native share sheet where the
+  // browser supports it, download fallback otherwise.
+  await deliverArtifact(blob, name, fallbackTitle);
 }
 
 // --- optimistic "just sent" hand-off ---------------------------------------

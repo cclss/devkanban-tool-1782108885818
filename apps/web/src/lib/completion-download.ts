@@ -31,8 +31,10 @@ export const COMPLETION_DOWNLOAD_COPY = {
       description: '계약 이력과 문서 무결성을 증명하는 문서예요.',
     },
   } satisfies Record<CompletionArtifact, { title: string; description: string }>,
-  /** Download button label. */
+  /** Download button label (desktop / no file-share support). */
   cta: '내려받기',
+  /** Action label when the browser can hand the file to the system share sheet. */
+  shareCta: '공유',
   /** Shown while post-processing hasn't stored the artifacts yet. */
   preparing: '완료 문서를 준비하고 있어요. 잠시 후 다시 열어 주세요.',
   /** Neutral fallback when a download fails for an unknown reason. */
@@ -65,9 +67,80 @@ export function saveBlob(blob: Blob, filename: string): void {
   const a = window.document.createElement('a');
   a.href = url;
   a.download = filename;
+  // Harmless everywhere; keeps the (unused) tab context isolated on the browsers
+  // that ignore `download` and navigate instead.
+  a.rel = 'noopener';
+  // Build + click synchronously so the trigger stays inside the user gesture.
   window.document.body.appendChild(a);
   a.click();
   a.remove();
-  // Revoke after the click has been dispatched.
-  window.setTimeout(() => URL.revokeObjectURL(url), 0);
+  // iOS Safari cancels the download if the object URL is revoked before it has
+  // finished reading the blob. The previous 0ms timeout raced that read; defer
+  // the revoke well past the click so the save completes first (the URL is
+  // reclaimed on unload regardless, so this leaks nothing meaningful).
+  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+/**
+ * Whether the current browser can hand actual files to the OS share sheet.
+ * `navigator.canShare({files})` is the reliable feature-detect (Web Share API
+ * Level 2): iOS Safari and Android Chrome return true, desktop/legacy return
+ * false. A capability probe (empty file) is enough for choosing the CTA label;
+ * {@link deliverArtifact} re-checks with the real file before sharing.
+ */
+export function supportsFileShare(): boolean {
+  if (typeof navigator === 'undefined') return false;
+  if (typeof navigator.share !== 'function' || typeof navigator.canShare !== 'function') {
+    return false;
+  }
+  try {
+    const probe = new File([new Uint8Array()], 'probe.pdf', { type: 'application/pdf' });
+    return navigator.canShare({ files: [probe] });
+  } catch {
+    return false;
+  }
+}
+
+/** True when a rejected `navigator.share()` was just the user dismissing the sheet. */
+function isShareDismissal(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+/**
+ * Deliver a completed artifact to the user, choosing the best available path:
+ *
+ * 1. **Share** — on file-share-capable mobile browsers (iOS Safari, Android
+ *    Chrome) open the native share sheet (`navigator.share({files})`), which
+ *    offers "Save to Files"/AirDrop/Messages etc. This sidesteps the iOS Safari
+ *    `a[download]` limitation (it ignores `download`, navigating the tab to the
+ *    blob and dropping the signer's in-page session).
+ * 2. **Download** — everywhere else fall back to {@link saveBlob}, preserving the
+ *    exact existing desktop/legacy behavior.
+ *
+ * Progressive enhancement only: unsupported browsers are byte-for-byte unchanged.
+ * A user-dismissed share sheet resolves quietly (not an error); any other share
+ * failure falls through to the download path.
+ */
+export async function deliverArtifact(
+  blob: Blob,
+  filename: string,
+  shareTitle?: string,
+): Promise<void> {
+  if (typeof window === 'undefined') return;
+  const file = new File([blob], filename, { type: blob.type || 'application/pdf' });
+  if (
+    typeof navigator !== 'undefined' &&
+    typeof navigator.canShare === 'function' &&
+    typeof navigator.share === 'function' &&
+    navigator.canShare({ files: [file] })
+  ) {
+    try {
+      await navigator.share({ files: [file], title: shareTitle ?? filename });
+      return;
+    } catch (err) {
+      if (isShareDismissal(err)) return;
+      // Any other share failure → best-effort download fallback below.
+    }
+  }
+  saveBlob(blob, filename);
 }

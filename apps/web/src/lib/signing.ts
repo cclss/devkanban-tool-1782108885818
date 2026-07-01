@@ -20,7 +20,7 @@
 import { ApiError, apiDownload, apiFetch, apiUrl } from './api';
 import {
   COMPLETION_DOWNLOAD_COPY,
-  saveBlob,
+  deliverArtifact,
   type CompletionArtifact,
 } from './completion-download';
 
@@ -288,7 +288,10 @@ export async function downloadSignerArtifact(
   const { blob, filename } = await apiDownload(`${base(accessToken)}/download/${kind}`, {
     token: session,
   });
-  saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
+  const name = filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`;
+  // Branch on the shared delivery path (native share sheet where available,
+  // download otherwise) after the blob is in hand — same for signer and owner.
+  await deliverArtifact(blob, name, fallbackTitle);
 }
 
 /**
