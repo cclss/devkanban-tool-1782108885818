@@ -33,7 +33,7 @@ import {
 } from './wizard-context';
 import { UploadStep } from './upload-step';
 import { FieldsStep } from './fields-step';
-import { DeliveryStep } from './delivery-step';
+import { DeliveryMethodStep } from './delivery-method-step';
 import { RecipientsStep } from './recipients-step';
 import { ReviewStep } from './review-step';
 import { LinkShareStep } from './link-share-step';
@@ -116,7 +116,7 @@ function StepSlot({ stepKey }: { stepKey: StepKey }) {
     case 'fields':
       return <FieldsStep />;
     case 'delivery':
-      return <DeliveryStep />;
+      return <DeliveryMethodStep />;
     case 'recipients':
       return <RecipientsStep />;
     case 'review':
