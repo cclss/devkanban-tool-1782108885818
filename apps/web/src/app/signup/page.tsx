@@ -167,7 +167,7 @@ export default function SignupPage() {
   }
 
   return (
-    <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-md py-2xl">
+    <main className="relative flex min-h-dvh-safe items-center justify-center overflow-hidden bg-background px-md py-2xl">
       <BlobBackground />
 
       <Card className="motion-stagger relative z-10 w-full max-w-[420px] p-xl shadow-lg sm:p-2xl">
