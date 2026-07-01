@@ -21,6 +21,14 @@
  * release the pages re-rasterize once at the settled zoom (a natural debounce),
  * sharp up to the 2× device-pixel ceiling.
  *
+ * Page navigation: for multi-page contracts a bottom-centre floating pill shows
+ * the current / total page with prev·next jumps that smooth-scroll the page to
+ * the top of the viewport. The indicator follows the scroll via an
+ * IntersectionObserver center-band scrollspy, so it stays in sync whether the
+ * signer scrolls, taps a jump, or is zoomed in. Like the zoom controls it floats
+ * on the viewport (not the scrolling column), staying in one-hand reach and
+ * above the in-flow CTA.
+ *
  * The signer holds no File, so the document is streamed from the session-guarded
  * `/signing/:token/pdf` endpoint and opened with `loadPdfFromUrl`. Field values
  * and the open-sheet target live in the signer context: the capture BottomSheet
@@ -182,6 +190,11 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
   // so the browser hands us the pinch instead of scrolling/zooming the page.
   const [pinching, setPinching] = React.useState(false);
 
+  // Current page (1-based) inferred from the scroll position — drives the
+  // thumb-reach page-nav indicator. Stays valid while zoomed (the pages stay a
+  // vertical stack; only their size changes).
+  const [currentPage, setCurrentPage] = React.useState(1);
+
   const isReady = status === 'ready' && !!doc && basePageWidth > 0;
 
   // Measure the clip window (stable — it does not grow with zoom).
@@ -194,6 +207,29 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  // Sync the current-page indicator to the scroll position. A center-band
+  // `rootMargin` collapses the observation root to a horizontal line at the
+  // viewport's vertical middle, so exactly the page crossing that line reports
+  // as intersecting — the classic scrollspy technique. Works unchanged while
+  // zoomed (only the vertical band matters; horizontal pan is ignored).
+  React.useEffect(() => {
+    const root = viewportRef.current;
+    if (!root || !isReady || pageCount === 0) return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          if (!entry.isIntersecting) continue;
+          const n = Number((entry.target as HTMLElement).dataset.pageNumber);
+          if (n) setCurrentPage(n);
+        }
+      },
+      { root, rootMargin: '-50% 0px -50% 0px', threshold: 0 },
+    );
+    const pages = root.querySelectorAll<HTMLElement>('[data-page-number]');
+    pages.forEach((page) => io.observe(page));
+    return () => io.disconnect();
+  }, [isReady, pageCount]);
 
   // Committed display width of each page (drives layout, pan area, overlay geom).
   const displayWidth = basePageWidth * zoom;
@@ -348,6 +384,19 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
     document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
+  // Tap-to-jump: smooth-scroll a page to the top of the viewport. Clamped to the
+  // valid range so the prev/next controls are no-ops at the ends.
+  const scrollToPage = React.useCallback(
+    (n: number) => {
+      const target = clamp(n, 1, pageCount);
+      const root = viewportRef.current;
+      root
+        ?.querySelector<HTMLElement>(`[data-page-number="${target}"]`)
+        ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+    [pageCount],
+  );
+
   const onFieldTap = React.useCallback(
     (field: SigningPayloadField) => {
       scrollToField(field.id);
@@ -472,6 +521,39 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
             </ZoomButton>
           </div>
         ) : null}
+
+        {/* Thumb-reach page navigator — a bottom-centre floating pill showing the
+            current / total page with prev·next jumps. Positioned on the viewport
+            container (not the scrolling column), so it stays in the one-hand
+            reach zone regardless of zoom/pan, and floats above the in-flow CTA
+            (which owns the home-indicator clearance). Hidden for single-page docs
+            and until the document can render. */}
+        {isReady && pageCount > 1 ? (
+          <div className="pointer-events-none absolute bottom-md left-1/2 flex -translate-x-1/2 items-center gap-2xs rounded-full border border-border bg-surface/95 px-2xs shadow-md backdrop-blur">
+            <PageNavButton
+              label="이전 페이지"
+              onClick={() => scrollToPage(currentPage - 1)}
+              disabled={currentPage <= 1}
+            >
+              ‹
+            </PageNavButton>
+            <span
+              aria-live="polite"
+              className="min-w-[3.5ch] select-none text-center text-sm font-semibold tabular-nums text-foreground"
+            >
+              <span className="sr-only">{`전체 ${pageCount}페이지 중 `}</span>
+              {currentPage}
+              <span className="text-foreground-subtle">{` / ${pageCount}`}</span>
+            </span>
+            <PageNavButton
+              label="다음 페이지"
+              onClick={() => scrollToPage(currentPage + 1)}
+              disabled={currentPage >= pageCount}
+            >
+              ›
+            </PageNavButton>
+          </div>
+        ) : null}
       </div>
 
       <div className="border-t border-border bg-surface px-lg py-md pb-safe-cta">
@@ -512,6 +594,41 @@ function ZoomButton({
       className={cn(
         'min-hit-target pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full',
         'border border-border bg-surface/95 text-xl font-bold text-foreground shadow-md backdrop-blur',
+        'transition-transform duration-fast ease-standard active:scale-[0.94]',
+        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
+        'disabled:opacity-40 disabled:active:scale-100',
+      )}
+    >
+      <span className="pointer-events-none leading-none">{children}</span>
+    </button>
+  );
+}
+
+/**
+ * A prev/next control inside the page-nav pill. Shares the zoom controls' tone
+ * (auxiliary, neutral) and guarantees a 44×44px touch target; the pill itself
+ * carries the surface/border/shadow, so the button stays transparent.
+ */
+function PageNavButton({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'min-hit-target pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full',
+        'text-xl font-bold text-foreground',
         'transition-transform duration-fast ease-standard active:scale-[0.94]',
         'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
         'disabled:opacity-40 disabled:active:scale-100',
@@ -571,7 +688,7 @@ function PdfPageView({
   const ready = status === 'ready' && pageSize !== null;
 
   return (
-    <div className="relative w-full">
+    <div className="relative w-full" data-page-number={pageNumber}>
       {ready ? null : status === 'error' ? (
         <div className="flex aspect-[1/1.414] w-full items-center justify-center rounded-sm border border-border bg-surface-muted px-md text-center">
           <p className="text-sm text-foreground-muted">{`${pageNumber}페이지를 불러올 수 없어요.`}</p>
