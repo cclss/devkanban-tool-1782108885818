@@ -6,8 +6,12 @@
  * Owns the chrome shared across every step: a sticky header, the StepIndicator
  * (whose current node plays the `step-bounce` pop on each transition), the
  * animated content region, and the back/next footer. Step *content* lives in
- * slot components — only the upload step is built here (grain-6); field
- * placement (7), recipients (8) and review/send (9) fill their slots later.
+ * slot components resolved by step key.
+ *
+ * The step sequence forks on the chosen delivery method (see wizard-context):
+ * upload → fields → delivery, then either recipients → review ('email') or
+ * share link ('link'). The StepIndicator, slot, and last-step footer rule all
+ * read the active branch rather than a fixed step list.
  *
  * Navigation is centralized: a step never advances itself. It writes to wizard
  * state, and `canProceed()` decides whether "다음" unlocks — so as later grains
@@ -21,13 +25,18 @@ import {
   WizardProvider,
   useWizard,
   canProceed,
-  WIZARD_STEPS,
-  LAST_STEP,
+  currentStepKey,
+  isLastStep,
+  stepSequence,
+  STEP_LABELS,
+  type StepKey,
 } from './wizard-context';
 import { UploadStep } from './upload-step';
 import { FieldsStep } from './fields-step';
+import { DeliveryStep } from './delivery-step';
 import { RecipientsStep } from './recipients-step';
 import { ReviewStep } from './review-step';
+import { LinkShareStep } from './link-share-step';
 
 export function ContractWizard() {
   return (
@@ -41,6 +50,11 @@ function WizardShell() {
   const router = useRouter();
   const { state, goNext, goBack } = useWizard();
   const proceed = canProceed(state);
+  // Labels/slot are driven by the branch the chosen delivery method carves out,
+  // never by a fixed step list.
+  const steps = stepSequence(state.deliveryMethod);
+  const stepKey = currentStepKey(state);
+  const lastStep = isLastStep(state);
 
   const exit = React.useCallback(() => router.push('/dashboard'), [router]);
 
@@ -56,7 +70,7 @@ function WizardShell() {
       </header>
 
       <div className="mx-auto w-full max-w-[760px] px-md pt-lg">
-        <StepIndicator steps={[...WIZARD_STEPS]} current={state.step} />
+        <StepIndicator steps={steps.map((key) => STEP_LABELS[key])} current={state.step} />
       </div>
 
       <main className="mx-auto w-full max-w-[760px] flex-1 px-md py-xl">
@@ -65,7 +79,7 @@ function WizardShell() {
           key={state.step}
           className={state.direction === 1 ? 'animate-wizard-forward' : 'animate-wizard-back'}
         >
-          <StepSlot step={state.step} />
+          <StepSlot stepKey={stepKey} />
         </div>
       </main>
 
@@ -79,12 +93,13 @@ function WizardShell() {
             {state.step === 0 ? '취소' : '이전'}
           </Button>
 
-          {state.step < LAST_STEP ? (
+          {!lastStep ? (
             <Button size="md" onClick={goNext} disabled={!proceed} className="min-w-[120px]">
               다음
             </Button>
           ) : (
-            // Review/send step (grain-9) renders its own 발송 CTA in its slot.
+            // Terminal steps ('발송 검토' / '링크 공유') render their own CTA in
+            // their slot, so the shell leaves its footer-right empty here.
             <span aria-hidden="true" />
           )}
         </div>
@@ -93,17 +108,21 @@ function WizardShell() {
   );
 }
 
-/** Renders the active step's content. Only the upload slot is built in grain-6. */
-function StepSlot({ step }: { step: number }) {
-  switch (step) {
-    case 0:
+/** Renders the active step's content, resolved by step key. */
+function StepSlot({ stepKey }: { stepKey: StepKey }) {
+  switch (stepKey) {
+    case 'upload':
       return <UploadStep />;
-    case 1:
+    case 'fields':
       return <FieldsStep />;
-    case 2:
+    case 'delivery':
+      return <DeliveryStep />;
+    case 'recipients':
       return <RecipientsStep />;
-    case 3:
+    case 'review':
       return <ReviewStep />;
+    case 'link':
+      return <LinkShareStep />;
     default:
       return null;
   }
