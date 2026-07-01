@@ -105,8 +105,11 @@ function DownloadRow({
 
   return (
     <div className="flex flex-col gap-2xs rounded-md border border-border bg-surface-muted px-md py-sm">
-      <div className="flex items-center justify-between gap-md">
-        <div className="flex min-w-0 flex-col gap-2xs">
+      {/* Narrow screens (shared signer completion + dashboard): stack the
+          title over the button so the CTA/filename never collide; `sm:` and up
+          restores the original title-left / button-right row. */}
+      <div className="flex flex-col items-start gap-sm sm:flex-row sm:items-center sm:justify-between sm:gap-md">
+        <div className="flex min-w-0 flex-col gap-2xs self-stretch sm:self-auto">
           <p className="truncate text-base font-semibold text-foreground">{item.title}</p>
           <p className="text-sm text-foreground-subtle">{item.description}</p>
         </div>
@@ -115,7 +118,7 @@ function DownloadRow({
           size="sm"
           isLoading={loading}
           onClick={handle}
-          className="shrink-0"
+          className="min-hit-target shrink-0"
         >
           {COMPLETION_DOWNLOAD_COPY.cta}
         </Button>

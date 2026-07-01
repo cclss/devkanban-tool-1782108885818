@@ -39,18 +39,16 @@ export function CompletionScreen({ meta }: { meta: SigningMeta }) {
     ? SIGNER_COPY.done.nextAllDone
     : SIGNER_COPY.done.nextWaiting;
 
+  // Safe-area aware via foundation utils (not inline env()): `px-lg`/`py-lg`
+  // set the base gutter + vertical rhythm; `.pt-safe`/`.pb-safe` add the
+  // notch/home-indicator insets on top (0 on desktop → no-op).
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
       aria-label={SIGNER_COPY.done.title}
-      style={{
-        ...brandStyle(meta.sender.brandColor),
-        // Safe-area aware: keep clear of notch/home-indicator on mobile.
-        paddingTop: 'max(env(safe-area-inset-top), 24px)',
-        paddingBottom: 'max(env(safe-area-inset-bottom), 24px)',
-      }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl bg-background px-lg text-center"
+      style={brandStyle(meta.sender.brandColor)}
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl bg-background px-lg py-lg pt-safe pb-safe text-center"
     >
       <div className="relative flex items-center justify-center">
         <Confetti className="z-0" />
