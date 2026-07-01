@@ -8,7 +8,9 @@
  *   - Backspace clears, then steps back
  *   - ArrowLeft/Right move between cells
  *   - pasting a 6-digit string fills every cell at once
- *   - `inputMode="numeric"` summons the numeric keypad on mobile
+ *   - `inputMode="numeric"` summons the numeric keypad on mobile; paired with
+ *     `autoCorrect/autoCapitalize/spellCheck` off and `enterKeyHint="done"` so
+ *     the OS keypad and one-time-code autofill stay out of the way
  *
  * Stateless / controlled: the parent owns the `value` string and is notified via
  * `onChange`; `onComplete` fires once all cells are full. The `invalid` flag
@@ -138,6 +140,14 @@ export function OtpInput({
           inputMode="numeric"
           pattern="\d*"
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
+          // Conservative mobile-keypad hints: keep the numeric pad clean and let
+          // the OS one-time-code autofill flow through untouched (no correction,
+          // capitalization, or spellcheck on a code). `enterKeyHint="done"` since
+          // filling the last cell auto-submits — nothing more to type.
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="done"
           maxLength={1}
           // eslint-disable-next-line jsx-a11y/no-autofocus -- single intentional entry focus
           autoFocus={autoFocus && i === 0}

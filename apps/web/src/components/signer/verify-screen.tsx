@@ -54,11 +54,13 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
   return (
     <main
       style={brandStyle(meta.sender.brandColor)}
-      className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
+      className="mx-auto flex min-h-dvh-safe w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={meta.sender} />
 
-      <div className="motion-stagger mt-2xl flex flex-1 flex-col">
+      {/* Scroll body. `pb-2xl` keeps the code + error clear of the sticky bar as
+          the viewport shrinks (mobile keyboard / low height). */}
+      <div className="motion-stagger mt-2xl flex flex-1 flex-col pb-2xl">
         <h1 className="text-2xl font-bold text-foreground">{SIGNER_COPY.verifyTitle}</h1>
         <p className="mt-2xs text-base text-foreground-subtle">{SIGNER_COPY.verifyHint}</p>
 
@@ -88,11 +90,19 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
             {error}
           </p>
         </div>
+      </div>
 
+      {/* Bottom-fixed identity-check CTA — always reachable regardless of scroll
+          or the on-screen keyboard. Mirrors the document viewer's safe-area
+          bottom bar (top border, surface fill, home-indicator clearance via
+          `.pb-safe-cta`); `sticky bottom-0` pins it since this screen scrolls as
+          one column, and `-mx-lg` lets the bar span edge-to-edge past the page
+          gutter while the button stays gutter-aligned with the cells above.
+          The 6th-digit auto-submit still fires; this is the explicit fallback. */}
+      <div className="sticky bottom-0 z-20 -mx-lg border-t border-border bg-surface px-lg pt-md pb-safe-cta">
         <Button
           size="lg"
           fullWidth
-          className="mt-auto"
           disabled={code.length !== CODE_LENGTH}
           isLoading={submitting}
           onClick={() => submit(code)}
