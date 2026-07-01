@@ -94,7 +94,7 @@ export default function DashboardPage() {
   if (!ready) return null;
 
   return (
-    <div className="min-h-[100dvh] bg-background">
+    <div className="min-h-dvh-safe bg-background">
       <DashboardHeader user={user} onLogout={() => { clearSession(); router.replace('/login'); }} />
 
       <main className="mx-auto w-full max-w-[960px] px-md py-xl sm:py-2xl">
@@ -135,7 +135,7 @@ function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogou
           {user?.email ? (
             <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
           ) : null}
-          <Button variant="ghost" size="sm" onClick={onLogout}>
+          <Button variant="ghost" size="sm" onClick={onLogout} className="min-hit-target">
             로그아웃
           </Button>
         </div>
@@ -158,7 +158,7 @@ function PlanUsage({
 
   return (
     <Card className={className}>
-      <div className="flex items-center justify-between gap-md p-lg">
+      <div className="flex flex-col items-start gap-md p-lg sm:flex-row sm:items-center sm:justify-between">
         <div className="flex min-w-0 flex-col gap-2xs">
           <div className="flex items-center gap-xs">
             <span className="text-sm font-bold text-foreground">
@@ -181,7 +181,12 @@ function PlanUsage({
           )}
         </div>
         {isFree ? (
-          <Button variant="secondary" size="sm" onClick={() => setUpgradeOpen(true)}>
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => setUpgradeOpen(true)}
+            className="min-hit-target w-full sm:w-auto"
+          >
             업그레이드
           </Button>
         ) : null}
@@ -292,7 +297,7 @@ function ContractCard({ document, highlighted }: { document: DocumentSummary; hi
         </span>
         <div className="flex min-w-0 flex-1 flex-col gap-2xs">
           <div className="flex items-center gap-xs">
-            <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
+            <h3 className="min-w-0 truncate text-base font-bold text-foreground">{document.title}</h3>
             {/* Completed cards carry the 완료됨 badge inside the download area
                 below, so the title row omits it to avoid a duplicate badge. */}
             {!completed ? (
