@@ -48,34 +48,44 @@ export function CompletionScreen({ meta }: { meta: SigningMeta }) {
       aria-modal="true"
       aria-label={SIGNER_COPY.done.title}
       style={brandStyle(meta.sender.brandColor)}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl bg-background px-lg py-lg pt-safe pb-safe text-center"
+      className="fixed inset-0 z-50 flex flex-col items-center overflow-y-auto bg-background px-lg py-lg pt-safe pb-safe text-center"
     >
-      <div className="relative flex items-center justify-center">
-        <Confetti className="z-0" />
-        <SuccessCheck size={104} className="relative z-10" aria-label={SIGNER_COPY.done.title} />
-      </div>
-
-      <div className="motion-stagger flex w-full max-w-[420px] flex-col items-center gap-sm">
-        <h1 className="text-2xl font-bold text-foreground">{SIGNER_COPY.done.title}</h1>
-        <p className="text-base text-foreground-subtle">{SIGNER_COPY.done.body}</p>
-
-        <div className="mt-xs w-full rounded-md border border-border bg-surface-muted px-md py-sm text-left">
-          <p className="text-2xs font-medium text-foreground-subtle">
-            {SIGNER_COPY.done.documentLabel}
-          </p>
-          <p className="mt-2xs truncate text-sm font-semibold text-foreground">{documentTitle}</p>
+      {/* Scroll-safe centering. The overlay is a scroll container and the inner
+          block uses `m-auto`, so it centers vertically when there's room but the
+          margins collapse and the whole block scrolls (top confetti AND the
+          bottom download/share CTA stay reachable) once the content outgrows the
+          viewport — e.g. the all-done path renders the download card and the
+          overlay is taller than a short/landscape phone. Plain `justify-center`
+          would push the overflow past the top edge and clip the download
+          actions off-screen with no way to reach them. */}
+      <div className="m-auto flex w-full max-w-[420px] flex-col items-center gap-xl">
+        <div className="relative flex items-center justify-center">
+          <Confetti className="z-0" />
+          <SuccessCheck size={104} className="relative z-10" aria-label={SIGNER_COPY.done.title} />
         </div>
 
-        <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
+        <div className="motion-stagger flex w-full flex-col items-center gap-sm">
+          <h1 className="text-2xl font-bold text-foreground">{SIGNER_COPY.done.title}</h1>
+          <p className="text-base text-foreground-subtle">{SIGNER_COPY.done.body}</p>
 
-        {documentCompleted ? (
-          <CompletionDownload
-            className="mt-xs w-full rounded-md border border-border bg-surface px-md py-md"
-            ready
-            showBadge={false}
-            onDownload={(kind) => downloadSignerArtifact(token, kind, documentTitle)}
-          />
-        ) : null}
+          <div className="mt-xs w-full rounded-md border border-border bg-surface-muted px-md py-sm text-left">
+            <p className="text-2xs font-medium text-foreground-subtle">
+              {SIGNER_COPY.done.documentLabel}
+            </p>
+            <p className="mt-2xs truncate text-sm font-semibold text-foreground">{documentTitle}</p>
+          </div>
+
+          <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
+
+          {documentCompleted ? (
+            <CompletionDownload
+              className="mt-xs w-full rounded-md border border-border bg-surface px-md py-md"
+              ready
+              showBadge={false}
+              onDownload={(kind) => downloadSignerArtifact(token, kind, documentTitle)}
+            />
+          ) : null}
+        </div>
       </div>
     </div>,
     window.document.body,
