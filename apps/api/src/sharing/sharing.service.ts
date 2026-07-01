@@ -29,6 +29,7 @@ import {
   type ShareLinkState,
 } from './link-state';
 import { ShareSessionService } from './share-session.service';
+import { SendQuotaService } from '../common/send-quota.service';
 import type { SaveFieldValuesDto } from '../signing/dto/signing.dto';
 import type { CreateShareLinkDto } from './dto/sharing.dto';
 
@@ -67,6 +68,7 @@ export class SharingService {
     private readonly config: ConfigService,
     private readonly sessions: ShareSessionService,
     private readonly signing: SigningService,
+    private readonly sendQuota: SendQuotaService,
   ) {}
 
   // --- sender (JWT) --------------------------------------------------------
@@ -76,6 +78,12 @@ export class SharingService {
    * access token, hashes the optional password, computes the expiry, and
    * attaches the document's still-unassigned fields to this LINK request so the
    * recipient has something to fill. The response never exposes the password.
+   *
+   * A share link is a real delivery channel, so the first link on a DRAFT
+   * document *dispatches* it exactly like an email send would: it flips the
+   * document to 진행 중 (recording `sentAt`) and consumes one Free-plan monthly
+   * send. Additional links on an already-dispatched document neither re-count
+   * against the quota nor change the status (idempotent DRAFT → 진행 중 only).
    */
   async createLink(
     ownerId: string,
@@ -83,7 +91,15 @@ export class SharingService {
     dto: CreateShareLinkDto,
     ip?: string,
   ): Promise<ShareLinkView> {
-    await this.requireOwnedDocument(ownerId, documentId);
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+
+    // The first link is this contract's dispatch: it must obey the same
+    // Free-plan monthly limit as an email send (otherwise links would be a
+    // quota bypass). Later links on an already-sent document don't re-count.
+    const isFirstDispatch = document.status === DocumentStatus.DRAFT;
+    if (isFirstDispatch) {
+      await this.sendQuota.assertWithinQuota(ownerId);
+    }
 
     const accessToken = randomBytes(24).toString('hex');
     const password = dto.password?.trim();
@@ -92,6 +108,11 @@ export class SharingService {
     const linkLabel = dto.label?.trim() || null;
 
     const link = await this.prisma.$transaction(async (tx) => {
+      // Re-check quota inside the transaction to avoid a race past the limit.
+      if (isFirstDispatch) {
+        await this.sendQuota.assertWithinQuota(ownerId, tx);
+      }
+
       const created = await tx.signRequest.create({
         data: {
           documentId,
@@ -110,6 +131,16 @@ export class SharingService {
         where: { documentId, signRequestId: null },
         data: { signRequestId: created.id },
       });
+
+      // Dispatch the contract on its first link: flip DRAFT → 진행 중 and stamp
+      // sentAt so the dashboard status and the monthly send count stay in sync
+      // with the email path. One-shot: never touches an already 진행 중/완료 doc.
+      if (isFirstDispatch) {
+        await tx.document.update({
+          where: { id: documentId },
+          data: { status: DocumentStatus.IN_PROGRESS, sentAt: new Date() },
+        });
+      }
 
       await tx.auditLog.create({
         data: {
@@ -413,13 +444,17 @@ export class SharingService {
     await this.writeAudit({ signRequestId, action: AUDIT_ACTION.VIEWED });
   }
 
-  private async requireOwnedDocument(ownerId: string, documentId: string): Promise<void> {
+  private async requireOwnedDocument(
+    ownerId: string,
+    documentId: string,
+  ): Promise<{ status: DocumentStatus }> {
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
-      select: { ownerId: true },
+      select: { ownerId: true, status: true },
     });
     if (!document) throw new NotFoundException(MESSAGES.document.notFound);
     if (document.ownerId !== ownerId) throw new ForbiddenException(MESSAGES.document.forbidden);
+    return { status: document.status };
   }
 
   private async writeAudit(input: {

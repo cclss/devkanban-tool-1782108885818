@@ -9,7 +9,8 @@ import * as bcrypt from 'bcryptjs';
 import { SharingService } from './sharing.service';
 import { ShareSessionService } from './share-session.service';
 import { SigningService } from '../signing/signing.service';
-import { SHARE_UNLOCK_MAX_ATTEMPTS } from '../common/messages';
+import { SendQuotaService } from '../common/send-quota.service';
+import { FREE_PLAN_MONTHLY_LIMIT, SHARE_UNLOCK_MAX_ATTEMPTS } from '../common/messages';
 
 /**
  * Integration-style coverage of the link-sharing flow, wiring the REAL
@@ -63,6 +64,8 @@ function makePrisma() {
         users.set(row.id, row);
         return Promise.resolve(row);
       },
+      findUnique: ({ where }: { where: Row }) =>
+        Promise.resolve(users.get(where.id as string) ?? null),
     },
     document: {
       create: ({ data }: { data: Row }) => {
@@ -76,6 +79,16 @@ function makePrisma() {
         const row = documents.get(where.id as string)!;
         Object.assign(row, data);
         return Promise.resolve(row);
+      },
+      count: ({ where }: { where: Row }) => {
+        const gte = (where.sentAt as Row | undefined)?.gte as Date | undefined;
+        const n = [...documents.values()].filter(
+          (d) =>
+            (where.ownerId === undefined || d.ownerId === where.ownerId) &&
+            (gte === undefined ||
+              (d.sentAt != null && (d.sentAt as Date).getTime() >= gte.getTime())),
+        ).length;
+        return Promise.resolve(n);
       },
     },
     signRequest: {
@@ -204,7 +217,8 @@ function setup(): Harness {
   const signerSessions = {} as never;
   const signing = new SigningService(prisma as never, storage, signerSessions, completionQueue);
 
-  const sharing = new SharingService(prisma as never, config, shareSessions, signing);
+  const sendQuota = new SendQuotaService(prisma as never);
+  const sharing = new SharingService(prisma as never, config, shareSessions, signing, sendQuota);
 
   // Seed an owner + a DRAFT document with two unassigned fields.
   const owner = { id: 'owner_1', email: 'sender@toss.im', name: '토스' };
@@ -287,6 +301,43 @@ describe('SharingService — link creation', () => {
     await expect(h.sharing.createLink(h.ownerId, 'nope', {})).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  it('dispatches the DRAFT contract on the first link (진행 중 + sentAt), idempotently', async () => {
+    const h = setup();
+    const doc = h.prisma._documents.get(h.documentId)!;
+    expect(doc.status).toBe('DRAFT');
+
+    await h.sharing.createLink(h.ownerId, h.documentId, {});
+    // DRAFT → 진행 중 with a sentAt stamp so the dashboard + quota see a dispatch.
+    expect(doc.status).toBe('IN_PROGRESS');
+    expect(doc.sentAt).toBeInstanceOf(Date);
+
+    const stampedAt = doc.sentAt;
+    // A second link on the already-dispatched document leaves status/sentAt alone.
+    await h.sharing.createLink(h.ownerId, h.documentId, {});
+    expect(doc.status).toBe('IN_PROGRESS');
+    expect(doc.sentAt).toBe(stampedAt);
+  });
+
+  it('rejects the first link once the Free-plan monthly limit is used up', async () => {
+    const h = setup();
+    // Fill this month's allowance with already-dispatched documents.
+    for (let i = 0; i < FREE_PLAN_MONTHLY_LIMIT; i += 1) {
+      h.prisma._documents.set(`sent_${i}`, {
+        id: `sent_${i}`,
+        ownerId: h.ownerId,
+        title: `보낸 계약 ${i}`,
+        status: 'IN_PROGRESS',
+        sentAt: new Date(),
+      });
+    }
+
+    await expect(h.sharing.createLink(h.ownerId, h.documentId, {})).rejects.toBeInstanceOf(
+      ForbiddenException,
+    );
+    // The DRAFT document is untouched — no partial dispatch on rejection.
+    expect(h.prisma._documents.get(h.documentId)!.status).toBe('DRAFT');
   });
 });
 
