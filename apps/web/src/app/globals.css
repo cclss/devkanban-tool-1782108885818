@@ -97,6 +97,17 @@
        this large regardless of their visual size. Exposed as a variable so the
        hit-area utilities below share one source of truth. */
     --hit-target-min: 44px;
+
+    /* — Document zoom magnification —
+       Bounds and step for the signer document viewer's pinch / on-screen zoom.
+       `min` is the fit-to-width baseline (1× = page fits the column with no
+       horizontal scroll); `max` is the deepest magnification offered; `step`
+       is one tap of the +/− controls. Kept as the single source of truth so the
+       viewer logic reads them instead of hardcoding (mirrors how the signature
+       pad reads `--color-foreground`). Unitless scale factors. */
+    --zoom-scale-min: 1;
+    --zoom-scale-max: 2.5;
+    --zoom-scale-step: 0.5;
   }
 
   html {
@@ -255,6 +266,19 @@
   .min-h-dvh-safe {
     min-height: 100vh;
     min-height: 100dvh;
+  }
+
+  /*
+   * Fixed dynamic-viewport height — the exact-height sibling of
+   * `.min-h-dvh-safe`. Use when a layout must be *exactly* one viewport tall so a
+   * flex child can own the scroll (e.g. the signer document viewer: header +
+   * bottom CTA pinned, the pages column scrolling/zooming between them). Same
+   * `100vh` fallback → `100dvh` policy so a bottom-fixed CTA stays reachable as
+   * the mobile toolbar shows/hides.
+   */
+  .h-dvh-safe {
+    height: 100vh;
+    height: 100dvh;
   }
 }
 

@@ -174,32 +174,56 @@ export function isRenderCancelled(err: unknown): boolean {
   );
 }
 
+/** Options for {@link renderPageToCanvas}. */
+export interface RenderPageOptions {
+  /**
+   * Hard cap on the canvas backing-store width in device pixels. The page still
+   * *displays* at `cssWidth`, but its raster never exceeds this many pixels — the
+   * browser upscales beyond it. Used by the zoomable viewer to keep memory
+   * bounded at deep zoom: raster stays sharp up to the 2×-DPR ceiling, then the
+   * CSS box grows without allocating an ever-larger bitmap on low-end phones.
+   */
+  maxCanvasWidth?: number;
+}
+
 /**
- * Render `pageNumber` of an open document into `canvas`, fit to `cssWidth` CSS
- * pixels at the device pixel ratio. Cancels any prior render on the same canvas
- * first. Returns the laid-out CSS size used to place the field overlay.
+ * Render `pageNumber` of an open document into `canvas`, laid out to `cssWidth`
+ * CSS pixels and sharpened for the device pixel ratio (capped at 2×). Cancels any
+ * prior render on the same canvas first. Returns the laid-out CSS size used to
+ * place the field overlay. Pass `maxCanvasWidth` to bound the raster resolution
+ * independently of the display size (see {@link RenderPageOptions}).
  */
 export async function renderPageToCanvas(
   doc: PdfDocument,
   pageNumber: number,
   canvas: HTMLCanvasElement,
   cssWidth: number,
+  options?: RenderPageOptions,
 ): Promise<RenderedPage> {
   activeRenders.get(canvas)?.cancel();
 
   const page = await doc.getPage(pageNumber);
   const base = page.getViewport({ scale: 1 });
+  const aspect = base.height / base.width;
   const scale = cssWidth / base.width;
   const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, 2) : 1;
-  const viewport = page.getViewport({ scale: scale * dpr });
+
+  // Raster scale = display scale × DPR, then clamped so the backing store never
+  // exceeds `maxCanvasWidth`. Display size is derived from `cssWidth` alone, so
+  // a capped raster just means the browser upscales (soft, not misaligned).
+  let rasterScale = scale * dpr;
+  if (options?.maxCanvasWidth && base.width * rasterScale > options.maxCanvasWidth) {
+    rasterScale = options.maxCanvasWidth / base.width;
+  }
+  const viewport = page.getViewport({ scale: rasterScale });
 
   const context = canvas.getContext('2d');
   if (!context) throw new PdfRenderError();
 
   canvas.width = Math.floor(viewport.width);
   canvas.height = Math.floor(viewport.height);
-  const cssHeight = viewport.height / dpr;
-  const laidOutWidth = viewport.width / dpr;
+  const laidOutWidth = cssWidth;
+  const cssHeight = cssWidth * aspect;
   canvas.style.width = `${laidOutWidth}px`;
   canvas.style.height = `${cssHeight}px`;
 

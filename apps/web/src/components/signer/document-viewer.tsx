@@ -11,6 +11,16 @@
  * "서명하기" jumps to (and opens) the next unfilled field, flipping to
  * "서명 완료" once nothing is left.
  *
+ * Zoom: the fit-to-width layout is the 1× baseline. A pinch (two-pointer) gesture
+ * and on-screen +/−/reset controls magnify the pages up to `--zoom-scale-max`;
+ * when zoomed the enlarged pages pan by native scroll in both axes. The pinch is
+ * captured on the viewport only (its `touch-action` flips to `none` for the two
+ * fingers), so it never collides with the signature pad's own `touch-none`
+ * drawing surface — the two live in separate touch-action scopes. During the
+ * pinch the column is scaled with a cheap CSS transform for smooth feedback; on
+ * release the pages re-rasterize once at the settled zoom (a natural debounce),
+ * sharp up to the 2× device-pixel ceiling.
+ *
  * The signer holds no File, so the document is streamed from the session-guarded
  * `/signing/:token/pdf` endpoint and opened with `loadPdfFromUrl`. Field values
  * and the open-sheet target live in the signer context: the capture BottomSheet
@@ -49,6 +59,41 @@ const TYPE_LABEL: Record<SignFieldType, string> = {
   DATE: '날짜',
   TEXT: '텍스트',
 };
+
+/** Device pixel ratio, capped at 2× (the sharpness ceiling for raster budget). */
+const DPR_CAP = 2;
+/**
+ * Zoom beyond which the raster no longer grows (the CSS box still enlarges, the
+ * browser upscales the bitmap). Keeps deep-zoom memory bounded on low-end phones
+ * while staying crisp through the common 1×–2× range.
+ */
+const RASTER_SHARP_ZOOM = 2;
+
+/** Fallback zoom bounds if the CSS custom properties can't be read (SSR / tests). */
+const ZOOM_FALLBACK = { min: 1, max: 2.5, step: 0.5 };
+
+/**
+ * Read the document-zoom scale bounds from their design-token CSS variables,
+ * mirroring how the signature pad resolves `--color-foreground` at runtime — the
+ * values live in one place (globals.css `:root`) rather than hardcoded here.
+ */
+function readZoomScale(): { min: number; max: number; step: number } {
+  if (typeof window === 'undefined') return ZOOM_FALLBACK;
+  const root = getComputedStyle(document.documentElement);
+  const num = (name: string, fallback: number) => {
+    const v = parseFloat(root.getPropertyValue(name));
+    return Number.isFinite(v) && v > 0 ? v : fallback;
+  };
+  return {
+    min: num('--zoom-scale-min', ZOOM_FALLBACK.min),
+    max: num('--zoom-scale-max', ZOOM_FALLBACK.max),
+    step: num('--zoom-scale-step', ZOOM_FALLBACK.step),
+  };
+}
+
+const clamp = (v: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, v));
+const dist = (a: { x: number; y: number }, b: { x: number; y: number }) =>
+  Math.hypot(a.x - b.x, a.y - b.y);
 
 /** Stable DOM id so the CTA / a tap can scroll a field into view. */
 function fieldDomId(id: string): string {
@@ -117,31 +162,177 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
     };
   }, [token, session]);
 
-  // Measure the page column so each page rasterizes exactly fit-to-width.
-  const pagesRef = React.useRef<HTMLDivElement>(null);
-  const [pageWidth, setPageWidth] = React.useState(0);
+  // ── Zoom / pan ──────────────────────────────────────────────────────────
+  // `viewportRef` is the fixed clip window (its width is the 1× fit-to-width
+  // basis, measured); `pagesColRef` is the enlarged pages column that pans by
+  // native scroll inside the viewport.
+  const viewportRef = React.useRef<HTMLDivElement>(null);
+  const pagesColRef = React.useRef<HTMLDivElement>(null);
+  const [basePageWidth, setBasePageWidth] = React.useState(0);
+  const [zoom, setZoom] = React.useState(1);
+  const zoomRef = React.useRef(1);
+  zoomRef.current = zoom;
+
+  const scale = React.useMemo(readZoomScale, []);
+
+  // Live pinch preview: a CSS transform applied to the column for smooth feedback
+  // before the settled re-render. Null when not pinching.
+  const [preview, setPreview] = React.useState<{ s: number; ox: number; oy: number } | null>(null);
+  // True while two fingers are down — flips the viewer's touch-action to `none`
+  // so the browser hands us the pinch instead of scrolling/zooming the page.
+  const [pinching, setPinching] = React.useState(false);
+
+  const isReady = status === 'ready' && !!doc && basePageWidth > 0;
+
+  // Measure the clip window (stable — it does not grow with zoom).
   React.useLayoutEffect(() => {
-    const el = pagesRef.current;
+    const el = viewportRef.current;
     if (!el) return;
-    const measure = () => setPageWidth(el.clientWidth);
+    const measure = () => setBasePageWidth(el.clientWidth);
     measure();
     const ro = new ResizeObserver(measure);
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
 
-  // Measure the fixed CTA so the last page can clear it when scrolled to bottom.
-  const ctaRef = React.useRef<HTMLDivElement>(null);
-  const [ctaHeight, setCtaHeight] = React.useState(0);
-  React.useLayoutEffect(() => {
-    const el = ctaRef.current;
-    if (!el) return;
-    const measure = () => setCtaHeight(el.offsetHeight);
-    measure();
-    const ro = new ResizeObserver(measure);
-    ro.observe(el);
-    return () => ro.disconnect();
+  // Committed display width of each page (drives layout, pan area, overlay geom).
+  const displayWidth = basePageWidth * zoom;
+  // Raster cap in device px: sharp through `RASTER_SHARP_ZOOM`, upscaled beyond.
+  const dpr = typeof window !== 'undefined' ? Math.min(window.devicePixelRatio || 1, DPR_CAP) : 1;
+  const maxCanvasWidth = basePageWidth * RASTER_SHARP_ZOOM * dpr;
+
+  // Re-center scroll so `contentPt` (px in the OLD zoom's column coords) stays
+  // under the same viewport point `vp` after the zoom changes to `next`.
+  const applyZoom = React.useCallback(
+    (next: number, vp: { x: number; y: number }, contentPt: { x: number; y: number }) => {
+      const clamped = clamp(Math.round(next * 100) / 100, scale.min, scale.max);
+      const prev = zoomRef.current;
+      if (clamped === prev) return;
+      setZoom(clamped);
+      const ratio = clamped / prev;
+      // Layout width updates synchronously with the state commit; adjust scroll on
+      // the next frame once the enlarged column can accept the new offsets.
+      requestAnimationFrame(() => {
+        const el = viewportRef.current;
+        if (!el) return;
+        el.scrollLeft = contentPt.x * ratio - vp.x;
+        el.scrollTop = contentPt.y * ratio - vp.y;
+      });
+    },
+    [scale.min, scale.max],
+  );
+
+  // Zoom controls step from/toward the viewport centre.
+  const stepZoom = React.useCallback(
+    (delta: number) => {
+      const el = viewportRef.current;
+      if (!el) return;
+      const vp = { x: el.clientWidth / 2, y: el.clientHeight / 2 };
+      const contentPt = { x: el.scrollLeft + vp.x, y: el.scrollTop + vp.y };
+      applyZoom(zoomRef.current + delta, vp, contentPt);
+    },
+    [applyZoom],
+  );
+  const resetZoom = React.useCallback(() => {
+    setZoom(1);
+    const el = viewportRef.current;
+    if (el) requestAnimationFrame(() => {
+      el.scrollLeft = 0;
+      el.scrollTop = 0;
+    });
   }, []);
+
+  // ── Pinch (two-pointer) tracking ──────────────────────────────────────────
+  const pointersRef = React.useRef(new Map<number, { x: number; y: number }>());
+  const gestureRef = React.useRef<{
+    startDist: number;
+    startZoom: number;
+    focusVp: { x: number; y: number };
+    focusContent: { x: number; y: number };
+    target: number;
+  } | null>(null);
+
+  const midpoint = React.useCallback(() => {
+    const [a, b] = [...pointersRef.current.values()];
+    if (!a || !b) return { x: 0, y: 0 };
+    return { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+  }, []);
+
+  const onPointerDown = React.useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isReady) return;
+      const pts = pointersRef.current;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      if (pts.size !== 2) return; // single pointer → native scroll + field taps
+      const el = viewportRef.current;
+      const col = pagesColRef.current;
+      if (!el || !col) return;
+      // Capture both pointers so their moves route here even off the fingers.
+      for (const id of pts.keys()) {
+        try {
+          el.setPointerCapture(id);
+        } catch {
+          /* pointer may already be gone */
+        }
+      }
+      const mid = midpoint();
+      const vpRect = el.getBoundingClientRect();
+      const colRect = col.getBoundingClientRect();
+      gestureRef.current = {
+        startDist: dist(...([...pts.values()] as [{ x: number; y: number }, { x: number; y: number }])),
+        startZoom: zoomRef.current,
+        focusVp: { x: mid.x - vpRect.left, y: mid.y - vpRect.top },
+        focusContent: { x: mid.x - colRect.left, y: mid.y - colRect.top },
+        target: zoomRef.current,
+      };
+      setPinching(true);
+    },
+    [isReady, midpoint],
+  );
+
+  const onPointerMove = React.useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const pts = pointersRef.current;
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const g = gestureRef.current;
+      if (!g || pts.size < 2) return;
+      e.preventDefault();
+      const d = dist(...([...pts.values()] as [{ x: number; y: number }, { x: number; y: number }]));
+      const target = clamp((g.startZoom * d) / g.startDist, scale.min, scale.max);
+      g.target = target;
+      // Scale the committed column by the residual factor about the focal point.
+      setPreview({ s: target / zoomRef.current, ox: g.focusContent.x, oy: g.focusContent.y });
+    },
+    [scale.min, scale.max],
+  );
+
+  const endPointer = React.useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      const pts = pointersRef.current;
+      if (!pts.has(e.pointerId)) return;
+      pts.delete(e.pointerId);
+      const el = viewportRef.current;
+      try {
+        el?.releasePointerCapture(e.pointerId);
+      } catch {
+        /* already released */
+      }
+      const g = gestureRef.current;
+      if (g && pts.size < 2) {
+        // Pinch finished: commit the settled zoom (one re-render) and clear the
+        // preview transform, keeping the focal point under the fingers.
+        gestureRef.current = null;
+        setPinching(false);
+        setPreview(null);
+        applyZoom(g.target, g.focusVp, g.focusContent);
+      }
+    },
+    [applyZoom],
+  );
+
+  // Measure the fixed CTA is no longer needed — the footer is an in-flow flex
+  // child below the scroll viewport, so it never overlaps the pages.
 
   const orderedUnfilled = React.useMemo(
     () =>
@@ -193,10 +384,17 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
         ? '모든 항목을 작성했어요.'
         : `서명할 항목 ${total}곳 중 ${total - remaining}곳을 작성했어요.`;
 
+  // Viewer touch-action scope (kept separate from the signature pad's `touch-none`):
+  //  • pinching → `none`: the two fingers are ours to scale.
+  //  • zoomed   → `pan-x pan-y`: native scroll pans the enlarged pages.
+  //  • fit (1×) → `pan-y`: vertical reading only; also suppresses the browser's
+  //    own page pinch-zoom so our handler can start one.
+  const touchAction = pinching ? 'none' : zoom > 1 ? 'pan-x pan-y' : 'pan-y';
+
   return (
     <main
       style={brandStyle(meta.sender.brandColor)}
-      className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
+      className="h-dvh-safe mx-auto flex w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={meta.sender} />
 
@@ -207,53 +405,84 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
         <p className="mt-2xs text-sm text-foreground-subtle">{progress}</p>
       </div>
 
-      <div
-        ref={pagesRef}
-        className="mt-lg flex flex-col gap-lg"
-        // Clear the fixed CTA at the end of the scroll (layout clearance, not a
-        // design value — derived from the bar's measured height).
-        style={{ paddingBottom: ctaHeight ? ctaHeight + 24 : undefined }}
-      >
-        {status === 'error' ? (
-          <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-xs rounded-md border border-border bg-surface-muted px-md text-center">
-            <p className="text-sm text-foreground-muted">{error}</p>
+      {/* Zoom/pan viewport: clips the enlarged pages and owns the pinch scope. */}
+      <div className="relative mt-lg min-h-0 flex-1">
+        <div
+          ref={viewportRef}
+          onPointerDown={onPointerDown}
+          onPointerMove={onPointerMove}
+          onPointerUp={endPointer}
+          onPointerCancel={endPointer}
+          className="h-full overflow-auto overscroll-contain"
+          style={{ touchAction }}
+        >
+          <div
+            ref={pagesColRef}
+            className="flex flex-col gap-lg pb-lg"
+            style={{
+              width: isReady ? displayWidth : '100%',
+              transform: preview ? `scale(${preview.s})` : undefined,
+              transformOrigin: preview ? `${preview.ox}px ${preview.oy}px` : undefined,
+            }}
+          >
+            {status === 'error' ? (
+              <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-xs rounded-md border border-border bg-surface-muted px-md text-center">
+                <p className="text-sm text-foreground-muted">{error}</p>
+              </div>
+            ) : !isReady ? (
+              <Skeleton className="aspect-[1/1.414] w-full" />
+            ) : (
+              Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNumber) => (
+                <PdfPageView
+                  key={pageNumber}
+                  doc={doc}
+                  pageNumber={pageNumber}
+                  width={displayWidth}
+                  maxCanvasWidth={maxCanvasWidth}
+                  fields={fields.filter((f) => f.page === pageNumber)}
+                  fieldValues={fieldValues}
+                  onFieldTap={onFieldTap}
+                />
+              ))
+            )}
           </div>
-        ) : status === 'loading' || !doc || pageWidth === 0 ? (
-          <Skeleton className="aspect-[1/1.414] w-full" />
-        ) : (
-          Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNumber) => (
-            <PdfPageView
-              key={pageNumber}
-              doc={doc}
-              pageNumber={pageNumber}
-              width={pageWidth}
-              fields={fields.filter((f) => f.page === pageNumber)}
-              fieldValues={fieldValues}
-              onFieldTap={onFieldTap}
-            />
-          ))
-        )}
+        </div>
+
+        {/* On-screen zoom controls — a fallback for signers who can't pinch. Each
+            button meets the 44×44px hit target; they float above the pages and
+            clear of the bottom CTA. Hidden until the document can render. */}
+        {isReady ? (
+          <div className="pointer-events-none absolute bottom-md right-md flex flex-col gap-xs">
+            <ZoomButton
+              label="확대"
+              onClick={() => stepZoom(scale.step)}
+              disabled={zoom >= scale.max}
+            >
+              +
+            </ZoomButton>
+            <ZoomButton
+              label="축소"
+              onClick={() => stepZoom(-scale.step)}
+              disabled={zoom <= scale.min}
+            >
+              −
+            </ZoomButton>
+            <ZoomButton label="원래 크기로" onClick={resetZoom} disabled={zoom === 1}>
+              <span className="text-2xs font-bold">1×</span>
+            </ZoomButton>
+          </div>
+        ) : null}
       </div>
 
-      <div
-        ref={ctaRef}
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-border bg-surface/95 backdrop-blur"
-        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
-      >
-        <div className="mx-auto w-full max-w-[480px] px-lg py-md">
-          {completeError ? (
-            <p
-              role="alert"
-              aria-live="assertive"
-              className="mb-xs text-center text-sm text-danger"
-            >
-              {completeError}
-            </p>
-          ) : null}
-          <Button fullWidth size="lg" onClick={onCta} isLoading={completing}>
-            {remaining > 0 ? SIGNER_COPY.viewerCtaContinue : SIGNER_COPY.viewerCtaComplete}
-          </Button>
-        </div>
+      <div className="border-t border-border bg-surface px-lg py-md pb-safe-cta">
+        {completeError ? (
+          <p role="alert" aria-live="assertive" className="mb-xs text-center text-sm text-danger">
+            {completeError}
+          </p>
+        ) : null}
+        <Button fullWidth size="lg" onClick={onCta} isLoading={completing}>
+          {remaining > 0 ? SIGNER_COPY.viewerCtaContinue : SIGNER_COPY.viewerCtaComplete}
+        </Button>
       </div>
 
       {/* The capture BottomSheet targets the field opened via the signer context. */}
@@ -262,18 +491,59 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
   );
 }
 
+/** A single circular zoom control that guarantees a 44×44px touch target. */
+function ZoomButton({
+  label,
+  onClick,
+  disabled,
+  children,
+}: {
+  label: string;
+  onClick: () => void;
+  disabled?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      onClick={onClick}
+      disabled={disabled}
+      className={cn(
+        'min-hit-target pointer-events-auto flex h-11 w-11 items-center justify-center rounded-full',
+        'border border-border bg-surface/95 text-xl font-bold text-foreground shadow-md backdrop-blur',
+        'transition-transform duration-fast ease-standard active:scale-[0.94]',
+        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
+        'disabled:opacity-40 disabled:active:scale-100',
+      )}
+    >
+      <span className="pointer-events-none leading-none">{children}</span>
+    </button>
+  );
+}
+
 interface PdfPageViewProps {
   doc: PdfDocument;
   pageNumber: number;
-  /** Fit-to-width target in CSS px. */
+  /** Fit-to-width target in CSS px (grows with zoom). */
   width: number;
+  /** Device-pixel cap on the raster (sharp up to 2× zoom, upscaled beyond). */
+  maxCanvasWidth: number;
   fields: SigningPayloadField[];
   fieldValues: Record<string, SignerFieldValue>;
   onFieldTap: (field: SigningPayloadField) => void;
 }
 
 /** One PDF page rasterized fit-to-width, with its field overlay on top. */
-function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }: PdfPageViewProps) {
+function PdfPageView({
+  doc,
+  pageNumber,
+  width,
+  maxCanvasWidth,
+  fields,
+  fieldValues,
+  onFieldTap,
+}: PdfPageViewProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [pageSize, setPageSize] = React.useState<PageSize | null>(null);
   const [status, setStatus] = React.useState<LoadStatus>('loading');
@@ -282,8 +552,8 @@ function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }
     const canvas = canvasRef.current;
     if (!canvas || !width) return;
     let cancelled = false;
-    setStatus('loading');
-    renderPageToCanvas(doc, pageNumber, canvas, width)
+    setStatus((s) => (s === 'ready' ? s : 'loading'));
+    renderPageToCanvas(doc, pageNumber, canvas, width, { maxCanvasWidth })
       .then((size) => {
         if (cancelled) return;
         setPageSize({ width: size.cssWidth, height: size.cssHeight });
@@ -296,7 +566,7 @@ function PdfPageView({ doc, pageNumber, width, fields, fieldValues, onFieldTap }
     return () => {
       cancelled = true;
     };
-  }, [doc, pageNumber, width]);
+  }, [doc, pageNumber, width, maxCanvasWidth]);
 
   const ready = status === 'ready' && pageSize !== null;
 
