@@ -53,6 +53,12 @@ pnpm dev
 | `pnpm db:generate` | Prisma 클라이언트 생성 |
 | `pnpm db:migrate` | Prisma 마이그레이션 (dev) |
 
+## 문서
+
+| 문서 | 설명 |
+|---|---|
+| [`docs/mobile-qa-baseline.md`](docs/mobile-qa-baseline.md) | 모바일 QA 기준선 — 대상 뷰포트·iOS Safari/Android Chrome 실기기 매트릭스·스모크 체크리스트. 모바일 반응형 작업(Phase 1~3)의 완료 판정 기준. |
+
 ## 비고
 
 - 애니메이션은 `framer-motion` 없이 CSS `transition`/`animation`만 사용한다.
