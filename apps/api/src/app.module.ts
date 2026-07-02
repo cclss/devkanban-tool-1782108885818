@@ -10,6 +10,7 @@ import { DocumentsModule } from './documents/documents.module';
 import { SigningModule } from './signing/signing.module';
 import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
+import { ClausesModule } from './clauses/clauses.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { CompletionModule } from './completion/completion.module';
     SigningModule,
     PdfModule,
     CompletionModule,
+    ClausesModule,
     HealthModule,
   ],
 })
