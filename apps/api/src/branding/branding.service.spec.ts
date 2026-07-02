@@ -1,4 +1,4 @@
-import { BadRequestException, ForbiddenException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { BrandFont, Plan } from '@repo/db';
 import { BrandingService } from './branding.service';
 import { MESSAGES } from '../common/messages';
@@ -88,13 +88,29 @@ describe('BrandingService.get', () => {
 });
 
 describe('BrandingService.update', () => {
-  it('rejects FREE plan with the upgrade copy (403) and writes nothing', async () => {
-    const { service, update } = makeService({ plan: Plan.FREE });
-    await expect(service.update('u1', { brandColor: '#123456' })).rejects.toMatchObject({
-      message: MESSAGES.branding.upgradeRequired,
+  it('lets a FREE plan save color/font, but reports brandingEnabled:false (applied only on Team)', async () => {
+    const { service, update, getRow } = makeService({ plan: Plan.FREE });
+    const result = await service.update('u1', {
+      brandColor: '#123456',
+      brandFont: BrandFont.SERIF,
     });
-    await expect(service.update('u1', { brandColor: '#123456' })).rejects.toBeInstanceOf(
-      ForbiddenException,
+    expect(update).toHaveBeenCalledWith({
+      where: { id: 'u1' },
+      data: { brandColor: '#123456', brandFont: BrandFont.SERIF },
+    });
+    expect(getRow()).toMatchObject({ brandColor: '#123456', brandFont: BrandFont.SERIF });
+    // Saved successfully, but not yet applied on the signer screen.
+    expect(result).toMatchObject({
+      brandColor: '#123456',
+      brandFont: BrandFont.SERIF,
+      brandingEnabled: false,
+    });
+  });
+
+  it('throws NotFound when the user is missing', async () => {
+    const { service, update } = makeService(null);
+    await expect(service.update('ghost', { brandColor: '#123456' })).rejects.toBeInstanceOf(
+      NotFoundException,
     );
     expect(update).not.toHaveBeenCalled();
   });
@@ -149,12 +165,15 @@ describe('BrandingService.update', () => {
 });
 
 describe('BrandingService.uploadLogo', () => {
-  it('rejects FREE plan with the upgrade copy (403) and stores nothing', async () => {
-    const { service, storage } = makeService({ plan: Plan.FREE });
-    await expect(
-      service.uploadLogo('u1', logoFile(PNG_BYTES, 'logo.png', 'image/png')),
-    ).rejects.toBeInstanceOf(ForbiddenException);
-    expect(storage.save).not.toHaveBeenCalled();
+  it('lets a FREE plan upload a logo, but reports brandingEnabled:false (applied only on Team)', async () => {
+    const { service, storage, getRow } = makeService({ plan: Plan.FREE });
+    const view = await service.uploadLogo('u1', logoFile(PNG_BYTES, 'logo.png', 'image/png'));
+    expect(storage.save).toHaveBeenCalledWith('branding/u1/logo', PNG_BYTES);
+    expect(getRow()?.brandLogoUrl).toMatch(
+      /^https:\/\/api\.example\.com\/api\/branding\/u1\/logo\?v=[0-9a-f]{12}$/,
+    );
+    // Stored, but not yet applied on the signer screen.
+    expect(view.brandingEnabled).toBe(false);
   });
 
   it('rejects a disallowed format with the branding copy (400)', async () => {
@@ -237,9 +256,12 @@ describe('BrandingService.serveLogo', () => {
 });
 
 describe('BrandingService.removeLogo', () => {
-  it('rejects FREE plan (403)', async () => {
-    const { service } = makeService({ plan: Plan.FREE, brandLogoUrl: 'x' });
-    await expect(service.removeLogo('u1')).rejects.toBeInstanceOf(ForbiddenException);
+  it('lets a FREE plan clear its logo (brandingEnabled:false throughout)', async () => {
+    const { service, update, getRow } = makeService({ plan: Plan.FREE, brandLogoUrl: 'x' });
+    const view = await service.removeLogo('u1');
+    expect(update).toHaveBeenCalledWith({ where: { id: 'u1' }, data: { brandLogoUrl: null } });
+    expect(getRow()?.brandLogoUrl).toBeNull();
+    expect(view.brandingEnabled).toBe(false);
   });
 
   it('clears brandLogoUrl for an eligible sender', async () => {

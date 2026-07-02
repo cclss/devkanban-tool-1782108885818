@@ -453,12 +453,15 @@ export class SigningService {
 /**
  * Resolve the sender's signer-facing branding, gated on plan eligibility.
  *
- * A sender whose plan no longer qualifies for branding (a downgrade, or one
- * that never qualified) has their brand color, logo, AND font stripped here —
- * so non-eligible branding can never leak to a signer. The signer screen then
- * falls back to the default design tokens (default action color, monogram, and
- * the default sans font). Eligibility funnels through the single source of
- * truth `isBrandingEnabled` so it can't drift from the `/branding` write gate.
+ * This is the ONLY gate on sender branding: saving, uploading, and previewing
+ * are open to every plan (see branding.service), so the Team-only rule is
+ * enforced here, at application time. A sender whose plan does not qualify for
+ * branding (FREE, or a downgrade) has their brand color, logo, AND font
+ * stripped here — so non-eligible branding can never leak to a signer. The
+ * signer screen then falls back to the default design tokens (default action
+ * color, monogram, and the default sans font). Eligibility funnels through the
+ * single source of truth `isBrandingEnabled` so it stays in lockstep with the
+ * `GET /branding` `brandingEnabled` ("actually applied") flag.
  */
 function senderBranding(owner: {
   name: string | null;

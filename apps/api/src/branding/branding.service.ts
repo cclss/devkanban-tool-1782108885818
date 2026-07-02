@@ -1,6 +1,5 @@
 import {
   BadRequestException,
-  ForbiddenException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -20,12 +19,17 @@ import {
   type UploadedLogo,
 } from './logo';
 
-/** Branding as the sender sees it, plus whether their plan may edit it. */
+/** Branding as the sender sees it, plus whether it is actually applied. */
 export interface BrandingView {
   brandColor: string | null;
   brandFont: BrandFont | null;
   logoUrl: string | null;
-  /** Plan eligibility — the UI gates the editor on this flag. */
+  /**
+   * Whether this branding is actually applied on the signer screen — true only
+   * from the Team tier up (PRO/ENTERPRISE). Saving, uploading, and previewing
+   * are open to every plan; this flag no longer gates the editor. The UI uses
+   * it to frame the "configure now, applies once you're on Team" state.
+   */
   brandingEnabled: boolean;
 }
 
@@ -46,8 +50,9 @@ export class BrandingService {
   ) {}
 
   /**
-   * Current branding for the signed-in sender. Readable on every plan so the
-   * UI can show the upsell state; `brandingEnabled` carries the entitlement.
+   * Current branding for the signed-in sender. Readable on every plan;
+   * `brandingEnabled` reports whether it is actually applied on the signer
+   * screen (Team+), which the UI uses to frame the upsell state.
    */
   async get(userId: string): Promise<BrandingView> {
     const user = await this.prisma.user.findUnique({
@@ -65,20 +70,14 @@ export class BrandingService {
   }
 
   /**
-   * Persist brand color / font for an eligible sender. Field shape is already
-   * validated by the DTO; here we enforce the plan gate (403 for FREE) and
-   * write only the fields the caller actually supplied (`undefined` = leave as
-   * is, explicit `null` = clear back to the default tokens).
+   * Persist brand color / font. Open to every plan — saving and previewing are
+   * not gated; only signer-screen application is Team-only (enforced in
+   * `senderBranding`). Field shape is already validated by the DTO; we write
+   * only the fields the caller actually supplied (`undefined` = leave as is,
+   * explicit `null` = clear back to the default tokens).
    */
   async update(userId: string, dto: UpdateBrandingDto): Promise<BrandingView> {
-    const user = await this.prisma.user.findUnique({
-      where: { id: userId },
-      select: { plan: true },
-    });
-    if (!user) throw new NotFoundException(MESSAGES.auth.unauthorized);
-    if (!isBrandingEnabled(user.plan)) {
-      throw new ForbiddenException(MESSAGES.branding.upgradeRequired);
-    }
+    await this.assertExists(userId);
 
     const data: { brandColor?: string | null; brandFont?: BrandFont | null } = {};
     if (dto.brandColor !== undefined) data.brandColor = dto.brandColor;
@@ -89,14 +88,15 @@ export class BrandingService {
   }
 
   /**
-   * Accept a logo upload from an eligible sender: gate the plan (403), validate
-   * the format and size (400 with branding copy), harden the bytes (SVGs are
-   * sanitized; rasters are normalized when `sharp` is available, otherwise
-   * passed through under the byte cap), persist to a stable public key, and
-   * point `User.brandLogoUrl` at the public serving URL.
+   * Accept a logo upload from any plan: validate the format and size (400 with
+   * branding copy), harden the bytes (SVGs are sanitized; rasters are
+   * normalized when `sharp` is available, otherwise passed through under the
+   * byte cap), persist to a stable public key, and point `User.brandLogoUrl` at
+   * the public serving URL. Whether the logo actually reaches signers is
+   * decided later, at application time (`senderBranding`, Team-only).
    */
   async uploadLogo(userId: string, file: UploadedLogo): Promise<BrandingView> {
-    await this.assertEligible(userId);
+    await this.assertExists(userId);
 
     if (!file?.buffer || file.buffer.length === 0) {
       throw new BadRequestException(MESSAGES.branding.logoEmpty);
@@ -128,13 +128,13 @@ export class BrandingService {
   }
 
   /**
-   * Clear the sender's logo. Plan-gated like every write path. We null the
-   * `brandLogoUrl` pointer (so the signer falls back to the monogram); the
-   * stored bytes live at a deterministic key and are overwritten on the next
-   * upload, so there is no dangling public reference.
+   * Clear the sender's logo. Open to every plan, like the other write paths. We
+   * null the `brandLogoUrl` pointer (so the signer falls back to the monogram);
+   * the stored bytes live at a deterministic key and are overwritten on the
+   * next upload, so there is no dangling public reference.
    */
   async removeLogo(userId: string): Promise<BrandingView> {
-    await this.assertEligible(userId);
+    await this.assertExists(userId);
     await this.prisma.user.update({
       where: { id: userId },
       data: { brandLogoUrl: null },
@@ -164,16 +164,18 @@ export class BrandingService {
 
   // --- internals ----------------------------------------------------------
 
-  /** Shared plan gate for every branding write path (403 for FREE). */
-  private async assertEligible(userId: string): Promise<void> {
+  /**
+   * Existence guard shared by every write path (404 for an unknown user). No
+   * plan gate: saving, uploading, and removing branding are open to all plans.
+   * The Team-only rule lives on the signer-facing application path
+   * (`senderBranding` in signing.service), not here.
+   */
+  private async assertExists(userId: string): Promise<void> {
     const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { plan: true },
+      select: { id: true },
     });
     if (!user) throw new NotFoundException(MESSAGES.auth.unauthorized);
-    if (!isBrandingEnabled(user.plan)) {
-      throw new ForbiddenException(MESSAGES.branding.upgradeRequired);
-    }
   }
 
   /**

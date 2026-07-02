@@ -43,9 +43,10 @@ export const MESSAGES = {
   // 톤 가이드(messaging/branding) 그대로: 탓하지 않고 다음 행동만 안내,
   // 내부 사정(플랜 임계값/검증 규칙)을 그대로 노출하지 않는다.
   branding: {
-    // PRO·ENTERPRISE 미만(=FREE) 플랜이 브랜딩 설정을 시도 — 403.
-    // 자격 없음을 비난 없이 알리고 업그레이드라는 다음 행동만 안내한다.
-    upgradeRequired: '브랜딩 설정은 Team 플랜부터 사용할 수 있어요. 플랜을 업그레이드해 주세요.',
+    // 설정·저장·미리보기는 모든 플랜에 열려 있고, 실제 서명자 화면 적용만
+    // Team(PRO·ENTERPRISE) 전용이다. 저장 경로에는 더 이상 플랜 게이트가 없어
+    // 관련 업그레이드 에러 카피(upgradeRequired)는 제거했다. 적용 여부 안내는
+    // GET /branding 의 brandingEnabled 플래그로 프론트가 전달한다.
     // 색상 형식 오류 — #RGB / #RRGGBB 헥스 코드만 허용(400).
     invalidColor: '브랜드 색상을 올바른 색상 코드로 입력해 주세요. 예: #4F46E5',
     // 허용 목록 밖의 폰트 — 미리 정의된 폰트만 선택 가능(400).
