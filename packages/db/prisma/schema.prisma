@@ -93,8 +93,11 @@ model SignRequest {
   // 6-digit verification code delivered out of band. CODE mode only.
   verifyCode  String?           @map("verify_code")
   // --- LINK mode access settings (all null/ignored in CODE mode) ---
-  // Hashed link password (bcrypt/argon2). Null = no password required.
-  linkPasswordHash String?      @map("link_password_hash")
+  // Link password stored as reversible ciphertext so the sender can review and
+  // edit it (AES-256-GCM envelope: `encv1:<iv>:<tag>:<ciphertext>`, the key held
+  // as an app secret, never in the DB). Null = no password required. Pre-existing
+  // rows may still hold a legacy bcrypt hash; the verify path accepts both.
+  linkPasswordCipher String?    @map("link_password_cipher")
   // When the link stops working. Null = never expires.
   linkExpiresAt DateTime?       @map("link_expires_at")
   // When the sender manually revoked the link. Null = still active.

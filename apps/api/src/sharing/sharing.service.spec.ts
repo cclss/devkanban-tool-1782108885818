@@ -8,6 +8,7 @@ import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { SharingService } from './sharing.service';
 import { ShareSessionService } from './share-session.service';
+import { LinkPasswordCipher } from './link-password-cipher';
 import { SigningService } from '../signing/signing.service';
 import { SendQuotaService } from '../common/send-quota.service';
 import { FREE_PLAN_MONTHLY_LIMIT, SHARE_UNLOCK_MAX_ATTEMPTS } from '../common/messages';
@@ -99,7 +100,7 @@ function makePrisma() {
           accessMode: 'CODE',
           recipientEmail: null,
           recipientName: null,
-          linkPasswordHash: null,
+          linkPasswordCipher: null,
           linkExpiresAt: null,
           linkRevokedAt: null,
           linkLabel: null,
@@ -200,6 +201,7 @@ interface Harness {
   prisma: ReturnType<typeof makePrisma>;
   completionEnqueue: jest.Mock;
   shareSessions: ShareSessionService;
+  linkPassword: LinkPasswordCipher;
   ownerId: string;
   documentId: string;
 }
@@ -218,7 +220,15 @@ function setup(): Harness {
   const signing = new SigningService(prisma as never, storage, signerSessions, completionQueue);
 
   const sendQuota = new SendQuotaService(prisma as never);
-  const sharing = new SharingService(prisma as never, config, shareSessions, signing, sendQuota);
+  const linkPassword = new LinkPasswordCipher(config);
+  const sharing = new SharingService(
+    prisma as never,
+    config,
+    shareSessions,
+    signing,
+    sendQuota,
+    linkPassword,
+  );
 
   // Seed an owner + a DRAFT document with two unassigned fields.
   const owner = { id: 'owner_1', email: 'sender@toss.im', name: '토스' };
@@ -237,11 +247,19 @@ function setup(): Harness {
     { id: 'f2', documentId: document.id, signRequestId: null, type: 'TEXT', page: 1, x: 0.1, y: 0.4, width: 0.3, height: 0.05, value: null },
   );
 
-  return { sharing, prisma, completionEnqueue, shareSessions, ownerId: owner.id, documentId: document.id };
+  return {
+    sharing,
+    prisma,
+    completionEnqueue,
+    shareSessions,
+    linkPassword,
+    ownerId: owner.id,
+    documentId: document.id,
+  };
 }
 
 describe('SharingService — link creation', () => {
-  it('creates a link, hashes the password, and connects unassigned fields', async () => {
+  it('creates a link, encrypts the password reversibly, and connects unassigned fields', async () => {
     const h = setup();
     const view = await h.sharing.createLink(h.ownerId, h.documentId, {
       password: 'secret12',
@@ -259,11 +277,24 @@ describe('SharingService — link creation', () => {
     const assigned = h.prisma._signFields.filter((f) => f.signRequestId === view.id);
     expect(assigned).toHaveLength(2);
 
-    // The stored row holds a bcrypt hash (never the plaintext).
+    // The stored row holds reversible ciphertext (never the plaintext), and the
+    // sender-recoverable requirement holds: decrypting yields the original.
     const row = h.prisma._signRequests.get(view.id)!;
-    expect(row.linkPasswordHash).toMatch(/^\$2[aby]\$/);
-    expect(row.linkPasswordHash).not.toBe('secret12');
-    expect(await bcrypt.compare('secret12', row.linkPasswordHash as string)).toBe(true);
+    const stored = row.linkPasswordCipher as string;
+    expect(h.linkPassword.isCipherText(stored)).toBe(true);
+    expect(stored).not.toContain('secret12');
+    expect(h.linkPassword.decrypt(stored)).toBe('secret12');
+  });
+
+  it('encrypts distinct ciphertext for identical passwords (fresh IV per record)', async () => {
+    const h = setup();
+    const a = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'same-pass' });
+    const b = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'same-pass' });
+    const rowA = h.prisma._signRequests.get(a.id)!.linkPasswordCipher as string;
+    const rowB = h.prisma._signRequests.get(b.id)!.linkPasswordCipher as string;
+    expect(rowA).not.toBe(rowB);
+    expect(h.linkPassword.decrypt(rowA)).toBe('same-pass');
+    expect(h.linkPassword.decrypt(rowB)).toBe('same-pass');
   });
 
   it('never leaks the password or hash in the response or audit metadata', async () => {
@@ -272,8 +303,9 @@ describe('SharingService — link creation', () => {
 
     const serialized = JSON.stringify(view);
     expect(serialized).not.toContain('topsecret');
-    expect(serialized).not.toContain('$2');
+    expect(serialized).not.toContain('encv1:');
     expect(view).not.toHaveProperty('password');
+    expect(view).not.toHaveProperty('linkPasswordCipher');
     expect(view).not.toHaveProperty('linkPasswordHash');
 
     const created = h.prisma._auditLogs.find((l) => l.action === 'SHARE_LINK_CREATED')!;
@@ -392,6 +424,22 @@ describe('SharingService — unlock', () => {
     expect(h.prisma._auditLogs.some((l) => l.action === 'SHARE_UNLOCK_FAILED')).toBe(true);
 
     const { sessionToken } = await h.sharing.unlock(link.token, 'secret12');
+    expect(h.shareSessions.verify(sessionToken).signRequestId).toBe(link.id);
+  });
+
+  it('still verifies a legacy bcrypt-hashed password (pre-migration link)', async () => {
+    const h = setup();
+    // Simulate a link minted before reversible storage: its stored value is a
+    // one-way bcrypt hash, not the new `encv1:` envelope.
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, {});
+    const row = h.prisma._signRequests.get(link.id)!;
+    row.linkPasswordCipher = await bcrypt.hash('legacy-pass', 10);
+
+    // Wrong password → 401 + audit; correct password → session, unchanged.
+    await expect(h.sharing.unlock(link.token, 'nope')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    const { sessionToken } = await h.sharing.unlock(link.token, 'legacy-pass');
     expect(h.shareSessions.verify(sessionToken).signRequestId).toBe(link.id);
   });
 

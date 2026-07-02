@@ -5,6 +5,7 @@ import { SharePublicController } from './share-public.controller';
 import { SharingService } from './sharing.service';
 import { ShareSessionService } from './share-session.service';
 import { ShareSessionGuard } from './share-session.guard';
+import { LinkPasswordCipher } from './link-password-cipher';
 import { SigningModule } from '../signing/signing.module';
 import { SendQuotaModule } from '../common/send-quota.module';
 
@@ -21,6 +22,6 @@ import { SendQuotaModule } from '../common/send-quota.module';
 @Module({
   imports: [JwtModule.register({}), SigningModule, SendQuotaModule],
   controllers: [SharingController, SharePublicController],
-  providers: [SharingService, ShareSessionService, ShareSessionGuard],
+  providers: [SharingService, ShareSessionService, ShareSessionGuard, LinkPasswordCipher],
 })
 export class SharingModule {}

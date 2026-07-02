@@ -29,12 +29,10 @@ import {
   type ShareLinkState,
 } from './link-state';
 import { ShareSessionService } from './share-session.service';
+import { LinkPasswordCipher } from './link-password-cipher';
 import { SendQuotaService } from '../common/send-quota.service';
 import type { SaveFieldValuesDto } from '../signing/dto/signing.dto';
 import type { CreateShareLinkDto } from './dto/sharing.dto';
-
-/** bcrypt cost for hashing link passwords (matches the auth module). */
-const BCRYPT_ROUNDS = 10;
 
 /** Audit-log action names for the share-link flow. */
 const AUDIT_ACTION = {
@@ -54,8 +52,10 @@ const AUDIT_ACTION = {
  * password + expiry + revocation instead of an out-of-band code).
  *
  * Security invariants:
- *   • The link password is hashed at rest (bcrypt) and compared only with the
- *     hash library; the plaintext/hash is never returned, logged, or echoed.
+ *   • The link password is stored as reversible ciphertext (AES-256-GCM under an
+ *     app secret) so the sender can review/edit it; the plaintext and ciphertext
+ *     are never returned, logged, or echoed. Pre-existing links may still hold a
+ *     legacy bcrypt hash, which the unlock path verifies with the hash library.
  *   • Expiry (`linkExpiresAt`) and revocation (`linkRevokedAt`) are checked on
  *     every access path (meta, unlock, and — via the guard — every session call).
  */
@@ -69,13 +69,14 @@ export class SharingService {
     private readonly sessions: ShareSessionService,
     private readonly signing: SigningService,
     private readonly sendQuota: SendQuotaService,
+    private readonly linkPassword: LinkPasswordCipher,
   ) {}
 
   // --- sender (JWT) --------------------------------------------------------
 
   /**
    * Mint a new share link for a document the caller owns. Generates a unique
-   * access token, hashes the optional password, computes the expiry, and
+   * access token, encrypts the optional password (reversibly), computes the expiry, and
    * attaches the document's still-unassigned fields to this LINK request so the
    * recipient has something to fill. The response never exposes the password.
    *
@@ -103,7 +104,7 @@ export class SharingService {
 
     const accessToken = randomBytes(24).toString('hex');
     const password = dto.password?.trim();
-    const linkPasswordHash = password ? await bcrypt.hash(password, BCRYPT_ROUNDS) : null;
+    const linkPasswordCipher = password ? this.linkPassword.encrypt(password) : null;
     const linkExpiresAt = this.computeExpiry(dto);
     const linkLabel = dto.label?.trim() || null;
 
@@ -119,7 +120,7 @@ export class SharingService {
           accessMode: SignRequestAccessMode.LINK,
           accessToken,
           status: SignRequestStatus.PENDING,
-          linkPasswordHash,
+          linkPasswordCipher,
           linkExpiresAt,
           linkLabel,
         },
@@ -151,7 +152,7 @@ export class SharingService {
           ipAddress: ip,
           // Never persist the password — only whether one is set.
           metadata: {
-            hasPassword: linkPasswordHash != null,
+            hasPassword: linkPasswordCipher != null,
             expiresAt: linkExpiresAt ? linkExpiresAt.toISOString() : null,
             label: linkLabel,
           },
@@ -224,7 +225,7 @@ export class SharingService {
         status: true,
         linkExpiresAt: true,
         linkRevokedAt: true,
-        linkPasswordHash: true,
+        linkPasswordCipher: true,
         document: {
           select: {
             title: true,
@@ -243,7 +244,7 @@ export class SharingService {
         brandColor: link!.document.owner.brandColor,
         brandLogoUrl: link!.document.owner.brandLogoUrl,
       },
-      requiresPassword: link!.linkPasswordHash != null,
+      requiresPassword: link!.linkPasswordCipher != null,
       expiresAt: link!.linkExpiresAt ? link!.linkExpiresAt.toISOString() : null,
       alreadySubmitted: link!.status === SignRequestStatus.SIGNED,
     };
@@ -252,7 +253,8 @@ export class SharingService {
   // --- recipient: unlock → share session (public) --------------------------
 
   /**
-   * Open the link: when a password is set, verify it (hash-library compare,
+   * Open the link: when a password is set, verify it (decrypt-and-compare for
+   * the reversible ciphertext, or hash-library compare for a legacy bcrypt hash,
    * with a minimal share lockout) before issuing a short-lived share session
    * token; when no password is set, issue the session immediately. On success
    * the link flips PENDING→VIEWED and records an UNLOCKED audit event.
@@ -271,7 +273,7 @@ export class SharingService {
         status: true,
         linkExpiresAt: true,
         linkRevokedAt: true,
-        linkPasswordHash: true,
+        linkPasswordCipher: true,
         document: { select: { status: true } },
       },
     });
@@ -284,7 +286,7 @@ export class SharingService {
       throw new ForbiddenException(MESSAGES.share.notSignable);
     }
 
-    if (link!.linkPasswordHash) {
+    if (link!.linkPasswordCipher) {
       // Minimal lockout: deny before comparing once recent failures pile up.
       const recentFailures = await this.countRecentUnlockFailures(link!.id);
       if (recentFailures >= SHARE_UNLOCK_MAX_ATTEMPTS) {
@@ -293,7 +295,12 @@ export class SharingService {
       if (!password) {
         throw new UnauthorizedException(MESSAGES.share.passwordRequired);
       }
-      const ok = await bcrypt.compare(password, link!.linkPasswordHash);
+      // New links store reversible ciphertext (decrypt-and-compare); links minted
+      // before this change still hold a bcrypt hash (hash-library compare).
+      const stored = link!.linkPasswordCipher;
+      const ok = this.linkPassword.isCipherText(stored)
+        ? this.linkPassword.matches(password, stored)
+        : await bcrypt.compare(password, stored);
       if (!ok) {
         await this.writeAudit({
           signRequestId: link!.id,
@@ -477,7 +484,7 @@ export class SharingService {
     });
   }
 
-  /** Map a LINK SignRequest row to the sender-facing view (no password/hash). */
+  /** Map a LINK SignRequest row to the sender-facing view (no password/ciphertext). */
   private toView(link: ShareLinkRow): ShareLinkView {
     const state = deriveLinkState(link);
     return {
@@ -486,7 +493,7 @@ export class SharingService {
       url: `${this.webOrigin()}/share/${link.accessToken}`,
       label: link.linkLabel,
       status: state,
-      requiresPassword: link.linkPasswordHash != null,
+      requiresPassword: link.linkPasswordCipher != null,
       expiresAt: link.linkExpiresAt ? link.linkExpiresAt.toISOString() : null,
       revokedAt: link.linkRevokedAt ? link.linkRevokedAt.toISOString() : null,
       createdAt: link.createdAt.toISOString(),
@@ -505,7 +512,7 @@ interface ShareLinkRow {
   id: string;
   accessToken: string;
   status: SignRequestStatus;
-  linkPasswordHash: string | null;
+  linkPasswordCipher: string | null;
   linkExpiresAt: Date | null;
   linkRevokedAt: Date | null;
   linkLabel: string | null;
