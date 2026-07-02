@@ -116,6 +116,33 @@ function clamp01(v: number): number {
 }
 
 /**
+ * Smallest field extent (0..1 of a page axis) that still yields a usable field.
+ * A clamped rect thinner/shorter than this on either axis is dropped as
+ * degenerate rather than returned as an un-clickable sliver.
+ */
+export const MIN_FIELD_EXTENT = 0.005;
+
+/**
+ * Clamp a normalized rect so it lies **fully inside** its page: the lower-left
+ * corner is pulled into 0..1 and the width/height are trimmed so the box never
+ * crosses the top or right edge (`x + width ≤ 1`, `y + height ≤ 1`). Non-finite
+ * inputs collapse to 0 (via {@link clamp01}).
+ *
+ * Returns `null` when the box degenerates below {@link MIN_FIELD_EXTENT} on
+ * either axis — the caller drops it instead of emitting an unusable field. This
+ * is the final geometry gate for AI/heuristic field candidates before they
+ * become the editor's `SignField` placements.
+ */
+export function clampRectWithinPage(rect: NormRect): NormRect | null {
+  const x = clamp01(rect.x);
+  const y = clamp01(rect.y);
+  const width = clamp01(Math.min(clamp01(rect.width), 1 - x));
+  const height = clamp01(Math.min(clamp01(rect.height), 1 - y));
+  if (width < MIN_FIELD_EXTENT || height < MIN_FIELD_EXTENT) return null;
+  return { x, y, width, height };
+}
+
+/**
  * Resolve a normalized field rect (relative to the visible page) into an
  * unrotated media-box placement plus the counter-rotation to draw with.
  *

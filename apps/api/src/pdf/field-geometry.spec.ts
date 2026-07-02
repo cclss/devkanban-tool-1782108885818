@@ -1,5 +1,7 @@
 import {
+  clampRectWithinPage,
   localToPage,
+  MIN_FIELD_EXTENT,
   normalizeRect,
   normalizeRotation,
   resolveFieldPlacement,
@@ -122,6 +124,54 @@ describe('resolveFieldPlacement — rotated pages', () => {
         expect(c.y).toBeLessThanOrEqual(page.height + 1e-6);
       }
     }
+  });
+});
+
+describe('clampRectWithinPage', () => {
+  it('passes an already-inside rect through unchanged', () => {
+    const rect: NormRect = { x: 0.2, y: 0.3, width: 0.25, height: 0.1 };
+    expect(clampRectWithinPage(rect)).toEqual(rect);
+  });
+
+  it('trims width/height so the box never crosses the top or right edge', () => {
+    // x=0.8, width=0.5 would reach 1.3 → clamped to the room left (≈0.2).
+    const clamped = clampRectWithinPage({ x: 0.8, y: 0.9, width: 0.5, height: 0.4 })!;
+    expect(clamped.x).toBe(0.8);
+    expect(clamped.y).toBe(0.9);
+    expect(clamped.width).toBeCloseTo(0.2, 6);
+    expect(clamped.height).toBeCloseTo(0.1, 6);
+    // The box stays fully inside the page on both axes.
+    expect(clamped.x + clamped.width).toBeLessThanOrEqual(1);
+    expect(clamped.y + clamped.height).toBeLessThanOrEqual(1);
+  });
+
+  it('pulls a negative lower-left corner back into the page', () => {
+    expect(clampRectWithinPage({ x: -0.1, y: -0.2, width: 0.3, height: 0.3 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 0.3,
+      height: 0.3,
+    });
+  });
+
+  it('drops a box that degenerates below the minimum extent after clamping', () => {
+    // A field pinned to the right edge has no room to keep any width.
+    expect(clampRectWithinPage({ x: 1, y: 0.5, width: 0.2, height: 0.05 })).toBeNull();
+    // Sub-threshold height.
+    expect(
+      clampRectWithinPage({ x: 0.1, y: 0.5, width: 0.2, height: MIN_FIELD_EXTENT / 2 }),
+    ).toBeNull();
+  });
+
+  it('coerces non-finite input to safe geometry instead of NaN', () => {
+    // A non-finite corner collapses to 0 (via clamp01), keeping the box valid.
+    expect(
+      clampRectWithinPage({ x: NaN, y: 0.5, width: 0.2, height: 0.1 }),
+    ).toEqual({ x: 0, y: 0.5, width: 0.2, height: 0.1 });
+    // A non-finite extent collapses to 0 and the box is dropped as degenerate.
+    expect(
+      clampRectWithinPage({ x: 0.1, y: 0.5, width: Infinity, height: 0.1 }),
+    ).toBeNull();
   });
 });
 

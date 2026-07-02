@@ -130,6 +130,22 @@ export class DocumentsController {
     stream.pipe(res);
   }
 
+  /**
+   * Analyze a draft document and return AI/heuristic-proposed input fields
+   * (서명/날짜/텍스트) for the editor. Owner-only, DRAFT-only. Fields are
+   * return-only — the client persists the adjusted set via `PUT :id/fields`.
+   * Always 200: analysis failures degrade to an empty list with `meta.reason`.
+   */
+  @Post(':id/analyze')
+  @HttpCode(HttpStatus.OK)
+  analyze(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Ip() ip: string,
+  ) {
+    return this.documents.analyze(user.id, id, ip);
+  }
+
   /** Replace placed sign fields on a draft. */
   @Put(':id/fields')
   saveFields(

@@ -2,6 +2,7 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -25,18 +26,28 @@ import {
 } from '../completion/artifact';
 import { detectDocumentFormat, type DetectedFormat } from './document-format';
 import { DocumentExtractionService } from './document-extraction.service';
+import {
+  AiFieldAnalyzerService,
+  type FieldAnalysisSource,
+  type FieldCandidate,
+  type FieldType,
+} from './ai-field-analyzer.service';
+import { clampRectWithinPage } from '../pdf/field-geometry';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB (PDF or DOCX)
 
 @Injectable()
 export class DocumentsService {
+  private readonly logger = new Logger(DocumentsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly extraction: DocumentExtractionService,
+    private readonly analyzer: AiFieldAnalyzerService,
   ) {}
 
   /**
@@ -162,6 +173,102 @@ export class DocumentsService {
       }
     }
     return dto.pageCount ?? 0;
+  }
+
+  /**
+   * Analyze a draft document and propose auto-placed input fields for the
+   * editor. Orchestration only: load bytes → extract structure (grain-1) → run
+   * the field analyzer (grain-2) → normalize/validate candidates into the stored
+   * `SignField` geometry, then return the editor-ready JSON.
+   *
+   * Owner-only, DRAFT-only. Fields are **return-only** — nothing is persisted;
+   * the frontend saves the user-adjusted set via `PUT :id/fields`.
+   *
+   * Analysis failures and empty results are surfaced *gracefully*: a 200 with an
+   * empty `fields` array and a Korean `meta.reason`, never a 500 — a failed
+   * suggestion should not block the user from placing fields by hand.
+   */
+  async analyze(
+    ownerId: string,
+    documentId: string,
+    ip?: string,
+  ): Promise<AnalyzeResult> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.DRAFT) {
+      throw new BadRequestException(MESSAGES.send.alreadySent);
+    }
+
+    const analyzedAt = new Date();
+    let source: AnalyzeSource = 'none';
+    let fields: AnalyzedField[] = [];
+    let reason: string | undefined;
+
+    try {
+      const bytes = await this.storage.read(document.storageKey);
+      const extracted = await this.extraction.extract(bytes, document.format);
+      const analysis = await this.analyzer.analyze(extracted);
+      source = analysis.source;
+      fields = this.normalizeCandidates(analysis.fields, extracted.pages.length);
+      if (fields.length === 0) {
+        reason = MESSAGES.analyze.empty;
+      }
+    } catch (err) {
+      // Extraction (corrupt/unreadable bytes) is the only throwing step — the
+      // analyzer degrades internally and never throws. Downgrade to an empty,
+      // reasoned result instead of failing the request.
+      this.logger.warn(`문서 분석 실패 (documentId=${documentId}): ${String(err)}`);
+      source = 'none';
+      fields = [];
+      reason = MESSAGES.analyze.failed;
+    }
+
+    await this.writeAudit({
+      documentId,
+      actorId: ownerId,
+      action: 'DOCUMENT_ANALYZED',
+      ip,
+      metadata: { source, fieldCount: fields.length, format: document.format },
+    });
+
+    return {
+      fields,
+      meta: {
+        source,
+        analyzedAt: analyzedAt.toISOString(),
+        fieldCount: fields.length,
+        ...(reason ? { reason } : {}),
+      },
+    };
+  }
+
+  /**
+   * Turn raw field candidates into editor-ready fields: convert the 0-based
+   * page index to the 1-based `SignField` convention, clamp each box fully
+   * inside its page (dropping degenerate ones), drop candidates whose page is
+   * out of range, and default `recipientIndex` to the first signer. Confidence
+   * and label hints are intentionally dropped — the editor contract only carries
+   * placement geometry.
+   */
+  private normalizeCandidates(
+    candidates: FieldCandidate[],
+    pageCount: number,
+  ): AnalyzedField[] {
+    const out: AnalyzedField[] = [];
+    for (const c of candidates) {
+      if (!Number.isInteger(c.page) || c.page < 0 || c.page >= pageCount) continue;
+      const box = clampRectWithinPage(c.bbox);
+      if (!box) continue;
+      out.push({
+        type: c.type,
+        page: c.page + 1, // candidates are 0-based; SignField pages are 1-based.
+        x: box.x,
+        y: box.y,
+        width: box.width,
+        height: box.height,
+        recipientIndex: 0,
+      });
+    }
+    return out;
   }
 
   /** Replace the placed sign fields for a draft document. */
@@ -471,6 +578,43 @@ export interface DocumentSummary {
   completedAt: string | null;
   /** True when both completion artifacts are stored and downloadable. */
   downloadsReady: boolean;
+}
+
+/**
+ * Where an analyze result's fields came from: `'ai'`/`'heuristic'` mirror the
+ * analyzer's paths; `'none'` means analysis could not run (extraction failed) so
+ * no fields were produced.
+ */
+export type AnalyzeSource = FieldAnalysisSource | 'none';
+
+/**
+ * One auto-placed field in the editor-ready contract. Geometry is normalized
+ * (0..1, bottom-left origin) and the page is 1-based — the exact shape the
+ * frontend re-submits through `PUT :id/fields` (`SignFieldDto`).
+ */
+export interface AnalyzedField {
+  type: FieldType;
+  /** 1-based page number. */
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  /** 0-based recipient index; auto-placed fields default to the first signer. */
+  recipientIndex: number;
+}
+
+/** Response of `POST :id/analyze`: proposed fields plus analysis metadata. */
+export interface AnalyzeResult {
+  fields: AnalyzedField[];
+  meta: {
+    source: AnalyzeSource;
+    /** ISO timestamp of when the analysis ran. */
+    analyzedAt: string;
+    fieldCount: number;
+    /** Korean guidance, present only when `fields` is empty (failed/none found). */
+    reason?: string;
+  };
 }
 
 export interface DocumentDetail extends DocumentSummary {

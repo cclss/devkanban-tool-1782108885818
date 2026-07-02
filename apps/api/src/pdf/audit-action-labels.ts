@@ -4,7 +4,7 @@
  *
  * `AuditLog.action` is a free-form string in the schema. The concrete codes are
  * produced in two places today:
- *   • `documents.service.ts` → `DOCUMENT_UPLOADED`, `CONTRACT_SENT`
+ *   • `documents.service.ts` → `DOCUMENT_UPLOADED`, `DOCUMENT_ANALYZED`, `CONTRACT_SENT`
  *   • `signing.service.ts`   → `SIGN_REQUEST_VIEWED`, `SIGN_REQUEST_VERIFIED`,
  *                              `SIGN_VERIFY_FAILED`, `SIGN_REQUEST_SIGNED`,
  *                              `DOCUMENT_COMPLETED`
@@ -17,6 +17,7 @@
 /** Canonical persisted audit-action codes (mirrors the emit sites above). */
 export const AUDIT_ACTION = {
   DOCUMENT_UPLOADED: 'DOCUMENT_UPLOADED',
+  DOCUMENT_ANALYZED: 'DOCUMENT_ANALYZED',
   CONTRACT_SENT: 'CONTRACT_SENT',
   SIGN_REQUEST_VIEWED: 'SIGN_REQUEST_VIEWED',
   SIGN_REQUEST_VERIFIED: 'SIGN_REQUEST_VERIFIED',
@@ -30,6 +31,7 @@ export type AuditActionCode = (typeof AUDIT_ACTION)[keyof typeof AUDIT_ACTION];
 /** Code → Korean label. Every known code resolves to a non-fallback label. */
 export const AUDIT_ACTION_LABEL: Record<AuditActionCode, string> = {
   [AUDIT_ACTION.DOCUMENT_UPLOADED]: '업로드됨',
+  [AUDIT_ACTION.DOCUMENT_ANALYZED]: '자동 분석',
   [AUDIT_ACTION.CONTRACT_SENT]: '발송됨',
   [AUDIT_ACTION.SIGN_REQUEST_VIEWED]: '열람함',
   [AUDIT_ACTION.SIGN_REQUEST_VERIFIED]: '본인확인 완료',
