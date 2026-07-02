@@ -11,13 +11,14 @@
  * an optimistic prepend that survives even before the network re-fetch lands.
  */
 
-import { apiDownload, apiFetch } from './api';
+import { apiDownload, apiFetch, apiUrl } from './api';
 import { getToken } from './auth';
 import {
   COMPLETION_DOWNLOAD_COPY,
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
+import type { PdfSource } from './pdf';
 
 export type DocumentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
@@ -49,6 +50,54 @@ export function fetchDocuments(): Promise<DocumentSummary[]> {
 
 export function fetchQuota(): Promise<Quota> {
   return apiFetch<Quota>('/documents/quota', { token: getToken() ?? undefined });
+}
+
+// --- render source (PDF vs converted DOCX) ---------------------------------
+
+/** Canonical DOCX (OOXML WordprocessingML) MIME — mirrors the server's DOCX_MIME. */
+export const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** True for a DOCX pick (by MIME or extension) — its bytes can't be rendered by pdf.js. */
+export function isDocxFile(file: File): boolean {
+  return file.type === DOCX_MIME || file.name.toLowerCase().endsWith('.docx');
+}
+
+/** Absolute URL of a document's canonical render PDF (owner-only, inline stream). */
+export function documentContentUrl(documentId: string): string {
+  return apiUrl(`/documents/${encodeURIComponent(documentId)}/content`);
+}
+
+/**
+ * Copy shown if the converted document (DOCX → server PDF) can't be loaded for
+ * preview/placement. Distinct from the PDF-upload "corrupt PDF" line: here the
+ * user uploaded a DOCX, so the message stays honest (converted document) and
+ * offers the next action (retry) without exposing the conversion internals.
+ * Single-source with the server's Toss-tone voice — see design-spec messaging.
+ */
+export const CONVERTED_DOC_LOAD_ERROR =
+  '변환한 문서를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.';
+
+/**
+ * What the editor's PDF renderer should open for this document:
+ *   • PDF upload  → the local File (original path — bytes never leave the client).
+ *   • DOCX upload → the server's converted canonical PDF, streamed from
+ *     `:id/content` with the owner's bearer token (the placement canvas renders
+ *     the exact bytes analysis ran against).
+ * The branch is limited to the DOCX case; PDF rendering is unchanged.
+ */
+export function documentRenderSource(documentId: string, file: File): PdfSource {
+  if (!isDocxFile(file)) return { kind: 'file', file };
+  const token = getToken();
+  return {
+    kind: 'url',
+    url: documentContentUrl(documentId),
+    init: {
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      cache: 'no-store',
+    },
+    loadErrorMessage: CONVERTED_DOC_LOAD_ERROR,
+  };
 }
 
 // --- AI field analysis (grain-4) -------------------------------------------

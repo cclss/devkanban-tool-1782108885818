@@ -6,22 +6,24 @@
  * Drag-and-drop or file-pick a PDF/DOCX, with client-side guards (type / size /
  * empty) that mirror the server's Korean copy (apps/api/src/common/messages.ts)
  * so the user gets the same wording instantly, before any round-trip. On a valid
- * pick the file uploads with a live progress bar; the resulting DRAFT document +
- * the local File land in wizard state, and the first page renders as a preview.
+ * pick the file uploads with a live progress bar (a DOCX is converted to PDF
+ * server-side within that request — the "문서를 준비하고 있어요" phase covers it,
+ * and a conversion failure surfaces the server's message); the resulting DRAFT
+ * document + the local File land in wizard state, and the first page renders as
+ * a preview. A DOCX previews from its server-converted PDF (`:id/content`), a
+ * PDF straight from the local File.
  */
 
 import * as React from 'react';
 import { Button, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { getToken } from '@/lib/auth';
+import { DOCX_MIME, documentRenderSource } from '@/lib/documents';
 import { uploadPdf, type UploadProgress } from '@/lib/upload';
 import { useWizard } from './wizard-context';
 import { PdfPreview } from './pdf-preview';
 
 const MAX_BYTES = 20 * 1024 * 1024;
-
-/** Canonical DOCX (OOXML WordprocessingML) MIME — mirrors the server's DOCX_MIME. */
-const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
 
 /** `accept` attribute for the file input — PDF and DOCX by MIME + extension. */
 const ACCEPT = `application/pdf,.pdf,${DOCX_MIME},.docx`;
@@ -45,11 +47,6 @@ function validateDocument(file: File): string | null {
   if (file.size === 0) return GUARD.empty;
   if (file.size > MAX_BYTES) return GUARD.tooLarge;
   return null;
-}
-
-/** True for a DOCX pick — DOCX has no visual preview yet (out of scope). */
-function isDocx(file: File): boolean {
-  return file.type === DOCX_MIME || file.name.toLowerCase().endsWith('.docx');
 }
 
 function formatBytes(bytes: number): string {
@@ -143,11 +140,12 @@ export function UploadStep() {
         </p>
       </div>
 
-      {phase === 'done' && state.file ? (
+      {phase === 'done' && state.document && state.file ? (
         <UploadedView
-          fileName={state.document?.title ?? state.file.name}
+          documentId={state.document.id}
+          fileName={state.document.title ?? state.file.name}
           fileSize={state.file.size}
-          pageCount={state.document?.pageCount ?? 0}
+          pageCount={state.document.pageCount ?? 0}
           file={state.file}
           onReplace={reset}
           onPageCount={(n) => {
@@ -295,6 +293,7 @@ function UploadingView({
 }
 
 function UploadedView({
+  documentId,
   fileName,
   fileSize,
   pageCount,
@@ -302,6 +301,7 @@ function UploadedView({
   onReplace,
   onPageCount,
 }: {
+  documentId: string;
   fileName: string;
   fileSize: number;
   pageCount: number;
@@ -309,6 +309,14 @@ function UploadedView({
   onReplace: () => void;
   onPageCount: (pageCount: number) => void;
 }) {
+  // A PDF previews from its local bytes; a DOCX previews from the server's
+  // converted PDF (`:id/content`). Memoized so the preview effect re-opens the
+  // document only when the upload actually changes, not on every render.
+  const source = React.useMemo(
+    () => documentRenderSource(documentId, file),
+    [documentId, file],
+  );
+
   return (
     <div className="flex flex-col gap-md">
       <div className="flex items-center gap-sm rounded-lg border border-border bg-surface p-md">
@@ -329,21 +337,7 @@ function UploadedView({
       </div>
 
       <div className="rounded-lg border border-border bg-surface-muted p-md">
-        {isDocx(file) ? (
-          // DOCX body preview is out of scope for now — show an honest, neutral
-          // note rather than running the PDF renderer (which would misreport a
-          // valid DOCX as a broken PDF).
-          <div className="flex flex-col items-center justify-center gap-xs px-md py-xl text-center">
-            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-surface text-foreground-muted">
-              <FileIcon />
-            </span>
-            <p className="text-sm text-foreground-subtle">
-              DOCX 문서는 미리보기를 제공하지 않아요. 업로드는 완료됐어요.
-            </p>
-          </div>
-        ) : (
-          <PdfPreview file={file} onPageCount={onPageCount} className="mx-auto max-w-[560px]" />
-        )}
+        <PdfPreview source={source} onPageCount={onPageCount} className="mx-auto max-w-[560px]" />
       </div>
     </div>
   );

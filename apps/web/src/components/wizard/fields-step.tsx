@@ -19,7 +19,7 @@
 import * as React from 'react';
 import { Button, cn } from '@repo/ui';
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
-import { analyzeDocument } from '@/lib/documents';
+import { analyzeDocument, documentRenderSource } from '@/lib/documents';
 import {
   FIELD_TYPE_META,
   FIELD_TYPES,
@@ -106,6 +106,14 @@ export function FieldsStep() {
 
   const documentId = document?.id ?? null;
 
+  // What the canvas renders: the local File for a PDF upload, or the server's
+  // converted PDF for a DOCX (streamed from `:id/content`). Memoized so the
+  // canvas re-opens the document only when the upload changes, not each render.
+  const renderSource = React.useMemo(
+    () => (documentId && file ? documentRenderSource(documentId, file) : null),
+    [documentId, file],
+  );
+
   React.useEffect(() => {
     if (!documentId) return;
     // Already injected/marked for this document, or already in flight this mount.
@@ -138,7 +146,7 @@ export function FieldsStep() {
     [fields, page, setFields],
   );
 
-  if (!file) {
+  if (!file || !renderSource) {
     // Defensive: the upload gate prevents reaching here without a document.
     return null;
   }
@@ -223,7 +231,7 @@ export function FieldsStep() {
       {/* Placement surface */}
       <div className="relative max-h-[68vh] overflow-hidden rounded-lg border border-border bg-surface-muted p-md">
         <FieldCanvas
-          file={file}
+          source={renderSource}
           page={page}
           zoom={zoom}
           fitWidth={BASE_FIT_WIDTH}

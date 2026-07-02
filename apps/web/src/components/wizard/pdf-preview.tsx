@@ -1,26 +1,29 @@
 'use client';
 
 /**
- * First-page preview of an uploaded PDF.
+ * First-page preview of an uploaded document.
  *
  * Renders page 1 into a <canvas> via `pdfjs-dist` (lib/pdf.ts), showing a
  * shimmering skeleton while the document parses and a guard message if it can't
  * be read. The page count is reported up so the wizard can show "{n}페이지".
+ *
+ * The `source` is the local File for a PDF upload, or the server's converted
+ * PDF (a DOCX upload) — the preview is identical either way.
  */
 
 import * as React from 'react';
 import { Skeleton, cn } from '@repo/ui';
-import { renderFirstPage, PdfRenderError } from '@/lib/pdf';
+import { renderFirstPage, PdfRenderError, type PdfSource } from '@/lib/pdf';
 
 interface PdfPreviewProps {
-  file: File;
+  source: PdfSource;
   onPageCount?: (pageCount: number) => void;
   className?: string;
 }
 
 type Status = 'loading' | 'ready' | 'error';
 
-export function PdfPreview({ file, onPageCount, className }: PdfPreviewProps) {
+export function PdfPreview({ source, onPageCount, className }: PdfPreviewProps) {
   const containerRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const [status, setStatus] = React.useState<Status>('loading');
@@ -42,7 +45,7 @@ export function PdfPreview({ file, onPageCount, className }: PdfPreviewProps) {
     setError(null);
     const maxWidth = Math.min(container.clientWidth || 560, 720);
 
-    renderFirstPage(file, canvas, maxWidth)
+    renderFirstPage(source, canvas, maxWidth)
       .then((size) => {
         if (cancelled) return;
         onPageCountRef.current?.(size.pageCount);
@@ -61,7 +64,7 @@ export function PdfPreview({ file, onPageCount, className }: PdfPreviewProps) {
     return () => {
       cancelled = true;
     };
-  }, [file]);
+  }, [source]);
 
   return (
     <div ref={containerRef} className={cn('relative w-full', className)}>
@@ -79,7 +82,7 @@ export function PdfPreview({ file, onPageCount, className }: PdfPreviewProps) {
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label="업로드한 PDF 첫 페이지 미리보기"
+        aria-label="업로드한 문서 첫 페이지 미리보기"
         className={cn(
           'mx-auto block rounded-md border border-border shadow-sm',
           status === 'ready' ? 'animate-fade-in' : 'hidden',

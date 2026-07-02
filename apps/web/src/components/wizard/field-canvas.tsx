@@ -26,6 +26,7 @@ import {
   isRenderCancelled,
   PdfRenderError,
   type PdfDocument,
+  type PdfSource,
 } from '@/lib/pdf';
 import {
   normToPx,
@@ -54,7 +55,8 @@ export const FIELD_DND_TYPE = 'application/x-esign-field';
 type RenderStatus = 'loading' | 'ready' | 'error';
 
 interface FieldCanvasProps {
-  file: File;
+  /** What to render: the local File (PDF) or the server's converted PDF (DOCX). */
+  source: PdfSource;
   page: number;
   zoom: number;
   /** Available width (px) the page fits into at zoom 1. */
@@ -89,7 +91,7 @@ type Gesture =
     };
 
 export function FieldCanvas({
-  file,
+  source,
   page,
   zoom,
   fitWidth,
@@ -119,13 +121,20 @@ export function FieldCanvas({
     onPageCountRef.current = onPageCount;
   }, [onPageCount]);
 
+  // Failure copy: a converted DOCX (URL source) carries its own honest line
+  // ("변환한 문서를 불러오지 못했어요…"); a PDF upload uses the corrupt-file default.
+  const loadFallback =
+    source.kind === 'url' && source.loadErrorMessage
+      ? source.loadErrorMessage
+      : 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.';
+
   // Open the document once; dispose on unmount. `docReady` gates the render
   // effect so the first page draws as soon as the handle is available.
   React.useEffect(() => {
     let disposed = false;
     setStatus('loading');
     setDocReady(false);
-    openPdf(file)
+    openPdf(source)
       .then(({ doc, pageCount }) => {
         if (disposed) {
           void doc.destroy();
@@ -135,8 +144,10 @@ export function FieldCanvas({
         onPageCountRef.current?.(pageCount);
         setDocReady(true);
       })
-      .catch(() => {
-        if (!disposed) setStatus('error');
+      .catch((err: unknown) => {
+        if (disposed) return;
+        setError(err instanceof PdfRenderError ? err.message : loadFallback);
+        setStatus('error');
       });
     return () => {
       disposed = true;
@@ -144,7 +155,9 @@ export function FieldCanvas({
       void docRef.current?.destroy();
       docRef.current = null;
     };
-  }, [file]);
+    // `loadFallback` derives from `source`, so it only changes when `source`
+    // does — listing both keys the re-open on the source identity, no extra runs.
+  }, [source, loadFallback]);
 
   const cssWidth = Math.round(fitWidth * zoom);
 
@@ -165,11 +178,7 @@ export function FieldCanvas({
         setError(null);
       } catch (err) {
         if (cancelled || isRenderCancelled(err)) return;
-        setError(
-          err instanceof PdfRenderError
-            ? err.message
-            : 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
-        );
+        setError(err instanceof PdfRenderError ? err.message : loadFallback);
         setStatus('error');
       }
     };
@@ -177,7 +186,7 @@ export function FieldCanvas({
     return () => {
       cancelled = true;
     };
-  }, [docReady, page, cssWidth]);
+  }, [docReady, page, cssWidth, loadFallback]);
 
   const pageFields = React.useMemo(() => fields.filter((f) => f.page === page), [fields, page]);
 

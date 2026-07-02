@@ -96,6 +96,44 @@ export async function loadPdfFromUrl(
   return loadPdfFromData(await res.arrayBuffer());
 }
 
+/**
+ * What a renderer opens. Either the locally-picked File (a PDF upload — rendered
+ * straight from its bytes, the original path) or an authenticated URL to
+ * server-rendered PDF bytes (a DOCX upload the server converted at upload time,
+ * streamed from `GET :id/content`). Both resolve to the identical PdfDocument
+ * handle, so every downstream renderer (`renderFirstPage`, `renderPageToCanvas`)
+ * is source-agnostic.
+ */
+export type PdfSource =
+  | { kind: 'file'; file: File }
+  | {
+      kind: 'url';
+      url: string;
+      init?: RequestInit;
+      /** Friendly copy to surface if the fetch/parse fails (else the PDF default). */
+      loadErrorMessage?: string;
+    };
+
+/**
+ * Open a document from either source. The File branch is byte-identical to
+ * `loadPdf` (the original PDF-upload path); the URL branch fetches server bytes
+ * and re-flavors a load failure with the source's copy so a converted-DOCX
+ * preview never shows the PDF-upload-specific "corrupt PDF" wording.
+ */
+export async function loadPdfSource(
+  source: PdfSource,
+): Promise<{ doc: PdfDocument; pageCount: number }> {
+  if (source.kind === 'file') return loadPdf(source.file);
+  try {
+    return await loadPdfFromUrl(source.url, source.init);
+  } catch (err) {
+    if (err instanceof PdfRenderError && source.loadErrorMessage) {
+      throw new PdfRenderError(source.loadErrorMessage);
+    }
+    throw err;
+  }
+}
+
 export interface RenderedSize {
   width: number;
   height: number;
@@ -103,16 +141,16 @@ export interface RenderedSize {
 }
 
 /**
- * Render the first page of `file` into `canvas`, fit to `maxWidth` CSS pixels
+ * Render the first page of `source` into `canvas`, fit to `maxWidth` CSS pixels
  * and sharpened for the device pixel ratio. Returns the laid-out CSS size and
  * the document's page count.
  */
 export async function renderFirstPage(
-  file: File,
+  source: PdfSource,
   canvas: HTMLCanvasElement,
   maxWidth: number,
 ): Promise<RenderedSize> {
-  const { doc, pageCount } = await loadPdf(file);
+  const { doc, pageCount } = await loadPdfSource(source);
   try {
     const page = await doc.getPage(1);
     const base = page.getViewport({ scale: 1 });
@@ -149,9 +187,12 @@ export async function renderFirstPage(
  * The field-placement step renders pages on demand (page switch, zoom) against a
  * single long-lived document, unlike the upload preview which renders page 1 and
  * disposes. Caller is responsible for `doc.destroy()` on unmount.
+ *
+ * Accepts either source: a PDF upload opens from the local File, a converted
+ * DOCX opens from the server content URL — the placement canvas is identical.
  */
-export async function openPdf(file: File): Promise<{ doc: PdfDocument; pageCount: number }> {
-  return loadPdf(file);
+export async function openPdf(source: PdfSource): Promise<{ doc: PdfDocument; pageCount: number }> {
+  return loadPdfSource(source);
 }
 
 /** A rendered page's laid-out CSS size (the field overlay's coordinate basis). */
