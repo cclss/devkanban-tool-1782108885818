@@ -8,6 +8,7 @@ import {
 import { timingSafeEqual } from 'crypto';
 import { Readable } from 'stream';
 import {
+  ClauseExtractionStatus,
   DocumentStatus,
   Prisma,
   SignFieldType,
@@ -210,6 +211,67 @@ export class SigningService {
     if (!signRequest) throw new NotFoundException(MESSAGES.signing.invalidLink);
 
     return this.storage.openStream(signRequest.document.storageKey);
+  }
+
+  // --- cached clause cards (session) ---------------------------------------
+
+  /**
+   * Return the document's pre-generated, cached clause cards for the signer.
+   * This is an *auxiliary* reminder channel — it never replaces access to the
+   * source document (`:token/pdf`), which the signer can open at any time.
+   *
+   * The response contract signals fallback via an EMPTY array:
+   *   • READY   → the extracted card array (order asc).
+   *   • EMPTY   → extraction succeeded but produced no cards (non-text / nothing
+   *               to extract).
+   *   • FAILED  → extraction errored or timed out.
+   *   • PENDING → not yet resolved at read time.
+   * Only READY carries cards; every other status returns `clauses: []` so the
+   * front-end falls back to the existing full-PDF view. Cards are read straight
+   * from cache — never generated on link-open (extraction happens at send time).
+   */
+  async clauses(signRequestId: string): Promise<ClauseCardsResult> {
+    const signRequest = await this.prisma.signRequest.findUnique({
+      where: { id: signRequestId },
+      select: { document: { select: { id: true, clauseStatus: true } } },
+    });
+    if (!signRequest) throw new NotFoundException(MESSAGES.signing.invalidLink);
+
+    const { id: documentId, clauseStatus } = signRequest.document;
+
+    // Non-READY statuses signal fallback with an empty array — no card read.
+    if (clauseStatus !== ClauseExtractionStatus.READY) {
+      return { status: clauseStatus, clauses: [] };
+    }
+
+    const rows = await this.prisma.contractClause.findMany({
+      where: { documentId },
+      orderBy: { order: 'asc' },
+      select: {
+        title: true,
+        summary: true,
+        sourcePage: true,
+        caution: true,
+        cautionReason: true,
+      },
+    });
+
+    // Defensive: a READY status with zero rows still means "nothing to show" →
+    // downgrade to EMPTY so the client falls back consistently.
+    if (rows.length === 0) {
+      return { status: ClauseExtractionStatus.EMPTY, clauses: [] };
+    }
+
+    return {
+      status: ClauseExtractionStatus.READY,
+      clauses: rows.map((c) => ({
+        title: c.title,
+        summary: c.summary,
+        sourcePage: c.sourcePage,
+        caution: c.caution,
+        cautionReason: c.cautionReason,
+      })),
+    };
   }
 
   // --- completion artifact download (session) ------------------------------
@@ -531,4 +593,31 @@ export interface CompleteResult {
   status: SignRequestStatus;
   documentCompleted: boolean;
   message: string;
+}
+
+/**
+ * A single clause card served to the signer. `title`/`summary` and the caution
+ * copy originate from the extraction pipeline (grain-3 rules) — this channel
+ * only *delivers* them. `sourcePage` grounds the card in the source PDF; the
+ * verbatim `sourceSnippet` is intentionally not exposed here (the signer reaches
+ * the full text via `:token/pdf`). `cautionReason` is a fixed single-source
+ * label (or null when `caution` is false).
+ */
+export interface ClauseCard {
+  title: string;
+  summary: string;
+  sourcePage: number;
+  caution: boolean;
+  cautionReason: string | null;
+}
+
+/**
+ * Clause-cards response contract. `status` mirrors the document's cached
+ * `clauseStatus`; only `READY` carries a non-empty `clauses` array. Every other
+ * status (`EMPTY`/`FAILED`/`PENDING`) returns an empty array as the signal for
+ * the front-end to fall back to the full-PDF view.
+ */
+export interface ClauseCardsResult {
+  status: ClauseExtractionStatus;
+  clauses: ClauseCard[];
 }

@@ -73,6 +73,18 @@ export class SigningController {
     stream.pipe(res);
   }
 
+  /**
+   * ⑧ Cached AI clause cards for the signer (session required).
+   * Auxiliary reminder channel — does NOT replace source access (`:token/pdf`).
+   * READY → card array; EMPTY/FAILED/PENDING → empty array (front-end falls back
+   * to the full-PDF view). Served from cache; never generated on link-open.
+   */
+  @Get(':token/clauses')
+  @UseGuards(SignerSessionGuard)
+  clauses(@CurrentSigner() signer: SignerSession) {
+    return this.signing.clauses(signer.signRequestId);
+  }
+
   /** ⑤ Persist captured field values (session required). */
   @Post(':token/fields')
   @HttpCode(HttpStatus.OK)
