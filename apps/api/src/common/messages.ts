@@ -35,6 +35,10 @@ export const MESSAGES = {
     emptyFile: '파일이 비어 있어요. 다른 파일로 다시 시도해 주세요.',
     corruptPdf: 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
     corruptDocx: 'DOCX를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
+    // DOCX를 PDF로 변환하지 못했을 때(변환 엔진 실패·문서 손상 등). 내부 사정은
+    // 노출하지 않고, 다음 행동(재시도 또는 직접 PDF로 올리기)을 부드럽게 안내한다.
+    conversionFailed:
+      'DOCX 문서를 PDF로 변환하지 못했어요. 잠시 후 다시 시도하거나, PDF로 변환해 올려 주세요.',
     fileTooLarge: '파일이 너무 커요. 20MB 이하의 파일로 올려 주세요.',
   },
   field: {

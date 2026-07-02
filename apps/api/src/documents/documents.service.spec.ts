@@ -57,6 +57,7 @@ describe('DocumentsService.analyze', () => {
       analyze:
         opts.analyze ?? (async (): Promise<FieldAnalysisResult> => ({ source: 'heuristic', fields: [] })),
     };
+    const docxToPdf = { convert: async () => Buffer.from('%PDF-converted') };
     const service = new DocumentsService(
       prisma as never,
       storage as never,
@@ -64,6 +65,7 @@ describe('DocumentsService.analyze', () => {
       {} as never,
       extraction as never,
       analyzer as never,
+      docxToPdf as never,
     );
     return { service, auditCreate, prisma };
   }

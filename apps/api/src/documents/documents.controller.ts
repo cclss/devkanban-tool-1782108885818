@@ -21,7 +21,7 @@ import type { Request, Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/current-user.decorator';
 import { MESSAGES } from '../common/messages';
-import { attachmentDisposition } from '../common/http';
+import { attachmentDisposition, inlineDisposition } from '../common/http';
 import { parseArtifactKind } from '../completion/artifact';
 import { StorageService } from '../storage/storage.service';
 import { DocumentsService } from './documents.service';
@@ -103,6 +103,28 @@ export class DocumentsController {
   @Get(':id')
   detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.documents.detail(user.id, id);
+  }
+
+  /**
+   * Stream the canonical render PDF for the editor (owner only, inline).
+   * The bytes are always PDF — DOCX uploads are converted at upload time — so
+   * the placement canvas renders the same bytes analysis ran against.
+   */
+  @Get(':id/content')
+  async content(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const { stream, filename } = await this.documents.openContent(user.id, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', inlineDisposition(filename));
+    res.setHeader('Cache-Control', 'no-store');
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(HttpStatus.NOT_FOUND);
+      res.end();
+    });
+    stream.pipe(res);
   }
 
   /**

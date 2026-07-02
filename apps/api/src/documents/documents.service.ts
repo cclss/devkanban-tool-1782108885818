@@ -8,6 +8,7 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt } from 'crypto';
 import {
+  DocumentFormat,
   DocumentStatus,
   Plan,
   Prisma,
@@ -24,8 +25,9 @@ import {
   artifactFilename,
   type CompletionArtifact,
 } from '../completion/artifact';
-import { detectDocumentFormat, type DetectedFormat } from './document-format';
+import { detectDocumentFormat, PDF_MIME, type DetectedFormat } from './document-format';
 import { DocumentExtractionService } from './document-extraction.service';
+import { DocxToPdfService } from './docx-to-pdf.service';
 import {
   AiFieldAnalyzerService,
   type FieldAnalysisSource,
@@ -36,6 +38,11 @@ import { clampRectWithinPage } from '../pdf/field-geometry';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
 const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB (PDF or DOCX)
+
+/** Derive a `.pdf` object name from a source name (used for converted DOCX). */
+function toPdfName(originalName: string): string {
+  return `${originalName.replace(/\.docx$/i, '')}.pdf`;
+}
 
 @Injectable()
 export class DocumentsService {
@@ -48,12 +55,15 @@ export class DocumentsService {
     private readonly config: ConfigService,
     private readonly extraction: DocumentExtractionService,
     private readonly analyzer: AiFieldAnalyzerService,
+    private readonly docxToPdf: DocxToPdfService,
   ) {}
 
   /**
-   * Multipart upload path: validate the file (PDF or DOCX), persist bytes,
-   * create a DRAFT. The detected format and MIME type are recorded so the
-   * downstream extraction/AI steps know which path to take.
+   * Multipart upload path: validate the file (PDF or DOCX), produce the canonical
+   * PDF (converting DOCX and preserving the original), count pages on that PDF,
+   * and create a DRAFT. `format` reflects the stored/canonical format (PDF) while
+   * `sourceFormat` records what the user actually uploaded — so downstream
+   * render/analysis/signing/export all consume the same PDF bytes.
    */
   async uploadAndCreate(
     ownerId: string,
@@ -75,19 +85,23 @@ export class DocumentsService {
       throw new BadRequestException(MESSAGES.document.invalidFileType);
     }
 
-    const pageCount = await this.extraction.countPages(file.buffer, detected.format);
-    const storageKey = this.storage.buildKey(ownerId, file.originalname);
-    await this.storage.save(storageKey, file.buffer);
+    // Convert (DOCX→PDF) and persist *before* page counting so pages/analysis
+    // reflect the rendered PDF. A conversion failure surfaces here as a friendly
+    // 4xx (never a crash).
+    const canonical = await this.storeCanonical(ownerId, file.originalname, file.buffer, detected);
+    const pageCount = await this.extraction.countPages(canonical.bytes, DocumentFormat.PDF);
 
     const title = this.deriveTitle(file.originalname);
     const document = await this.prisma.document.create({
       data: {
         ownerId,
         title,
-        storageKey,
+        storageKey: canonical.storageKey,
         pageCount,
-        format: detected.format,
-        mimeType: detected.mimeType,
+        format: DocumentFormat.PDF,
+        mimeType: canonical.mimeType,
+        sourceFormat: detected.format,
+        sourceStorageKey: canonical.sourceStorageKey,
       },
     });
 
@@ -96,10 +110,51 @@ export class DocumentsService {
       actorId: ownerId,
       action: 'DOCUMENT_UPLOADED',
       ip,
-      metadata: { title, pageCount, storageKey, format: detected.format },
+      metadata: {
+        title,
+        pageCount,
+        storageKey: canonical.storageKey,
+        format: DocumentFormat.PDF,
+        sourceFormat: detected.format,
+        ...(canonical.sourceStorageKey ? { sourceStorageKey: canonical.sourceStorageKey } : {}),
+      },
     });
 
     return this.toSummary(document, 0);
+  }
+
+  /**
+   * Produce and persist the canonical PDF for an upload. PDF uploads are stored
+   * as-is (unchanged path — same key, bytes, MIME). DOCX uploads are converted
+   * server-side: the untouched original is preserved under its own key for
+   * auditing, then the converted PDF is stored as the canonical `storageKey`
+   * everything downstream consumes.
+   */
+  private async storeCanonical(
+    ownerId: string,
+    originalName: string,
+    buffer: Buffer,
+    detected: DetectedFormat,
+  ): Promise<{
+    storageKey: string;
+    bytes: Buffer;
+    mimeType: string;
+    sourceStorageKey: string | null;
+  }> {
+    if (detected.format === DocumentFormat.DOCX) {
+      // Preserve the original DOCX for auditing…
+      const sourceStorageKey = this.storage.buildKey(ownerId, originalName);
+      await this.storage.save(sourceStorageKey, buffer);
+      // …then convert to the canonical PDF (throws a friendly 4xx on failure).
+      const pdf = await this.docxToPdf.convert(buffer);
+      const storageKey = this.storage.buildKey(ownerId, toPdfName(originalName));
+      await this.storage.save(storageKey, pdf);
+      return { storageKey, bytes: pdf, mimeType: PDF_MIME, sourceStorageKey };
+    }
+
+    const storageKey = this.storage.buildKey(ownerId, originalName);
+    await this.storage.save(storageKey, buffer);
+    return { storageKey, bytes: buffer, mimeType: detected.mimeType, sourceStorageKey: null };
   }
 
   /**
@@ -129,16 +184,39 @@ export class DocumentsService {
       throw new BadRequestException(MESSAGES.document.invalidFileType);
     }
 
-    const pageCount = await this.resolvePresignedPageCount(dto, bytes, detected);
+    // Resolve the canonical PDF. PDF stays at its uploaded key (unchanged path).
+    // DOCX is converted to a new canonical PDF key, keeping the client-uploaded
+    // DOCX as the preserved source — but conversion needs the bytes, so a DOCX
+    // whose bytes aren't yet readable surfaces as a friendly conversion error.
+    let storageKey = dto.storageKey;
+    let sourceStorageKey: string | null = null;
+    let mimeType = detected.mimeType;
+    let pageCount: number;
+
+    if (detected.format === DocumentFormat.DOCX) {
+      if (!bytes) {
+        throw new BadRequestException(MESSAGES.document.conversionFailed);
+      }
+      const pdf = await this.docxToPdf.convert(bytes);
+      storageKey = this.storage.buildKey(ownerId, toPdfName(dto.storageKey || dto.title));
+      await this.storage.save(storageKey, pdf);
+      sourceStorageKey = dto.storageKey;
+      mimeType = PDF_MIME;
+      pageCount = await this.extraction.countPages(pdf, DocumentFormat.PDF);
+    } else {
+      pageCount = await this.resolvePresignedPageCount(dto, bytes, detected);
+    }
 
     const document = await this.prisma.document.create({
       data: {
         ownerId,
         title: dto.title,
-        storageKey: dto.storageKey,
+        storageKey,
         pageCount,
-        format: detected.format,
-        mimeType: detected.mimeType,
+        format: DocumentFormat.PDF,
+        mimeType,
+        sourceFormat: detected.format,
+        sourceStorageKey,
       },
     });
 
@@ -150,8 +228,10 @@ export class DocumentsService {
       metadata: {
         title: dto.title,
         pageCount,
-        storageKey: dto.storageKey,
-        format: detected.format,
+        storageKey,
+        format: DocumentFormat.PDF,
+        sourceFormat: detected.format,
+        ...(sourceStorageKey ? { sourceStorageKey } : {}),
         via: 'presigned',
       },
     });
@@ -445,6 +525,28 @@ export class DocumentsService {
       recipients: document.signRequests,
       fields: document.signFields,
     };
+  }
+
+  /**
+   * Open the canonical render PDF for the editor (owner-only). Streams the exact
+   * PDF bytes analysis ran against — for a DOCX upload this is the converted PDF,
+   * for a PDF upload the original — so the placement canvas and the analyzed
+   * coordinates share one coordinate space. Available in any state the owner can
+   * view (the editor only needs it while drafting).
+   */
+  async openContent(
+    ownerId: string,
+    documentId: string,
+  ): Promise<{ stream: Readable; filename: string }> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { ownerId: true, title: true, storageKey: true },
+    });
+    if (!document) throw new NotFoundException(MESSAGES.document.notFound);
+    if (document.ownerId !== ownerId) throw new ForbiddenException(MESSAGES.document.forbidden);
+
+    const stream = await this.storage.openStream(document.storageKey);
+    return { stream, filename: `${document.title || '계약'}.pdf` };
   }
 
   /**

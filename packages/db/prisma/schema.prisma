@@ -39,12 +39,21 @@ model Document {
   id        String         @id @default(cuid())
   ownerId   String         @map("owner_id")
   title     String
-  // Object storage key (e.g. S3). Stub-friendly: no cloud wiring at this grain.
+  // Object storage key of the **canonical PDF** every downstream step consumes
+  // (render, analysis, signing, final export). For PDF uploads this is the
+  // original bytes; for DOCX uploads it is the server-converted PDF.
   storageKey String        @map("storage_key")
-  // Source document format (PDF or DOCX), recorded at upload time. Selects the
-  // extraction path (`DocumentExtractionService`) for text/coordinate analysis
-  // and, downstream, AI field placement.
+  // Canonical/stored document format. Since DOCX is converted to PDF at upload,
+  // this is effectively always PDF post-conversion and selects the extraction
+  // path (`DocumentExtractionService.extractPdf`) so analysis runs on the same
+  // bytes the canvas renders.
   format    DocumentFormat @default(PDF)
+  // The format the user actually uploaded (PDF or DOCX), recorded for auditing.
+  // Differs from `format` only when a DOCX was converted to a canonical PDF.
+  sourceFormat DocumentFormat @default(PDF) @map("source_format")
+  // Object storage key of the preserved original upload when it differed from
+  // the canonical PDF (i.e. the untouched DOCX). Null for native PDF uploads.
+  sourceStorageKey String?   @map("source_storage_key")
   // Original MIME type reported by the client / detected from the bytes. Kept
   // for auditing and content-type decisions; nullable for pre-existing rows.
   mimeType  String?        @map("mime_type")
