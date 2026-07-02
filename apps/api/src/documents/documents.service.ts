@@ -18,6 +18,7 @@ import { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NotificationsService, type NotificationJob } from '../notifications/notifications.service';
+import { ClauseExtractionQueue } from '../clauses/clause-extraction.queue';
 import { FREE_PLAN_MONTHLY_LIMIT, MESSAGES } from '../common/messages';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
 import {
@@ -37,6 +38,7 @@ export class DocumentsService {
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    private readonly clauseExtractionQueue: ClauseExtractionQueue,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -237,6 +239,16 @@ export class DocumentsService {
       jobs.push({ channel: 'email', to: r.email, toName: r.name, template: 'sign_request', data });
     }
     await this.notifications.enqueueMany(jobs);
+
+    // Pre-generate + cache the AI clause cards for the signer experience
+    // (grain-4), AFTER the send transaction commits. `enqueue` never throws by
+    // contract; the extra guard makes the guarantee explicit — a queueing or
+    // extraction problem must never break the sender's send response.
+    try {
+      await this.clauseExtractionQueue.enqueue(documentId);
+    } catch (err) {
+      this.logger.warn(`조항 추출 적재 실패 — 발송은 정상 처리했어요: ${String(err)}`);
+    }
 
     return this.toSummary(result.updated, result.createdRequests.length);
   }

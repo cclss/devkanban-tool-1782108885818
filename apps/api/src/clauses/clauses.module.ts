@@ -11,6 +11,8 @@ import {
   ClauseExtractionService,
   DEFAULT_CLAUSE_TIMEOUT_MS,
 } from './clause-extraction.service';
+import { ClauseExtractionPipelineService } from './clause-extraction-pipeline.service';
+import { ClauseExtractionQueue } from './clause-extraction.queue';
 
 /**
  * Selects the clause-extraction back-end from the environment — the same
@@ -46,8 +48,13 @@ function createClauseProvider(config: ConfigService): ClauseExtractionProvider {
  *     signer UI falls back to the full-document viewer.
  *   • `PdfTextService` (grain-2) — feeds the per-page text this consumes.
  *
- * Later grains (persistence, send-time pre-generation hook, signer API) import
- * this module to reuse the service.
+ * This grain (grain-4) adds the send-time pre-generation pipeline:
+ *   • `ClauseExtractionPipelineService` — composes the read → text → structure →
+ *     persist flow and records `Document.clauseStatus` (READY/EMPTY/FAILED).
+ *   • `ClauseExtractionQueue` — BullMQ producer + co-located worker (REDIS_URL
+ *     fallback to inline), exported so `DocumentsModule` can enqueue on send.
+ *
+ * The signer API (grain-5) imports this module to reuse the persisted cards.
  */
 @Module({
   providers: [
@@ -70,7 +77,9 @@ function createClauseProvider(config: ConfigService): ClauseExtractionProvider {
         ),
       inject: [CLAUSE_EXTRACTION_PROVIDER, ConfigService],
     },
+    ClauseExtractionPipelineService,
+    ClauseExtractionQueue,
   ],
-  exports: [PdfTextService, ClauseExtractionService],
+  exports: [PdfTextService, ClauseExtractionService, ClauseExtractionQueue],
 })
 export class ClausesModule {}
