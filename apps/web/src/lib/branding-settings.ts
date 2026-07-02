@@ -29,7 +29,11 @@ export interface BrandingView {
   brandColor: string | null;
   brandFont: BrandFont | null;
   logoUrl: string | null;
-  /** Plan eligibility — the editor is gated on this flag. */
+  /**
+   * Whether branding is actually applied on the signer screen (Team+). Editing,
+   * saving, and previewing are open to every plan; this flag only drives the
+   * non-blocking upsell notice and the preview's "not applied yet" framing.
+   */
   brandingEnabled: boolean;
 }
 
@@ -135,7 +139,8 @@ export function getBranding(): Promise<BrandingView> {
 
 /**
  * Save brand color/font. `null` clears a field back to the default tokens.
- * Throws `ApiError` (403 upgrade-required, 400 invalid color/font).
+ * Open to every plan (application is gated server-side, not saving); throws
+ * `ApiError` (400 invalid color/font).
  */
 export function updateBranding(input: {
   brandColor?: string | null;
@@ -257,12 +262,19 @@ export const BRANDING_COPY = {
   subtitle: '서명자에게 보여지는 화면에 회사의 로고·색상·글꼴을 적용해요.',
   backToDashboard: '대시보드로',
 
-  // Plan gate (FREE → locked/upsell).
-  lock: {
+  // Apply notice (non-blocking upsell). Shown when brandingEnabled is false:
+  // every plan can freely set / save / preview branding — only the actual
+  // signer-screen application is Team-gated. Tone is non-blocking guidance
+  // ("설정·저장·미리보기는 지금, 적용은 Team부터"), never a wall.
+  notice: {
     badge: 'Team 플랜',
-    title: '브랜딩은 Team 플랜부터 사용할 수 있어요',
-    body: '로고·브랜드 색상·글꼴로 서명 화면을 우리 회사답게 꾸며 보세요. Team 플랜으로 업그레이드하면 바로 설정할 수 있어요.',
+    title: '지금 설정·저장해 두면, Team 플랜부터 서명자 화면에 적용돼요',
+    body: '로고·색상·글꼴을 지금 자유롭게 설정하고 저장·미리보기까지 해볼 수 있어요. 실제 서명자 화면에 적용하는 건 Team 플랜부터예요.',
     cta: '플랜 업그레이드',
+    // Upgrade dialog — mirrors the dashboard's "coming soon" upsell voice.
+    dialogTitle: '곧 Team 플랜을 만나요',
+    dialogBody: '팀을 위한 브랜딩 적용과 더 많은 기능을 준비하고 있어요. 조금만 기다려 주세요.',
+    dialogDismiss: '알겠어요',
   },
 
   // Logo uploader.
@@ -311,7 +323,11 @@ export const BRANDING_COPY = {
   // so the preview reads exactly like what the signer gets.
   preview: {
     label: '미리보기',
+    // Shown when branding is applied (Team+): the preview reflects the live state.
     note: '서명자에게 이렇게 보여요.',
+    // Shown when branding isn't applied yet (non-Team): frames the preview as
+    // "what it'll look like once applied", making clear it isn't live for signers.
+    noteInactive: '적용하면 이렇게 보여요. 지금은 서명자 화면에 적용되지 않아요.',
     // The mock sender shown in the frame; BrandingHeader appends its own
     // "님이 보낸 계약" caption, so it isn't duplicated here.
     senderName: '우리 회사',

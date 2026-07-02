@@ -40,12 +40,19 @@ export function BrandingPreview({
   color,
   font,
   logoUrl,
+  applied = true,
   className,
 }: {
   /** Current hex text — applied only when it's a valid color. */
   color: string;
   font: BrandFont;
   logoUrl: string | null;
+  /**
+   * Whether this branding is actually live on the signer screen (Team+). When
+   * false, the note reframes the preview as "what it'll look like once applied"
+   * so the admin knows it isn't shown to signers yet.
+   */
+  applied?: boolean;
   className?: string;
 }) {
   // The exact shape the real signer screens consume. Building it here means the
@@ -103,7 +110,9 @@ export function BrandingPreview({
     <div className={cn('flex flex-col gap-sm', className)}>
       <div className="flex items-center justify-between">
         <span className="text-sm font-semibold text-foreground-muted">{PREVIEW.label}</span>
-        <span className="text-xs text-foreground-subtle">{PREVIEW.note}</span>
+        <span className="text-xs text-foreground-subtle">
+          {applied ? PREVIEW.note : PREVIEW.noteInactive}
+        </span>
       </div>
 
       {/* Stage toggle — a segmented tablist driving the device-frame state. */}

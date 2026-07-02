@@ -3,19 +3,33 @@
 /**
  * BrandingSettings — the admin "커스텀 브랜딩" editor.
  *
- * Loads the sender's current branding, then lets an eligible (Team-plan) admin
- * set a logo, brand color, and signer-screen font, with a live preview that
- * re-skins as they edit. Color/font persist on Save (`PUT /branding`); the logo
- * persists immediately via its own endpoint. FREE plans see a locked/upsell
- * state (form disabled + upgrade guidance) driven by `brandingEnabled` from the
- * server. Outcomes surface as Toss-tone toasts; the save action is optimistic
- * with a loading state and reverts its baseline on failure.
+ * Loads the sender's current branding, then lets ANY plan set a logo, brand
+ * color, and signer-screen font, with a live preview that re-skins as they edit.
+ * Color/font persist on Save (`PUT /branding`); the logo persists immediately
+ * via its own endpoint. Editing/saving/previewing are never gated — only the
+ * actual signer-screen *application* is Team-only. When `brandingEnabled` (from
+ * the server) is false, a non-blocking notice explains that settings are saved
+ * now and take effect on the signer screen once on Team, plus an upgrade CTA;
+ * the preview is reframed as "what it'll look like once applied". Outcomes
+ * surface as Toss-tone toasts; the save action is optimistic with a loading
+ * state and reverts its baseline on failure.
  *
  * All visual values come from design tokens; no raw colors/spacing/etc.
  */
 
 import * as React from 'react';
-import { Button, Card, Skeleton } from '@repo/ui';
+import {
+  Button,
+  Card,
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+  Skeleton,
+} from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import {
   BRANDING_COPY,
@@ -75,10 +89,12 @@ export function BrandingSettings() {
     void load();
   }, [load]);
 
-  const enabled = view?.brandingEnabled ?? false;
+  // `applied` = branding is live on the signer screen (Team+). It gates ONLY the
+  // upsell notice and the preview framing — never editing, saving, or preview.
+  const applied = view?.brandingEnabled ?? false;
   const colorValid = color.trim() === '' || isValidHex(color.trim());
   const dirty = color.trim() !== baseline.color.trim() || font !== baseline.font;
-  const canSave = enabled && dirty && colorValid && !saving;
+  const canSave = dirty && colorValid && !saving;
 
   const onColorChange = React.useCallback((next: string) => {
     // Tidy toward `#rrggbb` while typing; clearing the field resets to default.
@@ -87,7 +103,6 @@ export function BrandingSettings() {
   }, []);
 
   const onSave = React.useCallback(async () => {
-    if (!enabled) return;
     if (!colorValid) {
       setShowColorError(true);
       notify('error', BRANDING_COPY.color.invalid);
@@ -112,7 +127,7 @@ export function BrandingSettings() {
     } finally {
       setSaving(false);
     }
-  }, [baseline, color, colorValid, enabled, font, hydrate, notify]);
+  }, [baseline, color, colorValid, font, hydrate, notify]);
 
   const previewLogo = localLogoPreview ?? view?.logoUrl ?? null;
 
@@ -127,12 +142,11 @@ export function BrandingSettings() {
             <LoadError onRetry={() => void load()} />
           ) : (
             <>
-              {!enabled ? <PlanLock /> : null}
+              {!applied ? <ApplyNotice /> : null}
 
-              <fieldset disabled={!enabled} className="flex flex-col gap-lg border-0 p-0">
+              <fieldset className="flex flex-col gap-lg border-0 p-0">
                 <LogoUploader
                   logoUrl={view?.logoUrl ?? null}
-                  disabled={!enabled}
                   onChange={(v) => setView(v)}
                   onLocalPreview={setLocalLogoPreview}
                   notify={notify}
@@ -144,14 +158,13 @@ export function BrandingSettings() {
                     setColor('');
                     setShowColorError(false);
                   }}
-                  disabled={!enabled}
                   showError={showColorError}
                 />
-                <FontSelect value={font} onChange={setFont} disabled={!enabled} />
+                <FontSelect value={font} onChange={setFont} />
               </fieldset>
 
               <div className="flex items-center justify-end gap-sm border-t border-border pt-lg">
-                {dirty && enabled ? (
+                {dirty ? (
                   <span className="text-sm text-foreground-subtle">저장하지 않은 변경이 있어요</span>
                 ) : null}
                 <Button
@@ -170,7 +183,7 @@ export function BrandingSettings() {
 
         {/* Preview — sticky alongside the editor on wide screens. */}
         <div className="lg:sticky lg:top-xl">
-          <BrandingPreview color={color} font={font} logoUrl={previewLogo} />
+          <BrandingPreview color={color} font={font} logoUrl={previewLogo} applied={applied} />
         </div>
       </div>
 
@@ -179,26 +192,49 @@ export function BrandingSettings() {
   );
 }
 
-function PlanLock() {
+/**
+ * Non-blocking upsell notice, shown when branding isn't applied on the signer
+ * screen yet (non-Team). It never disables the form — it only explains that
+ * settings are saved now and go live once on Team, and offers an upgrade CTA
+ * (opens the same "coming soon" dialog the dashboard uses).
+ */
+function ApplyNotice() {
+  const [upgradeOpen, setUpgradeOpen] = React.useState(false);
+  const copy = BRANDING_COPY.notice;
+
   return (
-    <div className="flex flex-col gap-sm rounded-lg border border-border bg-surface-muted p-lg">
+    <div className="flex flex-col gap-sm rounded-lg border border-primary-subtle bg-primary-subtle/40 p-lg">
       <div className="flex items-center gap-xs">
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-primary-subtle text-primary">
-          <LockIcon />
+          <SparkIcon />
         </span>
         <span className="rounded-full bg-primary-subtle px-xs py-2xs text-2xs font-semibold text-primary">
-          {BRANDING_COPY.lock.badge}
+          {copy.badge}
         </span>
       </div>
       <div className="flex flex-col gap-2xs">
-        <h2 className="text-md font-bold text-foreground">{BRANDING_COPY.lock.title}</h2>
-        <p className="text-sm text-foreground-muted">{BRANDING_COPY.lock.body}</p>
+        <h2 className="text-md font-bold text-foreground">{copy.title}</h2>
+        <p className="text-sm text-foreground-muted">{copy.body}</p>
       </div>
       <div>
-        <Button type="button" variant="primary" size="sm" disabled>
-          {BRANDING_COPY.lock.cta}
+        <Button type="button" variant="primary" size="sm" onClick={() => setUpgradeOpen(true)}>
+          {copy.cta}
         </Button>
       </div>
+
+      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{copy.dialogTitle}</DialogTitle>
+            <DialogDescription>{copy.dialogBody}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button variant="secondary">{copy.dialogDismiss}</Button>
+            </DialogClose>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -230,11 +266,16 @@ function EditorSkeleton() {
   );
 }
 
-function LockIcon() {
+function SparkIcon() {
   return (
     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
-      <rect x="4.5" y="9" width="11" height="7.5" rx="2" stroke="currentColor" strokeWidth="1.6" />
-      <path d="M7 9V6.5a3 3 0 0 1 6 0V9" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+      <path
+        d="M10 2.5l1.6 4.4 4.4 1.6-4.4 1.6L10 14.5 8.4 10.1 4 8.5l4.4-1.6L10 2.5z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M15.5 13.5l.7 1.8 1.8.7-1.8.7-.7 1.8-.7-1.8-1.8-.7 1.8-.7.7-1.8z" fill="currentColor" />
     </svg>
   );
 }

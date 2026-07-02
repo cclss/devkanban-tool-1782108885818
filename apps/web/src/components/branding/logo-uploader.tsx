@@ -10,7 +10,8 @@
  * shows an optimistic local thumbnail (object URL) until the server URL lands.
  *
  * Visual values are tokens only; the thumbnail is the user's image (runtime
- * content). The dropzone disables under the plan gate.
+ * content). Upload is open to every plan — signer-screen application is gated
+ * elsewhere — so `disabled` is only for transient states, not a plan lock.
  */
 
 import * as React from 'react';
