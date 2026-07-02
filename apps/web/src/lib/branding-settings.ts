@@ -3,7 +3,7 @@
  *
  * Wraps the authenticated `/branding` endpoints (see
  * `apps/api/src/branding/branding.controller.ts`) and owns everything the
- * "회사 설정 → 브랜딩" screen needs in one place:
+ * "커스텀 브랜딩" screen needs in one place:
  *   - the font catalog (the predefined, safe `BrandFont` set),
  *   - the hex-color input rules (byte-for-byte the server's `HEX_COLOR`),
  *   - the client-authored chrome copy (`BRANDING_COPY`), which inherits the
@@ -250,9 +250,10 @@ export function uploadLogo(file: File, options: UploadLogoOptions = {}): Promise
  * 탓하지 않고 다음 행동을 안내, 해요체, 내부 사정(플랜 enum/검증 규칙) 비노출.
  */
 export const BRANDING_COPY = {
-  // Page chrome.
-  breadcrumbRoot: '회사 설정',
-  title: '브랜딩',
+  // Page chrome. The dashboard entry menu is "커스텀 브랜딩"; the page title
+  // mirrors that name and the breadcrumb reflects its origin (대시보드 › 커스텀 브랜딩).
+  breadcrumbRoot: '대시보드',
+  title: '커스텀 브랜딩',
   subtitle: '서명자에게 보여지는 화면에 회사의 로고·색상·글꼴을 적용해요.',
   backToDashboard: '대시보드로',
 

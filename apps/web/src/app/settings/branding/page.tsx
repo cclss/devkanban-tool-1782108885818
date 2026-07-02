@@ -7,7 +7,7 @@ import { BRANDING_COPY } from '@/lib/branding-settings';
 import { BrandingSettings } from '@/components/branding/branding-settings';
 
 /**
- * `/settings/branding` — admin "회사 설정 › 브랜딩".
+ * `/settings/branding` — admin "커스텀 브랜딩" (dashboard entry menu).
  *
  * Auth-guards like the dashboard (bounce unauthenticated visitors to login),
  * frames the page chrome, and hands the editor to <BrandingSettings />.

@@ -136,8 +136,13 @@ function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogou
           {user?.email ? (
             <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
           ) : null}
-          <Button variant="ghost" size="sm" onClick={() => router.push('/settings/branding')}>
-            회사 설정
+          <Button
+            variant="secondary"
+            size="sm"
+            onClick={() => router.push('/settings/branding')}
+          >
+            <BrandingIcon />
+            커스텀 브랜딩
           </Button>
           <Button variant="ghost" size="sm" onClick={onLogout}>
             로그아웃
@@ -145,6 +150,23 @@ function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogou
         </div>
       </div>
     </header>
+  );
+}
+
+/** Paint-palette glyph — signals the "커스텀 브랜딩" entry (logo·color·font). */
+function BrandingIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+      <path
+        d="M10 2.75a7.25 7.25 0 0 0 0 14.5c1 0 1.6-.72 1.6-1.5 0-.36-.14-.68-.36-.95-.22-.28-.36-.6-.36-.95 0-.75.6-1.35 1.35-1.35h1.4a3.25 3.25 0 0 0 3.25-3.25c0-3.42-3.4-6.1-6.88-6.1Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
+      <circle cx="6.75" cy="9.5" r="0.9" fill="currentColor" />
+      <circle cx="8.5" cy="6.5" r="0.9" fill="currentColor" />
+      <circle cx="12" cy="6.75" r="0.9" fill="currentColor" />
+    </svg>
   );
 }
 

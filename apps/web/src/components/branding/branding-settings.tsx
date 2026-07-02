@@ -1,7 +1,7 @@
 'use client';
 
 /**
- * BrandingSettings — the admin "회사 설정 → 브랜딩" editor.
+ * BrandingSettings — the admin "커스텀 브랜딩" editor.
  *
  * Loads the sender's current branding, then lets an eligible (Team-plan) admin
  * set a logo, brand color, and signer-screen font, with a live preview that
