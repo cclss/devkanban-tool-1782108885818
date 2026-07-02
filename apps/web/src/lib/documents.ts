@@ -51,6 +51,52 @@ export function fetchQuota(): Promise<Quota> {
   return apiFetch<Quota>('/documents/quota', { token: getToken() ?? undefined });
 }
 
+// --- AI field analysis (grain-4) -------------------------------------------
+
+/**
+ * One AI/heuristic-proposed field from `POST /documents/:id/analyze`. Geometry is
+ * already normalized (0..1, bottom-left origin) with a 1-based page — the exact
+ * shape the wizard persists via `PUT :id/fields` — so the client trusts the
+ * server contract verbatim and never re-normalizes (grain-3 contract).
+ */
+export interface AnalyzedField {
+  type: 'SIGNATURE' | 'DATE' | 'TEXT';
+  page: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  recipientIndex: number;
+}
+
+/** Response of `POST /documents/:id/analyze`: proposed fields + analysis meta. */
+export interface AnalyzeResult {
+  fields: AnalyzedField[];
+  meta: {
+    /** `'ai'`/`'heuristic'` produced fields; `'none'` = analysis could not run. */
+    source: 'ai' | 'heuristic' | 'none';
+    analyzedAt: string;
+    fieldCount: number;
+    /** Toss-tone Korean guidance, present only when `fields` is empty. */
+    reason?: string;
+  };
+}
+
+/**
+ * Ask the server to auto-detect signature/date/text fields on a DRAFT document.
+ *
+ * The endpoint always answers `200` — an empty result or an analysis failure
+ * comes back as `{ fields: [], meta.reason }`, never an error — so a missing
+ * suggestion never blocks manual placement. Only auth/ownership/state guard
+ * violations reject (surfaced as the server's Korean `ApiError` copy).
+ */
+export function analyzeDocument(documentId: string): Promise<AnalyzeResult> {
+  return apiFetch<AnalyzeResult>(`/documents/${encodeURIComponent(documentId)}/analyze`, {
+    method: 'POST',
+    token: getToken() ?? undefined,
+  });
+}
+
 /**
  * Download a completed contract's artifact as the signed-in owner and hand it to
  * the browser's "save file". Rejects with the server's Toss-tone message (e.g.

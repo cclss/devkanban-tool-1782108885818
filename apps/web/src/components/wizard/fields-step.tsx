@@ -17,7 +17,9 @@
  */
 
 import * as React from 'react';
-import { cn } from '@repo/ui';
+import { Button, cn } from '@repo/ui';
+import { ApiError, GENERIC_ERROR } from '@/lib/api';
+import { analyzeDocument } from '@/lib/documents';
 import {
   FIELD_TYPE_META,
   FIELD_TYPES,
@@ -33,20 +35,91 @@ const ZOOM_STEP = 0.25;
 /** Page fits comfortably in the 760px wizard column at zoom 1. */
 const BASE_FIT_WIDTH = 640;
 
+/** Auto-analysis lifecycle for the one-shot AI field placement. */
+type AnalyzeStatus = 'idle' | 'loading' | 'empty' | 'error';
+
+/**
+ * Empty-state copy shown only if the server somehow omits `meta.reason` (the
+ * server owns the canonical Toss-tone wording — see `messages.ts` `analyze`).
+ */
+const ANALYZE_EMPTY_FALLBACK = 'AI가 배치할 필드를 찾지 못했어요. 필요한 위치에 직접 배치해 주세요.';
+
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
   const { state, dispatch } = useWizard();
-  const { file, document, fields } = state;
+  const { file, document, fields, analyzedDocumentId } = state;
 
   const [page, setPage] = React.useState(1);
   const [zoom, setZoom] = React.useState(1);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
 
+  // --- AI auto-analysis (grain-4): trigger once on entry per document --------
+  const [analyzeStatus, setAnalyzeStatus] = React.useState<AnalyzeStatus>('idle');
+  const [analyzeMessage, setAnalyzeMessage] = React.useState<string | null>(null);
+  // Which document id this mount has already kicked off, so a re-render (or
+  // StrictMode's double effect) never fires a second concurrent request.
+  const attemptedRef = React.useRef<string | null>(null);
+
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
     [dispatch],
   );
+
+  const runAnalysis = React.useCallback(
+    async (documentId: string) => {
+      setAnalyzeStatus('loading');
+      setAnalyzeMessage(null);
+      try {
+        const result = await analyzeDocument(documentId);
+        if (result.fields.length > 0) {
+          // Trust the server geometry as-is (0..1, bottom-left, 1-based page) —
+          // it matches SignFieldDraft; only mint a client id. The reducer guards
+          // the one-shot, so this appends without ever clobbering manual edits.
+          const drafts: SignFieldDraft[] = result.fields.map((f) => ({
+            id: nextFieldId(),
+            type: f.type,
+            page: f.page,
+            x: f.x,
+            y: f.y,
+            width: f.width,
+            height: f.height,
+            recipientIndex: f.recipientIndex,
+          }));
+          dispatch({ type: 'INJECT_ANALYZED_FIELDS', documentId, fields: drafts });
+          setAnalyzeStatus('idle');
+        } else {
+          // Analysis ran but found nothing — mark done (no re-run on re-entry).
+          dispatch({ type: 'MARK_ANALYZED', documentId });
+          setAnalyzeStatus('empty');
+          setAnalyzeMessage(result.meta.reason ?? ANALYZE_EMPTY_FALLBACK);
+        }
+      } catch (err) {
+        // Leave the document unmarked so the user can retry; surface the
+        // server's Korean copy, else the neutral transport fallback.
+        setAnalyzeStatus('error');
+        setAnalyzeMessage(err instanceof ApiError ? err.message : GENERIC_ERROR);
+      }
+    },
+    [dispatch],
+  );
+
+  const documentId = document?.id ?? null;
+
+  React.useEffect(() => {
+    if (!documentId) return;
+    // Already injected/marked for this document, or already in flight this mount.
+    if (analyzedDocumentId === documentId) return;
+    if (attemptedRef.current === documentId) return;
+    attemptedRef.current = documentId;
+    void runAnalysis(documentId);
+  }, [documentId, analyzedDocumentId, runAnalysis]);
+
+  const retryAnalysis = React.useCallback(() => {
+    if (!documentId) return;
+    attemptedRef.current = documentId;
+    void runAnalysis(documentId);
+  }, [documentId, runAnalysis]);
 
   const addAtCenter = React.useCallback(
     (type: SignFieldType) => {
@@ -145,6 +218,8 @@ export function FieldsStep() {
         </div>
       </div>
 
+      <AnalyzeBanner status={analyzeStatus} message={analyzeMessage} onRetry={retryAnalysis} />
+
       {/* Placement surface */}
       <div className="relative max-h-[68vh] overflow-hidden rounded-lg border border-border bg-surface-muted p-md">
         <FieldCanvas
@@ -201,6 +276,61 @@ function FieldTool({ type, onAdd }: { type: SignFieldType; onAdd: () => void }) 
       {meta.label}
     </button>
   );
+}
+
+/**
+ * Non-blocking status strip for the one-shot AI auto-analysis. It never covers
+ * the canvas or disables the palette — the user can place fields by hand while
+ * analysis runs, and empty/error are informational (error offers a retry).
+ */
+function AnalyzeBanner({
+  status,
+  message,
+  onRetry,
+}: {
+  status: AnalyzeStatus;
+  message: string | null;
+  onRetry: () => void;
+}) {
+  if (status === 'loading') {
+    return (
+      <div
+        role="status"
+        aria-live="polite"
+        className="flex items-center gap-xs rounded-md border border-border bg-primary-subtle px-sm py-xs text-sm font-medium text-primary"
+      >
+        <Spinner />
+        AI가 필드를 분석하고 있어요
+      </div>
+    );
+  }
+  if (status === 'empty') {
+    return (
+      <div
+        role="status"
+        className="flex items-start gap-xs rounded-md border border-border bg-surface-muted px-sm py-xs text-sm text-foreground-subtle"
+      >
+        <span className="mt-px shrink-0 text-foreground-muted">
+          <InfoIcon />
+        </span>
+        <span>{message ?? ANALYZE_EMPTY_FALLBACK}</span>
+      </div>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <div
+        role="alert"
+        className="flex items-center justify-between gap-sm rounded-md border border-border bg-danger-subtle px-sm py-2xs text-sm"
+      >
+        <span className="font-medium text-danger">{message ?? GENERIC_ERROR}</span>
+        <Button variant="ghost" size="sm" onClick={onRetry} className="shrink-0">
+          다시 분석
+        </Button>
+      </div>
+    );
+  }
+  return null;
 }
 
 function DesktopOnlyFallback() {
@@ -318,6 +448,24 @@ function MinusIcon() {
   return (
     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
       <path d="M5 10h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function Spinner() {
+  return (
+    <svg className="h-4 w-4 animate-spin" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+      <circle cx="12" cy="12" r="9" stroke="currentColor" strokeOpacity="0.25" strokeWidth="3" />
+      <path d="M21 12a9 9 0 0 0-9-9" stroke="currentColor" strokeWidth="3" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function InfoIcon() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
+      <circle cx="8" cy="8" r="6.25" stroke="currentColor" strokeWidth="1.3" />
+      <path d="M8 7.25v3.25M8 5.4h.01" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
     </svg>
   );
 }

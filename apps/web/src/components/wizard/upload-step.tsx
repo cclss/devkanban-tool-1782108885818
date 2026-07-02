@@ -1,9 +1,9 @@
 'use client';
 
 /**
- * Wizard step 1 — upload the contract PDF.
+ * Wizard step 1 — upload the contract document (PDF or DOCX).
  *
- * Drag-and-drop or file-pick a PDF, with client-side guards (type / size /
+ * Drag-and-drop or file-pick a PDF/DOCX, with client-side guards (type / size /
  * empty) that mirror the server's Korean copy (apps/api/src/common/messages.ts)
  * so the user gets the same wording instantly, before any round-trip. On a valid
  * pick the file uploads with a live progress bar; the resulting DRAFT document +
@@ -20,21 +20,36 @@ import { PdfPreview } from './pdf-preview';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
+/** Canonical DOCX (OOXML WordprocessingML) MIME — mirrors the server's DOCX_MIME. */
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** `accept` attribute for the file input — PDF and DOCX by MIME + extension. */
+const ACCEPT = `application/pdf,.pdf,${DOCX_MIME},.docx`;
+
 /** Client-side guard copy — kept in lockstep with the server messages. */
 const GUARD = {
-  invalidType: 'PDF 파일만 업로드할 수 있어요.',
-  tooLarge: '파일이 너무 커요. 20MB 이하의 PDF로 올려 주세요.',
-  empty: '파일이 비어 있어요. 다른 PDF로 다시 시도해 주세요.',
+  invalidType: 'PDF 또는 DOCX 파일만 업로드할 수 있어요.',
+  tooLarge: '파일이 너무 커요. 20MB 이하의 파일로 올려 주세요.',
+  empty: '파일이 비어 있어요. 다른 파일로 다시 시도해 주세요.',
 } as const;
 
 /** Validate a picked file; returns a Korean guard message, or null if OK. */
-function validatePdf(file: File): string | null {
-  const isPdf =
-    file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  if (!isPdf) return GUARD.invalidType;
+function validateDocument(file: File): string | null {
+  const name = file.name.toLowerCase();
+  const isSupported =
+    file.type === 'application/pdf' ||
+    file.type === DOCX_MIME ||
+    name.endsWith('.pdf') ||
+    name.endsWith('.docx');
+  if (!isSupported) return GUARD.invalidType;
   if (file.size === 0) return GUARD.empty;
   if (file.size > MAX_BYTES) return GUARD.tooLarge;
   return null;
+}
+
+/** True for a DOCX pick — DOCX has no visual preview yet (out of scope). */
+function isDocx(file: File): boolean {
+  return file.type === DOCX_MIME || file.name.toLowerCase().endsWith('.docx');
 }
 
 function formatBytes(bytes: number): string {
@@ -64,7 +79,7 @@ export function UploadStep() {
 
   const startUpload = React.useCallback(
     async (file: File) => {
-      const guard = validatePdf(file);
+      const guard = validateDocument(file);
       if (guard) {
         setError(guard);
         return;
@@ -122,9 +137,9 @@ export function UploadStep() {
   return (
     <div className="flex flex-col gap-md">
       <div className="flex flex-col gap-2xs">
-        <h2 className="text-xl font-bold text-foreground">계약 PDF를 올려 주세요</h2>
+        <h2 className="text-xl font-bold text-foreground">계약 문서를 올려 주세요</h2>
         <p className="text-sm text-foreground-subtle">
-          서명을 받을 PDF 문서를 끌어다 놓거나 직접 선택하세요. 최대 20MB까지 올릴 수 있어요.
+          서명을 받을 PDF 또는 DOCX 문서를 끌어다 놓거나 직접 선택하세요. 최대 20MB까지 올릴 수 있어요.
         </p>
       </div>
 
@@ -204,7 +219,7 @@ function DropZone({
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept={ACCEPT}
         className="sr-only"
         onChange={onChange}
       />
@@ -218,7 +233,7 @@ function DropZone({
       </span>
       <div className="flex flex-col gap-2xs">
         <span className="text-base font-bold text-foreground">
-          {dragActive ? '여기에 놓으면 업로드돼요' : 'PDF를 끌어다 놓으세요'}
+          {dragActive ? '여기에 놓으면 업로드돼요' : 'PDF나 DOCX를 끌어다 놓으세요'}
         </span>
         <span className="text-sm text-foreground-subtle">또는 클릭해서 파일을 선택하세요</span>
       </div>
@@ -314,7 +329,21 @@ function UploadedView({
       </div>
 
       <div className="rounded-lg border border-border bg-surface-muted p-md">
-        <PdfPreview file={file} onPageCount={onPageCount} className="mx-auto max-w-[560px]" />
+        {isDocx(file) ? (
+          // DOCX body preview is out of scope for now — show an honest, neutral
+          // note rather than running the PDF renderer (which would misreport a
+          // valid DOCX as a broken PDF).
+          <div className="flex flex-col items-center justify-center gap-xs px-md py-xl text-center">
+            <span className="flex h-10 w-10 items-center justify-center rounded-md bg-surface text-foreground-muted">
+              <FileIcon />
+            </span>
+            <p className="text-sm text-foreground-subtle">
+              DOCX 문서는 미리보기를 제공하지 않아요. 업로드는 완료됐어요.
+            </p>
+          </div>
+        ) : (
+          <PdfPreview file={file} onPageCount={onPageCount} className="mx-auto max-w-[560px]" />
+        )}
       </div>
     </div>
   );

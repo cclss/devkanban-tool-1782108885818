@@ -57,6 +57,12 @@ export interface WizardState {
   file: File | null;
   fields: SignFieldDraft[];
   recipients: RecipientDraft[];
+  /**
+   * The document id whose AI auto-analysis has already been injected (or ran and
+   * found nothing). Gates the one-shot auto-placement so re-entering the field
+   * step never re-injects over the user's manual edits. Reset on (re)upload.
+   */
+  analyzedDocumentId: string | null;
 }
 
 export const initialWizardState: WizardState = {
@@ -66,6 +72,7 @@ export const initialWizardState: WizardState = {
   file: null,
   fields: [],
   recipients: [],
+  analyzedDocumentId: null,
 };
 
 type WizardAction =
@@ -75,6 +82,8 @@ type WizardAction =
   | { type: 'GO_BACK' }
   | { type: 'GO_TO'; step: number }
   | { type: 'SET_FIELDS'; fields: SignFieldDraft[] }
+  | { type: 'INJECT_ANALYZED_FIELDS'; documentId: string; fields: SignFieldDraft[] }
+  | { type: 'MARK_ANALYZED'; documentId: string }
   | { type: 'SET_RECIPIENTS'; recipients: RecipientDraft[] };
 
 function clampStep(step: number): number {
@@ -85,10 +94,17 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
   switch (action.type) {
     case 'SET_DOCUMENT':
       // Re-uploading replaces the draft; fields were placed against the old
-      // document's pages, so drop them to avoid stale geometry.
-      return { ...state, document: action.document, file: action.file, fields: [] };
+      // document's pages, so drop them to avoid stale geometry. Also clear the
+      // analyzed marker so the new document gets its own one-shot auto-analysis.
+      return {
+        ...state,
+        document: action.document,
+        file: action.file,
+        fields: [],
+        analyzedDocumentId: null,
+      };
     case 'CLEAR_DOCUMENT':
-      return { ...state, document: null, file: null, fields: [] };
+      return { ...state, document: null, file: null, fields: [], analyzedDocumentId: null };
     case 'GO_NEXT': {
       const step = clampStep(state.step + 1);
       return { ...state, step, direction: 1 };
@@ -103,6 +119,23 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     }
     case 'SET_FIELDS':
       return { ...state, fields: action.fields };
+    case 'INJECT_ANALYZED_FIELDS': {
+      // One-shot per document: if this document was already analyzed, ignore.
+      // The guard lives in the reducer so a double effect (StrictMode) or a
+      // late-arriving response can never double-inject. Auto fields are appended
+      // so any fields the user placed while analysis ran are preserved.
+      if (state.analyzedDocumentId === action.documentId) return state;
+      return {
+        ...state,
+        fields: [...state.fields, ...action.fields],
+        analyzedDocumentId: action.documentId,
+      };
+    }
+    case 'MARK_ANALYZED':
+      // Analysis ran but produced nothing to inject — still mark it done so
+      // re-entering the step doesn't re-run the empty analysis.
+      if (state.analyzedDocumentId === action.documentId) return state;
+      return { ...state, analyzedDocumentId: action.documentId };
     case 'SET_RECIPIENTS':
       return { ...state, recipients: action.recipients };
     default:
