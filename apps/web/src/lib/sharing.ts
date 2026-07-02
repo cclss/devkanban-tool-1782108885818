@@ -78,6 +78,77 @@ export function revokeShareLink(documentId: string, linkId: string): Promise<Sha
   });
 }
 
+// --- password confirm / edit (owner dashboard) ------------------------------
+
+/**
+ * The owner's view of a link's stored password, in three semantic states
+ * (mirrors the server's `ShareLinkPasswordView`):
+ *   • no password set       → { hasPassword: false, recoverable: false, password: null }
+ *   • confirmable plaintext → { hasPassword: true,  recoverable: true,  password: '…' }
+ *   • legacy (pre-migration hash, not confirmable)
+ *                           → { hasPassword: true,  recoverable: false, password: null }
+ * The plaintext is returned only on this authenticated owner path — never on any
+ * recipient/public path.
+ */
+export interface ShareLinkPasswordView {
+  hasPassword: boolean;
+  recoverable: boolean;
+  password: string | null;
+}
+
+/** Reveal a link's current access password to its owner (dashboard 확인). */
+export function getShareLinkPassword(
+  documentId: string,
+  linkId: string,
+): Promise<ShareLinkPasswordView> {
+  return apiFetch<ShareLinkPasswordView>(
+    authPath(documentId, `/${encodeURIComponent(linkId)}/password`),
+    { token: getToken() ?? undefined },
+  );
+}
+
+/**
+ * Replace or clear a link's access password (dashboard 수정). A non-empty value
+ * sets/replaces it; `null` removes password protection. Takes effect at once —
+ * the returned link view reflects the new `requiresPassword`. The value itself is
+ * request-only: never stored client-side, cached, logged, or echoed back.
+ */
+export function updateShareLinkPassword(
+  documentId: string,
+  linkId: string,
+  password: string | null,
+): Promise<ShareLink> {
+  return apiFetch<ShareLink>(authPath(documentId, `/${encodeURIComponent(linkId)}/password`), {
+    method: 'PUT',
+    json: { password },
+    token: getToken() ?? undefined,
+  });
+}
+
+/** The row trigger label: 확인 when a password is set, 설정 when the link is open. */
+export function passwordTriggerLabel(requiresPassword: boolean): string {
+  return requiresPassword
+    ? SHARE_COPY.passwordAdmin.open
+    : SHARE_COPY.passwordAdmin.openUnset;
+}
+
+/** The hint that explains a link's current password state in the editor panel. */
+export function passwordStateHint(view: ShareLinkPasswordView): string {
+  if (!view.hasPassword) return SHARE_COPY.passwordAdmin.hintNone;
+  return view.recoverable
+    ? SHARE_COPY.passwordAdmin.hintRecoverable
+    : SHARE_COPY.passwordAdmin.hintLegacy;
+}
+
+/**
+ * The value the editor field starts with for a given password state: the
+ * confirmable plaintext when recoverable, otherwise empty (no password / legacy
+ * hash we can't show).
+ */
+export function passwordEditorInitialValue(view: ShareLinkPasswordView): string {
+  return view.hasPassword && view.recoverable ? (view.password ?? '') : '';
+}
+
 // --- validity presets -------------------------------------------------------
 
 /** A single-select validity option in the create modal. */
@@ -191,6 +262,41 @@ export const SHARE_COPY = {
     passwordTag: '비밀번호',
     loadError: '링크 목록을 불러오지 못했어요. 잠시 후 다시 시도해 주세요.',
     revokeError: '링크를 중지하지 못했어요. 잠시 후 다시 시도해 주세요.',
+  },
+  /**
+   * Copy for the dashboard's per-link 비밀번호 확인·수정 panel (grain-3). Owner-only
+   * client surface, so it lives here beside the other sender-facing link copy.
+   * Tone follows the project messaging convention (해요체 · 탓하지 않기 · 다음 행동
+   * 안내 · 내부 사정 비노출).
+   */
+  passwordAdmin: {
+    /** Row trigger — label depends on whether a password is already set. */
+    open: '비밀번호 확인',
+    openUnset: '비밀번호 설정',
+    close: '닫기',
+    /** Announced while the current password is being fetched. */
+    loading: '불러오는 중',
+    label: '비밀번호',
+    placeholder: '비밀번호를 입력해 주세요',
+    /** State-dependent hints (see `passwordStateHint`). */
+    hintNone: '설정된 비밀번호가 없어요. 새 비밀번호를 입력하면 링크에 비밀번호를 걸 수 있어요.',
+    hintRecoverable: '이 비밀번호를 입력해야 계약서를 열 수 있어요. 받는 분에게 따로 알려 주세요.',
+    hintLegacy: '이전에 설정한 비밀번호는 확인할 수 없어요. 새 비밀번호를 설정하면 다시 확인할 수 있어요.',
+    save: '저장',
+    saving: '저장하는 중',
+    remove: '비밀번호 해제',
+    removing: '해제하는 중',
+    /** Client-side guard mirroring the create field's min-length rule. */
+    tooShort: `비밀번호는 ${SHARE_PASSWORD_MIN_LENGTH}자 이상으로 입력해 주세요.`,
+    /** Feedback surfaced after a successful save/remove (role="status"). */
+    savedSet: '비밀번호를 설정했어요.',
+    savedChanged: '비밀번호를 변경했어요.',
+    savedRemoved: '비밀번호 보호를 해제했어요.',
+    /** Non-server-roundtrip failures (the panel prefers ApiError.message). */
+    loadError: '비밀번호를 불러오지 못했어요. 잠시 후 다시 시도해 주세요.',
+    saveError: '비밀번호를 저장하지 못했어요. 잠시 후 다시 시도해 주세요.',
+    /** Accessible name for the row trigger, disambiguated by the link's label. */
+    triggerAria: (label: string) => `${label} 링크 비밀번호 관리`,
   },
 } as const;
 

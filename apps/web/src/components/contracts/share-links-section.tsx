@@ -24,12 +24,14 @@ import {
   copyToClipboard,
   expiryNote,
   listShareLinks,
+  passwordTriggerLabel,
   revokeShareLink,
   SHARE_COPY,
   type ShareLink,
   type ShareLinkState,
 } from '@/lib/sharing';
 import { ShareLinkDialog } from './share-link-dialog';
+import { ShareLinkPasswordEditor } from './share-link-password';
 
 const COPY = CONTRACT_DETAIL_COPY.share;
 
@@ -82,6 +84,12 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
     [documentId, refresh],
   );
 
+  // Replace a row with the server's authoritative link view (e.g. after a
+  // password change) so its 비밀번호 tag and status reflect the update at once.
+  const applyLinkUpdate = React.useCallback((updated: ShareLink) => {
+    setLinks((cur) => (cur ? cur.map((l) => (l.id === updated.id ? updated : l)) : cur));
+  }, []);
+
   return (
     <section aria-labelledby="share-links-heading" className="flex flex-col gap-md">
       <div className="flex flex-col gap-sm sm:flex-row sm:items-start sm:justify-between">
@@ -108,7 +116,13 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
       ) : (
         <ul className="flex flex-col gap-sm">
           {links.map((link) => (
-            <ShareLinkRow key={link.id} link={link} onRevoke={revokeLink} />
+            <ShareLinkRow
+              key={link.id}
+              documentId={documentId}
+              link={link}
+              onRevoke={revokeLink}
+              onPasswordChanged={applyLinkUpdate}
+            />
           ))}
         </ul>
       )}
@@ -126,16 +140,22 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
 
 /** A single share-link row: state pill + url + expiry note + copy/revoke. */
 function ShareLinkRow({
+  documentId,
   link,
   onRevoke,
+  onPasswordChanged,
 }: {
+  documentId: string;
   link: ShareLink;
   onRevoke: (link: ShareLink) => Promise<void>;
+  onPasswordChanged: (updated: ShareLink) => void;
 }) {
   const [copied, setCopied] = React.useState(false);
   const [copyError, setCopyError] = React.useState<string | null>(null);
   const [revoking, setRevoking] = React.useState(false);
   const [revokeError, setRevokeError] = React.useState<string | null>(null);
+  const [pwOpen, setPwOpen] = React.useState(false);
+  const pwPanelId = React.useId();
   const resetTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
 
   React.useEffect(
@@ -194,7 +214,7 @@ function ShareLinkRow({
           expired/revoked/completed rows the state pill already tells the story. */}
       {isActive ? <p className="text-xs text-foreground-subtle">{expiryNote(link)}</p> : null}
 
-      <div className="mt-2xs flex items-center gap-xs">
+      <div className="mt-2xs flex flex-wrap items-center gap-xs">
         <Button type="button" variant="secondary" size="sm" onClick={() => void copy()}>
           {copied ? (
             <>
@@ -210,6 +230,19 @@ function ShareLinkRow({
             type="button"
             variant="ghost"
             size="sm"
+            onClick={() => setPwOpen((v) => !v)}
+            aria-expanded={pwOpen}
+            aria-controls={pwPanelId}
+            aria-label={SHARE_COPY.passwordAdmin.triggerAria(label)}
+          >
+            {pwOpen ? SHARE_COPY.passwordAdmin.close : passwordTriggerLabel(link.requiresPassword)}
+          </Button>
+        ) : null}
+        {isActive ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
             onClick={() => void revoke()}
             isLoading={revoking}
             aria-label={SHARE_COPY.list.revokeAria(label)}
@@ -219,6 +252,17 @@ function ShareLinkRow({
           </Button>
         ) : null}
       </div>
+
+      {/* Inline 비밀번호 확인·수정 panel — active links only. Mounts fresh on open
+          so it always fetches the link's current password state. */}
+      {isActive && pwOpen ? (
+        <ShareLinkPasswordEditor
+          documentId={documentId}
+          link={link}
+          id={pwPanelId}
+          onChanged={onPasswordChanged}
+        />
+      ) : null}
 
       <div role="status" aria-live="polite" className="min-h-4">
         {copied ? (
