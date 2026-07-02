@@ -41,6 +41,13 @@ model Document {
   title     String
   // Object storage key (e.g. S3). Stub-friendly: no cloud wiring at this grain.
   storageKey String        @map("storage_key")
+  // Source document format (PDF or DOCX), recorded at upload time. Selects the
+  // extraction path (`DocumentExtractionService`) for text/coordinate analysis
+  // and, downstream, AI field placement.
+  format    DocumentFormat @default(PDF)
+  // Original MIME type reported by the client / detected from the bytes. Kept
+  // for auditing and content-type decisions; nullable for pre-existing rows.
+  mimeType  String?        @map("mime_type")
   pageCount Int            @default(0) @map("page_count")
   status    DocumentStatus @default(DRAFT)
   // Timestamp the contract was dispatched (status → IN_PROGRESS). Used to
@@ -146,6 +153,11 @@ enum Plan {
   FREE
   PRO
   ENTERPRISE
+}
+
+enum DocumentFormat {
+  PDF
+  DOCX
 }
 
 enum DocumentStatus {

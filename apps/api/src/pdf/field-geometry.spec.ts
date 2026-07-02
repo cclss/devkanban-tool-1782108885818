@@ -1,5 +1,6 @@
 import {
   localToPage,
+  normalizeRect,
   normalizeRotation,
   resolveFieldPlacement,
   type NormRect,
@@ -121,5 +122,46 @@ describe('resolveFieldPlacement — rotated pages', () => {
         expect(c.y).toBeLessThanOrEqual(page.height + 1e-6);
       }
     }
+  });
+});
+
+describe('normalizeRect', () => {
+  const page: PageSize = { width: 600, height: 800 };
+
+  it('scales a points rect into 0..1 ratios (bottom-left origin)', () => {
+    expect(normalizeRect({ x: 300, y: 400, width: 60, height: 40 }, page)).toEqual({
+      x: 0.5,
+      y: 0.5,
+      width: 0.1,
+      height: 0.05,
+    });
+  });
+
+  it('is the inverse of resolveFieldPlacement at rotation 0', () => {
+    const norm: NormRect = { x: 0.2, y: 0.3, width: 0.25, height: 0.1 };
+    const placed = resolveFieldPlacement(norm, page, 0);
+    const back = normalizeRect(
+      { x: placed.x, y: placed.y, width: placed.width, height: placed.height },
+      page,
+    );
+    expect(back.x).toBeCloseTo(norm.x, 6);
+    expect(back.y).toBeCloseTo(norm.y, 6);
+    expect(back.width).toBeCloseTo(norm.width, 6);
+    expect(back.height).toBeCloseTo(norm.height, 6);
+  });
+
+  it('clamps overflow and handles a zero-sized page without NaN', () => {
+    expect(normalizeRect({ x: 900, y: -10, width: 1200, height: 40 }, page)).toEqual({
+      x: 1,
+      y: 0,
+      width: 1,
+      height: 0.05,
+    });
+    expect(normalizeRect({ x: 10, y: 10, width: 5, height: 5 }, { width: 0, height: 0 })).toEqual({
+      x: 0,
+      y: 0,
+      width: 0,
+      height: 0,
+    });
   });
 });

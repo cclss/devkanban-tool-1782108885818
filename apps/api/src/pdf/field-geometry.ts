@@ -80,6 +80,42 @@ export function normalizeRotation(angle: number): Rotation {
 }
 
 /**
+ * Normalize an absolute rect given in **bottom-left, points** page space into
+ * the stored {@link NormRect} shape (0..1 ratios, bottom-left origin). This is
+ * the exact inverse of the `field.x * width` scaling {@link resolveFieldPlacement}
+ * applies, so extraction (points → normalized) and placement (normalized →
+ * points) share one coordinate convention.
+ *
+ * Ratios are clamped to 0..1 so a glyph whose box slightly overruns the media
+ * box (common with italics/overhang) still yields a valid stored rect. A
+ * non-positive page dimension collapses that axis to 0 rather than dividing by
+ * zero.
+ */
+export function normalizeRect(
+  rect: { x: number; y: number; width: number; height: number },
+  page: PageSize,
+): NormRect {
+  const nx = page.width > 0 ? rect.x / page.width : 0;
+  const ny = page.height > 0 ? rect.y / page.height : 0;
+  const nw = page.width > 0 ? rect.width / page.width : 0;
+  const nh = page.height > 0 ? rect.height / page.height : 0;
+  return {
+    x: clamp01(nx),
+    y: clamp01(ny),
+    width: clamp01(nw),
+    height: clamp01(nh),
+  };
+}
+
+/** Clamp a ratio into the inclusive 0..1 range. */
+function clamp01(v: number): number {
+  if (!Number.isFinite(v)) return 0;
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+/**
  * Resolve a normalized field rect (relative to the visible page) into an
  * unrotated media-box placement plus the counter-rotation to draw with.
  *

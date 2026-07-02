@@ -2,7 +2,6 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -24,22 +23,27 @@ import {
   artifactFilename,
   type CompletionArtifact,
 } from '../completion/artifact';
+import { detectDocumentFormat, type DetectedFormat } from './document-format';
+import { DocumentExtractionService } from './document-extraction.service';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
-const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB (PDF or DOCX)
 
 @Injectable()
 export class DocumentsService {
-  private readonly logger = new Logger(DocumentsService.name);
-
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    private readonly extraction: DocumentExtractionService,
   ) {}
 
-  /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
+  /**
+   * Multipart upload path: validate the file (PDF or DOCX), persist bytes,
+   * create a DRAFT. The detected format and MIME type are recorded so the
+   * downstream extraction/AI steps know which path to take.
+   */
   async uploadAndCreate(
     ownerId: string,
     file: { originalname: string; mimetype: string; buffer: Buffer; size: number },
@@ -48,20 +52,32 @@ export class DocumentsService {
     if (!file || !file.buffer || file.size === 0) {
       throw new BadRequestException(MESSAGES.document.emptyFile);
     }
-    if (file.size > MAX_PDF_BYTES) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       throw new BadRequestException(MESSAGES.document.fileTooLarge);
     }
-    if (!this.looksLikePdf(file)) {
+    const detected = detectDocumentFormat({
+      mimeType: file.mimetype,
+      fileName: file.originalname,
+      buffer: file.buffer,
+    });
+    if (!detected) {
       throw new BadRequestException(MESSAGES.document.invalidFileType);
     }
 
-    const pageCount = await this.countPdfPages(file.buffer);
+    const pageCount = await this.extraction.countPages(file.buffer, detected.format);
     const storageKey = this.storage.buildKey(ownerId, file.originalname);
     await this.storage.save(storageKey, file.buffer);
 
     const title = this.deriveTitle(file.originalname);
     const document = await this.prisma.document.create({
-      data: { ownerId, title, storageKey, pageCount },
+      data: {
+        ownerId,
+        title,
+        storageKey,
+        pageCount,
+        format: detected.format,
+        mimeType: detected.mimeType,
+      },
     });
 
     await this.writeAudit({
@@ -69,32 +85,50 @@ export class DocumentsService {
       actorId: ownerId,
       action: 'DOCUMENT_UPLOADED',
       ip,
-      metadata: { title, pageCount, storageKey },
+      metadata: { title, pageCount, storageKey, format: detected.format },
     });
 
     return this.toSummary(document, 0);
   }
 
-  /** Presigned-upload path: client already PUT the bytes; just register it. */
+  /**
+   * Presigned-upload path: the client already PUT the bytes; just register it.
+   * Bytes are read back when available to detect/validate the format and count
+   * pages; if they are not yet readable (e.g. S3 eventual consistency) the
+   * format is inferred from the storage key / title and page count defaults to
+   * whatever the client supplied.
+   */
   async createFromStorageKey(
     ownerId: string,
     dto: CreateDocumentDto,
     ip?: string,
   ): Promise<DocumentSummary> {
-    let pageCount = dto.pageCount ?? 0;
-    if (!pageCount) {
-      try {
-        const bytes = await this.storage.read(dto.storageKey);
-        pageCount = await this.countPdfPages(bytes);
-      } catch {
-        // Bytes may not be readable yet (e.g. S3 eventual consistency). The
-        // frontend can pass pageCount explicitly; default to 0 otherwise.
-        pageCount = dto.pageCount ?? 0;
-      }
+    let bytes: Buffer | null = null;
+    try {
+      bytes = await this.storage.read(dto.storageKey);
+    } catch {
+      bytes = null;
     }
 
+    const detected = detectDocumentFormat({
+      fileName: dto.storageKey || dto.title,
+      buffer: bytes,
+    });
+    if (!detected) {
+      throw new BadRequestException(MESSAGES.document.invalidFileType);
+    }
+
+    const pageCount = await this.resolvePresignedPageCount(dto, bytes, detected);
+
     const document = await this.prisma.document.create({
-      data: { ownerId, title: dto.title, storageKey: dto.storageKey, pageCount },
+      data: {
+        ownerId,
+        title: dto.title,
+        storageKey: dto.storageKey,
+        pageCount,
+        format: detected.format,
+        mimeType: detected.mimeType,
+      },
     });
 
     await this.writeAudit({
@@ -102,10 +136,32 @@ export class DocumentsService {
       actorId: ownerId,
       action: 'DOCUMENT_UPLOADED',
       ip,
-      metadata: { title: dto.title, pageCount, storageKey: dto.storageKey, via: 'presigned' },
+      metadata: {
+        title: dto.title,
+        pageCount,
+        storageKey: dto.storageKey,
+        format: detected.format,
+        via: 'presigned',
+      },
     });
 
     return this.toSummary(document, 0);
+  }
+
+  /** Resolve page count for the presigned path: extract from bytes, else DTO. */
+  private async resolvePresignedPageCount(
+    dto: CreateDocumentDto,
+    bytes: Buffer | null,
+    detected: DetectedFormat,
+  ): Promise<number> {
+    if (bytes) {
+      try {
+        return await this.extraction.countPages(bytes, detected.format);
+      } catch {
+        // Fall through to the client-supplied hint on a parse failure.
+      }
+    }
+    return dto.pageCount ?? 0;
   }
 
   /** Replace the placed sign fields for a draft document. */
@@ -376,26 +432,8 @@ export class DocumentsService {
     });
   }
 
-  private looksLikePdf(file: { mimetype: string; originalname: string; buffer: Buffer }): boolean {
-    const byMime = file.mimetype === 'application/pdf';
-    const byExt = file.originalname.toLowerCase().endsWith('.pdf');
-    const byMagic = file.buffer.subarray(0, 5).toString('latin1') === '%PDF-';
-    return (byMime || byExt) && byMagic;
-  }
-
-  private async countPdfPages(buffer: Buffer): Promise<number> {
-    try {
-      const { PDFDocument } = await import('pdf-lib');
-      const pdf = await PDFDocument.load(buffer, { updateMetadata: false });
-      return pdf.getPageCount();
-    } catch (err) {
-      this.logger.warn(`PDF 페이지 수 계산 실패: ${String(err)}`);
-      throw new BadRequestException(MESSAGES.document.corruptPdf);
-    }
-  }
-
   private deriveTitle(originalName: string): string {
-    const base = originalName.replace(/\.pdf$/i, '').trim();
+    const base = originalName.replace(/\.(pdf|docx)$/i, '').trim();
     return base.length > 0 ? base.slice(0, 200) : '제목 없는 계약';
   }
 
