@@ -533,6 +533,94 @@ describe('SharingService — fill & submit (reuses the completion machine)', () 
   });
 });
 
+describe('SharingService — password 확인/수정 (sender dashboard)', () => {
+  it('reveals the recoverable plaintext to the owner', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'secret12' });
+
+    const view = await h.sharing.getLinkPassword(h.ownerId, h.documentId, link.id);
+    expect(view).toEqual({ hasPassword: true, recoverable: true, password: 'secret12' });
+    // The sensitive read is audited (without the value itself).
+    const audit = h.prisma._auditLogs.find((l) => l.action === 'SHARE_LINK_PASSWORD_VIEWED')!;
+    expect(audit).toBeDefined();
+    expect(JSON.stringify(audit.metadata)).not.toContain('secret12');
+  });
+
+  it('reports "no password" for a link without one', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, {});
+    const view = await h.sharing.getLinkPassword(h.ownerId, h.documentId, link.id);
+    expect(view).toEqual({ hasPassword: false, recoverable: false, password: null });
+  });
+
+  it('reports a legacy bcrypt-hashed password as set-but-unrecoverable', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, {});
+    // Pre-migration link: stored value is a one-way hash, not the `encv1:` envelope.
+    h.prisma._signRequests.get(link.id)!.linkPasswordCipher = await bcrypt.hash('legacy-pass', 10);
+
+    const view = await h.sharing.getLinkPassword(h.ownerId, h.documentId, link.id);
+    expect(view).toEqual({ hasPassword: true, recoverable: false, password: null });
+  });
+
+  it('refuses to reveal a password to a non-owner or for an unknown link', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'secret12' });
+    await expect(
+      h.sharing.getLinkPassword('intruder', h.documentId, link.id),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    await expect(
+      h.sharing.getLinkPassword(h.ownerId, h.documentId, 'nope'),
+    ).rejects.toBeInstanceOf(NotFoundException);
+  });
+
+  it('updates the password and applies it immediately (old fails, new unlocks)', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'secret12' });
+
+    const updated = await h.sharing.updateLinkPassword(h.ownerId, h.documentId, link.id, {
+      password: 'brandnew9',
+    });
+    expect(updated.requiresPassword).toBe(true);
+    // Never echoes the plaintext or ciphertext back.
+    const serialized = JSON.stringify(updated);
+    expect(serialized).not.toContain('brandnew9');
+    expect(serialized).not.toContain('encv1:');
+
+    // The old password no longer works; the new one does, without any other step.
+    await expect(h.sharing.unlock(link.token, 'secret12')).rejects.toBeInstanceOf(
+      UnauthorizedException,
+    );
+    const { sessionToken } = await h.sharing.unlock(link.token, 'brandnew9');
+    expect(h.shareSessions.verify(sessionToken).signRequestId).toBe(link.id);
+
+    // Round-trips through 확인: the stored value is the new plaintext.
+    const view = await h.sharing.getLinkPassword(h.ownerId, h.documentId, link.id);
+    expect(view.password).toBe('brandnew9');
+  });
+
+  it('clears password protection when updated with an empty value', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'secret12' });
+
+    const updated = await h.sharing.updateLinkPassword(h.ownerId, h.documentId, link.id, {
+      password: '',
+    });
+    expect(updated.requiresPassword).toBe(false);
+    // No password now → unlock issues a session with no password supplied.
+    const { sessionToken } = await h.sharing.unlock(link.token, undefined);
+    expect(h.shareSessions.verify(sessionToken).signRequestId).toBe(link.id);
+  });
+
+  it('rejects updating a password on a document the caller does not own', async () => {
+    const h = setup();
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, { password: 'secret12' });
+    await expect(
+      h.sharing.updateLinkPassword('intruder', h.documentId, link.id, { password: 'brandnew9' }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+  });
+});
+
 describe('SharingService — revoke', () => {
   it('revokes idempotently and writes a single audit entry', async () => {
     const h = setup();

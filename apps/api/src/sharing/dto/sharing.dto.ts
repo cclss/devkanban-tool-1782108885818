@@ -61,3 +61,20 @@ export class UnlockShareLinkDto {
   @MaxLength(SHARE_PASSWORD_MAX_LENGTH)
   password?: string;
 }
+
+/**
+ * Replace (or clear) a share link's access password from the sender dashboard.
+ *
+ * PUT semantics — the body describes the desired password state:
+ *   - a non-empty value ⇒ set/replace it (stored as reversible ciphertext);
+ *   - omitted / null / empty ⇒ remove password protection.
+ * Length is enforced only when a non-empty value is supplied, matching create.
+ */
+export class UpdateShareLinkPasswordDto {
+  @IsOptional()
+  @ValidateIf((o: UpdateShareLinkPasswordDto) => o.password != null && o.password !== '')
+  @IsString()
+  @MinLength(SHARE_PASSWORD_MIN_LENGTH)
+  @MaxLength(SHARE_PASSWORD_MAX_LENGTH)
+  password?: string | null;
+}

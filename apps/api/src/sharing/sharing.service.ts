@@ -32,7 +32,7 @@ import { ShareSessionService } from './share-session.service';
 import { LinkPasswordCipher } from './link-password-cipher';
 import { SendQuotaService } from '../common/send-quota.service';
 import type { SaveFieldValuesDto } from '../signing/dto/signing.dto';
-import type { CreateShareLinkDto } from './dto/sharing.dto';
+import type { CreateShareLinkDto, UpdateShareLinkPasswordDto } from './dto/sharing.dto';
 
 /** Audit-log action names for the share-link flow. */
 const AUDIT_ACTION = {
@@ -41,6 +41,8 @@ const AUDIT_ACTION = {
   VIEWED: 'SHARE_LINK_VIEWED',
   UNLOCKED: 'SHARE_LINK_UNLOCKED',
   UNLOCK_FAILED: 'SHARE_UNLOCK_FAILED',
+  PASSWORD_VIEWED: 'SHARE_LINK_PASSWORD_VIEWED',
+  PASSWORD_UPDATED: 'SHARE_LINK_PASSWORD_UPDATED',
 } as const;
 
 /**
@@ -205,6 +207,80 @@ export class SharingService {
       actorId: ownerId,
       action: AUDIT_ACTION.REVOKED,
       ip,
+    });
+    return this.toView(updated);
+  }
+
+  /**
+   * Reveal a link's current access password to its owner (sender dashboard only).
+   *
+   * Because grain-1 stores the password as reversible ciphertext, the owner can
+   * see the exact plaintext they set. Three states are distinguished so the
+   * dashboard can react correctly:
+   *   • no password set        → { hasPassword: false, recoverable: false, password: null }
+   *   • reversible ciphertext  → { hasPassword: true,  recoverable: true,  password: <plaintext> }
+   *   • legacy bcrypt hash     → { hasPassword: true,  recoverable: false, password: null }
+   * A pre-migration link still holds a one-way hash whose plaintext cannot be
+   * recovered; we report `recoverable: false` (not an error) so the owner can
+   * simply overwrite it via {@link updateLinkPassword}.
+   *
+   * This is intentionally exposed only on the JWT owner-scoped controller — the
+   * plaintext is never returned on any public/recipient path.
+   */
+  async getLinkPassword(
+    ownerId: string,
+    documentId: string,
+    linkId: string,
+    ip?: string,
+  ): Promise<ShareLinkPasswordView> {
+    const link = await this.requireOwnedLink(ownerId, documentId, linkId);
+    const stored = link.linkPasswordCipher;
+    const hasPassword = stored != null;
+    const recoverable = hasPassword && this.linkPassword.isCipherText(stored);
+    const password = recoverable ? this.linkPassword.decrypt(stored) : null;
+
+    // Revealing a stored secret is a sensitive read — audit it (never the value).
+    await this.writeAudit({
+      documentId,
+      signRequestId: linkId,
+      actorId: ownerId,
+      action: AUDIT_ACTION.PASSWORD_VIEWED,
+      ip,
+      metadata: { hasPassword, recoverable },
+    });
+
+    return { hasPassword, recoverable, password };
+  }
+
+  /**
+   * Replace (or clear) a link's access password. Owner-only. The new password is
+   * encrypted with the same reversible scheme as create, so it takes effect
+   * immediately: the very next unlock reads the freshly stored ciphertext. An
+   * empty/omitted value removes password protection entirely. The password is
+   * never returned, logged, or echoed — only whether one is now set.
+   */
+  async updateLinkPassword(
+    ownerId: string,
+    documentId: string,
+    linkId: string,
+    dto: UpdateShareLinkPasswordDto,
+    ip?: string,
+  ): Promise<ShareLinkView> {
+    await this.requireOwnedLink(ownerId, documentId, linkId);
+    const next = dto.password?.trim();
+    const linkPasswordCipher = next ? this.linkPassword.encrypt(next) : null;
+
+    const updated = await this.prisma.signRequest.update({
+      where: { id: linkId },
+      data: { linkPasswordCipher },
+    });
+    await this.writeAudit({
+      documentId,
+      signRequestId: linkId,
+      actorId: ownerId,
+      action: AUDIT_ACTION.PASSWORD_UPDATED,
+      ip,
+      metadata: { hasPassword: linkPasswordCipher != null },
     });
     return this.toView(updated);
   }
@@ -464,6 +540,29 @@ export class SharingService {
     return { status: document.status };
   }
 
+  /**
+   * Resolve a LINK request the caller owns, or throw. Enforces ownership (the
+   * document belongs to the caller) then that the link exists, belongs to that
+   * document, and is actually a LINK request — a non-owner or a bad id never
+   * reaches the password read/update logic.
+   */
+  private async requireOwnedLink(
+    ownerId: string,
+    documentId: string,
+    linkId: string,
+  ): Promise<{ linkPasswordCipher: string | null }> {
+    await this.requireOwnedDocument(ownerId, documentId);
+    const link = await this.prisma.signRequest.findUnique({ where: { id: linkId } });
+    if (
+      !link ||
+      link.documentId !== documentId ||
+      link.accessMode !== SignRequestAccessMode.LINK
+    ) {
+      throw new NotFoundException(MESSAGES.share.invalidLink);
+    }
+    return link;
+  }
+
   private async writeAudit(input: {
     documentId?: string;
     signRequestId: string;
@@ -529,6 +628,17 @@ export interface ShareLinkView {
   expiresAt: string | null;
   revokedAt: string | null;
   createdAt: string;
+}
+
+/**
+ * Sender-facing view of a link's password state. `password` carries the plaintext
+ * only when it is recoverable (reversible ciphertext); a legacy hash reports
+ * `recoverable: false` with a null plaintext.
+ */
+export interface ShareLinkPasswordView {
+  hasPassword: boolean;
+  recoverable: boolean;
+  password: string | null;
 }
 
 export interface ShareMeta {
