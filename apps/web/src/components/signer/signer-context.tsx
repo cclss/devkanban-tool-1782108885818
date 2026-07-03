@@ -5,21 +5,32 @@
  *
  * One signing link drives a small client state machine:
  *
- *   loading ──▶ verify ──▶ clauses ──▶ viewing ──▶ signing ──▶ done
- *      │                   (READY cards only; otherwise verify ──▶ viewing)
+ *   loading ──▶ verify ──▶ clauses ──▶ signing ──▶ done
+ *      │            └─▶ viewing ──▶ signing   (no READY cards: PDF fallback)
  *      └─▶ blocked (invalidLink | alreadySigned | unavailable)
  *
  * The happy path threads the AI key-clause reminder (`clauses`, M2) between
- * identity check and the document viewer; non-signable links branch to a
- * friendly `blocked` terminal with a reason. The clause stack is an auxiliary
- * reminder, never a gate: when the send-time extraction isn't `READY` with
- * cards, verify routes straight to `viewing` (the full-PDF fallback). Later
- * grains own signature capture (`signing`) and the completion screen (`done`),
- * binding to the `payload` + `session` this context already holds.
+ * identity check and signing; non-signable links branch to a friendly `blocked`
+ * terminal with a reason. The clause stack is an auxiliary reminder, never a
+ * gate: when the send-time extraction isn't `READY` with cards, verify routes
+ * to `viewing` (the full-PDF fallback), whose bottom CTA / field tap still enters
+ * the same guided flow.
+ *
+ * `signing` is the guided sequential mode (M3, `conventions/signing-flow.md`
+ * SF1–SF8): the clause card's '서명하기' (`goSigning`) and the fallback viewer's
+ * CTA both hand off here, and the reused `SignatureInputSheet` is driven through
+ * the unfilled fields one at a time. `viewing` stays as the free-browse PDF
+ * substrate/fallback (SF1/SF2). Applying a field auto-advances to the next
+ * unfilled one (SF3); the last apply chains `complete()` once nothing remains
+ * (SF6). The viewer's own field tap remains a non-linear override that also joins
+ * the auto-advance flow (SF2). The completion screen (`done`) binds to the
+ * `payload` + `session` this context already holds.
  *
  * The shell owns chrome and routing-free state; steps read state and dispatch
  * intent (`verify`), never mutating phase directly — mirroring the sender
- * wizard's centralized-navigation contract.
+ * wizard's centralized-navigation contract. The field ordering (page → top →
+ * left) mirrors `document-viewer.tsx`'s `orderedUnfilled` (the sequencing single
+ * source, SF3) so both surfaces walk the fields identically.
  */
 
 import * as React from 'react';
@@ -38,6 +49,7 @@ import {
   type ClauseCardsResult,
   type SigningMeta,
   type SigningPayload,
+  type SigningPayloadField,
 } from '@/lib/signing';
 
 /**
@@ -50,6 +62,38 @@ export type SignerFieldValue =
   | { type: 'SIGNATURE'; /** Captured signature as a PNG data URL. */ dataUrl: string }
   | { type: 'TEXT'; text: string; /** Optional chosen signature font. */ fontFamily?: string }
   | { type: 'DATE'; text: string };
+
+/**
+ * A field is done when the signer captured a value this session, or the server
+ * already holds one. Mirrors `document-viewer.tsx`'s `isFilled` (SF3).
+ */
+function isFilled(field: SigningPayloadField, values: Record<string, SignerFieldValue>): boolean {
+  return values[field.id] != null || field.filled;
+}
+
+/** Top edge (normalized) of a field for top-to-bottom reading order. */
+function topOf(field: SigningPayloadField): number {
+  return 1 - field.y - field.height;
+}
+
+/**
+ * All fields in guided walk order — page → top → left. This is the sequencing
+ * single source (SF3), kept byte-identical to `document-viewer.tsx`'s
+ * `orderedUnfilled` sort so the guided flow and the viewer traverse fields the
+ * same way. '이전'/'다음' step through this full list (filled fields included, so
+ * a captured value can be reviewed/edited, SF5).
+ */
+function orderFields(fields: SigningPayloadField[]): SigningPayloadField[] {
+  return [...fields].sort((a, b) => a.page - b.page || topOf(a) - topOf(b) || a.x - b.x);
+}
+
+/** The still-unfilled fields in guided order — the auto-advance queue (SF3). */
+function unfilledInOrder(
+  fields: SigningPayloadField[],
+  values: Record<string, SignerFieldValue>,
+): SigningPayloadField[] {
+  return orderFields(fields).filter((f) => !isFilled(f, values));
+}
 
 export type SignerPhase =
   | 'loading'
@@ -96,6 +140,19 @@ export interface SignerState {
    * same card. Orthogonal to the signing viewer's own PDF (a different phase).
    */
   previewOpen: boolean;
+  /**
+   * Guided-flow progress denominator N ("N곳 중 M곳째", SF4): the count of unfilled
+   * fields snapshotted when `signing` starts, held fixed so skipping (SF5) never
+   * makes it jitter. `null` until the guided flow is entered. The numerator M is
+   * derived by the sheet (grain-4) from this and the live `orderedUnfilled` count.
+   */
+  guidedTotal: number | null;
+  /**
+   * A friendly, server-owned message when the final `complete()` fails mid-flow
+   * (SF7). The flow stays on the last field with every captured value preserved
+   * so the signer can retry; the sheet (grain-4) renders this. `null` otherwise.
+   */
+  signingError: string | null;
 }
 
 const initialState: SignerState = {
@@ -109,6 +166,8 @@ const initialState: SignerState = {
   clauses: null,
   clauseStatus: null,
   previewOpen: false,
+  guidedTotal: null,
+  signingError: null,
 };
 
 type SignerAction =
@@ -120,7 +179,10 @@ type SignerAction =
       clauses: ClauseCard[];
       clauseStatus: ClauseExtractionStatus;
     }
-  | { type: 'GO_SIGNING' }
+  | { type: 'ENTER_SIGNING'; total: number; fieldId: string | null }
+  | { type: 'GUIDED_COMMIT'; fieldId: string; value: SignerFieldValue; nextFieldId: string | null }
+  | { type: 'GUIDED_NAV'; fieldId: string }
+  | { type: 'SIGNING_ERROR'; message: string }
   | { type: 'OPEN_PREVIEW' }
   | { type: 'CLOSE_PREVIEW' }
   | { type: 'DONE'; documentCompleted: boolean }
@@ -154,10 +216,34 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         clauseStatus: action.clauseStatus,
       };
     }
-    case 'GO_SIGNING':
-      // The clause reminder's single '서명하기' CTA hands off to the document
-      // viewer, where the actual field capture happens.
-      return { ...state, phase: 'viewing' };
+    case 'ENTER_SIGNING':
+      // Enter the guided sequential mode (SF1): snapshot the unfilled count as the
+      // fixed progress denominator N (SF4) and open the starting field's sheet
+      // (SF3). `fieldId` is null only when nothing is unfilled — the caller then
+      // chains `complete()` straight away (SF6).
+      return {
+        ...state,
+        phase: 'signing',
+        guidedTotal: action.total,
+        activeFieldId: action.fieldId,
+        signingError: null,
+      };
+    case 'GUIDED_COMMIT':
+      // '적용' saved successfully: record the value (same as SET_FIELD_VALUE) and,
+      // instead of closing, advance the open sheet onto the next unfilled field
+      // (SF3). `nextFieldId` is the wrapped first-unfilled, or the just-filled id
+      // when the queue is now empty (the sheet stays put while `complete()` runs).
+      return {
+        ...state,
+        fieldValues: { ...state.fieldValues, [action.fieldId]: action.value },
+        activeFieldId: action.nextFieldId,
+        signingError: null,
+      };
+    case 'GUIDED_NAV':
+      // Save-less move to another field for review/edit ('이전'/'다음'/'나중에', SF5).
+      return { ...state, activeFieldId: action.fieldId, signingError: null };
+    case 'SIGNING_ERROR':
+      return { ...state, signingError: action.message };
     case 'OPEN_PREVIEW':
       // '전체 원문 보기' opens the read-only source PDF over the card stack; the
       // phase is untouched so closing returns to the very same card.
@@ -199,8 +285,44 @@ interface SignerContextValue {
    * code so the screen can shake + reset without leaving `verify`.
    */
   verify: (code: string) => Promise<void>;
-  /** Leave the clause reminder ('서명하기') and open the document viewer. */
+  /**
+   * Enter the guided sequential signing mode from the clause reminder's '서명하기'
+   * CTA (SF1): snapshots the queue and opens the first unfilled field's sheet
+   * (SF3). If nothing is unfilled it finalizes straight away (SF6).
+   */
   goSigning: () => void;
+  /**
+   * The still-unfilled fields in guided order (page → top → left, SF3). The
+   * sequencing single source the sheet (grain-4) reads to render "N곳 중 M곳째"
+   * and to know when the queue is empty. Empty once every field is captured.
+   */
+  orderedUnfilled: SigningPayloadField[];
+  /**
+   * Progress denominator N for "N곳 중 M곳째" (SF4) — the unfilled count captured
+   * when the guided flow started, held fixed. `null` before the flow is entered.
+   */
+  guidedTotal: number | null;
+  /**
+   * Server-owned message when the final `complete()` fails mid-flow (SF7); `null`
+   * otherwise. The flow stays on the last field with values preserved for a retry.
+   */
+  signingError: string | null;
+  /**
+   * Save-less step to the previous field in guided order for review/edit ('이전',
+   * SF5). No-op on the first field. Values are untouched.
+   */
+  signingPrev: () => void;
+  /**
+   * Save-less step to the next field in guided order ('다음', SF5) — for reviewing
+   * an already-captured field. No-op on the last field. Values are untouched.
+   */
+  signingNext: () => void;
+  /**
+   * Leave the current field unfilled and jump to the next field still needing a
+   * value, wrapping ('나중에', SF5). The skipped field stays in the queue and the
+   * progress line keeps signalling it. No-op if it is the only field left unfilled.
+   */
+  signingSkip: () => void;
   /**
    * Open the returnable, read-only full-document overlay ('전체 원문 보기') on top
    * of the clause stack. Phase is untouched, so `closePreview` returns to the card.
@@ -214,11 +336,23 @@ interface SignerContextValue {
    * so the viewer can show a friendly retry — the captured field values stay put.
    */
   complete: () => Promise<void>;
-  /** Open the capture sheet targeting a field (the BottomSheet is a later grain). */
+  /**
+   * Open the capture sheet targeting a field. From the `viewing` fallback this is
+   * the guided-flow entry point (SF1/SF2): the viewer's bottom CTA / field tap
+   * routes here, so opening a field switches into `signing` and snapshots the
+   * queue. Within `signing` it stays a non-linear override (jump to any field);
+   * either way, applying then auto-advances (SF2/SF3).
+   */
   openField: (fieldId: string) => void;
   /** Dismiss the capture sheet without changing any value. */
   closeField: () => void;
-  /** Record a captured value for a field; the viewer reflects it inline. */
+  /**
+   * Record a captured value for a field; the viewer reflects it inline. In the
+   * `signing` guided mode this additionally sequences the flow (SF3): a successful
+   * apply advances the sheet to the next unfilled field, and the last one chains
+   * `complete()` (SF6). Outside `signing` it just records + closes the sheet (the
+   * viewer's non-linear edit path) — the persistence contract is unchanged.
+   */
   setFieldValue: (fieldId: string, value: SignerFieldValue) => void;
 }
 
@@ -232,6 +366,19 @@ export function SignerProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialState);
+
+  // Guided callbacks fire from user events after render and must compute the next
+  // field from the freshest state (queue shrinks as fields fill). A ref mirrors
+  // the latest committed state so those callbacks stay identity-stable.
+  const stateRef = React.useRef(state);
+  stateRef.current = state;
+
+  // The live unfilled queue in guided order (SF3) — sequencing single source the
+  // sheet (grain-4) reads for "N곳 중 M곳째" and to detect an empty queue.
+  const orderedUnfilled = React.useMemo(
+    () => unfilledInOrder(state.payload?.fields ?? [], state.fieldValues),
+    [state.payload, state.fieldValues],
+  );
 
   // Load pre-auth metadata once per link, then route to verify / blocked.
   React.useEffect(() => {
@@ -283,7 +430,6 @@ export function SignerProvider({
     [token],
   );
 
-  const goSigning = React.useCallback(() => dispatch({ type: 'GO_SIGNING' }), []);
   const openPreview = React.useCallback(() => dispatch({ type: 'OPEN_PREVIEW' }), []);
   const closePreview = React.useCallback(() => dispatch({ type: 'CLOSE_PREVIEW' }), []);
   const complete = React.useCallback(async () => {
@@ -296,16 +442,110 @@ export function SignerProvider({
     const result = await completeSigning(token, session);
     dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
   }, [token]);
-  const openField = React.useCallback(
-    (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
-    [],
-  );
+
+  // The last guided apply chains completion (SF6). Unlike the viewer's `complete`
+  // (which rejects for the CTA to catch), this swallows the failure into
+  // `signingError` so the flow stays on the last field with values preserved for
+  // a retry (SF7); on success `complete` flips the phase to `done`.
+  const runGuidedComplete = React.useCallback(async () => {
+    try {
+      await complete();
+    } catch (err) {
+      dispatch({
+        type: 'SIGNING_ERROR',
+        message: err instanceof ApiError ? err.message : SIGNER_COPY.completeError,
+      });
+    }
+  }, [complete]);
+
+  const goSigning = React.useCallback(() => {
+    // Clause card '서명하기' → guided sequential mode (SF1). Snapshot the unfilled
+    // count as the fixed denominator N (SF4) and open the first unfilled field
+    // (SF3); if everything is already filled, finalize straight away (SF6).
+    const s = stateRef.current;
+    const unfilled = unfilledInOrder(s.payload?.fields ?? [], s.fieldValues);
+    dispatch({ type: 'ENTER_SIGNING', total: unfilled.length, fieldId: unfilled[0]?.id ?? null });
+    if (unfilled.length === 0) void runGuidedComplete();
+  }, [runGuidedComplete]);
+
+  const openField = React.useCallback((fieldId: string) => {
+    const s = stateRef.current;
+    if (s.phase === 'viewing') {
+      // Fallback entry (SF1/SF2): the viewer's bottom CTA / field tap opens a field
+      // — that starts the guided flow. Snapshot N from the current queue and target
+      // this field (which may be the CTA's first-unfilled or a tapped one).
+      const unfilled = unfilledInOrder(s.payload?.fields ?? [], s.fieldValues);
+      dispatch({ type: 'ENTER_SIGNING', total: unfilled.length, fieldId });
+      return;
+    }
+    // Within `signing`, a tap is a non-linear override (SF2); elsewhere it just
+    // opens the sheet. Either way the queue snapshot (guidedTotal) is untouched.
+    dispatch({ type: 'OPEN_FIELD', fieldId });
+  }, []);
+
   const closeField = React.useCallback(() => dispatch({ type: 'CLOSE_FIELD' }), []);
+
   const setFieldValue = React.useCallback(
-    (fieldId: string, value: SignerFieldValue) =>
-      dispatch({ type: 'SET_FIELD_VALUE', fieldId, value }),
-    [],
+    (fieldId: string, value: SignerFieldValue) => {
+      const s = stateRef.current;
+      if (s.phase !== 'signing') {
+        // Viewer's non-linear edit path: record + close the sheet, unchanged.
+        dispatch({ type: 'SET_FIELD_VALUE', fieldId, value });
+        return;
+      }
+      // Guided apply (SF3): record the value, then auto-advance to the next
+      // unfilled field (the wrapped first-unfilled, SF6). When the queue empties,
+      // hold the sheet on this field and chain `complete()` (SF6).
+      const nextValues = { ...s.fieldValues, [fieldId]: value };
+      const remaining = unfilledInOrder(s.payload?.fields ?? [], nextValues);
+      dispatch({
+        type: 'GUIDED_COMMIT',
+        fieldId,
+        value,
+        nextFieldId: remaining[0]?.id ?? fieldId,
+      });
+      if (remaining.length === 0) void runGuidedComplete();
+    },
+    [runGuidedComplete],
   );
+
+  // Save-less guided navigation (SF5). '이전'/'다음' step through the full ordered
+  // list (filled fields included, for review/edit); '나중에' jumps to the next
+  // field still needing a value (wrapping), leaving the current one in the queue.
+  const signingPrev = React.useCallback(() => {
+    const s = stateRef.current;
+    if (s.phase !== 'signing' || !s.activeFieldId) return;
+    const order = orderFields(s.payload?.fields ?? []);
+    const idx = order.findIndex((f) => f.id === s.activeFieldId);
+    const prev = idx > 0 ? order[idx - 1] : undefined;
+    if (prev) dispatch({ type: 'GUIDED_NAV', fieldId: prev.id });
+  }, []);
+
+  const signingNext = React.useCallback(() => {
+    const s = stateRef.current;
+    if (s.phase !== 'signing' || !s.activeFieldId) return;
+    const order = orderFields(s.payload?.fields ?? []);
+    const idx = order.findIndex((f) => f.id === s.activeFieldId);
+    const next = idx >= 0 ? order[idx + 1] : undefined;
+    if (next) dispatch({ type: 'GUIDED_NAV', fieldId: next.id });
+  }, []);
+
+  const signingSkip = React.useCallback(() => {
+    const s = stateRef.current;
+    if (s.phase !== 'signing' || !s.activeFieldId) return;
+    const order = orderFields(s.payload?.fields ?? []);
+    const idx = order.findIndex((f) => f.id === s.activeFieldId);
+    if (idx < 0) return;
+    // First still-unfilled field after the current one, wrapping — skip its own id
+    // so "the only unfilled field left" can't skip to itself.
+    for (let step = 1; step < order.length; step++) {
+      const candidate = order[(idx + step) % order.length];
+      if (candidate && candidate.id !== s.activeFieldId && !isFilled(candidate, s.fieldValues)) {
+        dispatch({ type: 'GUIDED_NAV', fieldId: candidate.id });
+        return;
+      }
+    }
+  }, []);
 
   const value = React.useMemo<SignerContextValue>(
     () => ({
@@ -313,6 +553,12 @@ export function SignerProvider({
       token,
       verify,
       goSigning,
+      orderedUnfilled,
+      guidedTotal: state.guidedTotal,
+      signingError: state.signingError,
+      signingPrev,
+      signingNext,
+      signingSkip,
       openPreview,
       closePreview,
       complete,
@@ -325,6 +571,10 @@ export function SignerProvider({
       token,
       verify,
       goSigning,
+      orderedUnfilled,
+      signingPrev,
+      signingNext,
+      signingSkip,
       openPreview,
       closePreview,
       complete,
