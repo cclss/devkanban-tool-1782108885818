@@ -26,11 +26,12 @@ import { brandStyle } from '@/lib/branding';
 import { SIGNER_COPY, type ClauseCard as ClauseCardData, type SigningMeta } from '@/lib/signing';
 import { useSigner } from './signer-context';
 import { BrandingHeader } from './branding-header';
+import { DocumentPreviewSheet } from './document-preview-sheet';
 
 const COPY = SIGNER_COPY.clause;
 
 export function ClauseCardScreen({ meta }: { meta: SigningMeta }) {
-  const { state, goSigning } = useSigner();
+  const { state, goSigning, openPreview } = useSigner();
   // Only reached when the reminder is READY with cards (routed in the context),
   // so this is a non-empty array; the fallback keeps types honest regardless.
   const clauses = state.clauses ?? [];
@@ -143,11 +144,16 @@ export function ClauseCardScreen({ meta }: { meta: SigningMeta }) {
         {COPY.cardPosition(active + 1, total)}
       </p>
 
-      {/* Collapsed, low-pressure trigger into the full document. */}
+      {/*
+        Collapsed, low-pressure trigger into the full document. Opens the source
+        PDF as a returnable read-only overlay (grain-4) — dismissing it returns to
+        this very card. Distinct from the '서명하기' CTA, which hands off to the
+        signing viewer.
+      */}
       <div className="mt-lg flex justify-center">
         <Button
           variant="ghost"
-          onClick={goSigning}
+          onClick={openPreview}
           className="text-foreground-muted underline underline-offset-4"
         >
           {COPY.viewFull}
@@ -166,6 +172,9 @@ export function ClauseCardScreen({ meta }: { meta: SigningMeta }) {
           </Button>
         </div>
       </div>
+
+      {/* Returnable read-only full-document overlay (reads `state.previewOpen`). */}
+      <DocumentPreviewSheet />
     </main>
   );
 }

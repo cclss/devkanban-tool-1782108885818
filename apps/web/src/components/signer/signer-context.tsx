@@ -88,6 +88,14 @@ export interface SignerState {
    * fetch settles; any non-`READY` value means "no cards — use the PDF view".
    */
   clauseStatus: ClauseExtractionStatus | null;
+  /**
+   * Whether the returnable, read-only full-document overlay is open (M2 grain-4).
+   * The clause stack's '전체 원문 보기' opens the source PDF as a modal on top of
+   * the cards; closing returns to the stack. It's an overlay flag, not a phase —
+   * opening/closing never mutates `phase`, so the signer lands right back on the
+   * same card. Orthogonal to the signing viewer's own PDF (a different phase).
+   */
+  previewOpen: boolean;
 }
 
 const initialState: SignerState = {
@@ -100,6 +108,7 @@ const initialState: SignerState = {
   documentCompleted: false,
   clauses: null,
   clauseStatus: null,
+  previewOpen: false,
 };
 
 type SignerAction =
@@ -112,6 +121,8 @@ type SignerAction =
       clauseStatus: ClauseExtractionStatus;
     }
   | { type: 'GO_SIGNING' }
+  | { type: 'OPEN_PREVIEW' }
+  | { type: 'CLOSE_PREVIEW' }
   | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'OPEN_FIELD'; fieldId: string }
   | { type: 'CLOSE_FIELD' }
@@ -147,6 +158,12 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
       // The clause reminder's single '서명하기' CTA hands off to the document
       // viewer, where the actual field capture happens.
       return { ...state, phase: 'viewing' };
+    case 'OPEN_PREVIEW':
+      // '전체 원문 보기' opens the read-only source PDF over the card stack; the
+      // phase is untouched so closing returns to the very same card.
+      return { ...state, previewOpen: true };
+    case 'CLOSE_PREVIEW':
+      return { ...state, previewOpen: false };
     case 'DONE':
       return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
     case 'OPEN_FIELD':
@@ -184,6 +201,13 @@ interface SignerContextValue {
   verify: (code: string) => Promise<void>;
   /** Leave the clause reminder ('서명하기') and open the document viewer. */
   goSigning: () => void;
+  /**
+   * Open the returnable, read-only full-document overlay ('전체 원문 보기') on top
+   * of the clause stack. Phase is untouched, so `closePreview` returns to the card.
+   */
+  openPreview: () => void;
+  /** Dismiss the read-only full-document overlay and return to the card stack. */
+  closePreview: () => void;
   /**
    * Finalize the signer's part: call `/complete`, then advance to the completion
    * screen on success. Rejects (with the server's Toss-tone message) on failure
@@ -260,6 +284,8 @@ export function SignerProvider({
   );
 
   const goSigning = React.useCallback(() => dispatch({ type: 'GO_SIGNING' }), []);
+  const openPreview = React.useCallback(() => dispatch({ type: 'OPEN_PREVIEW' }), []);
+  const closePreview = React.useCallback(() => dispatch({ type: 'CLOSE_PREVIEW' }), []);
   const complete = React.useCallback(async () => {
     const session = getSignerSession(token);
     if (!session) {
@@ -282,8 +308,30 @@ export function SignerProvider({
   );
 
   const value = React.useMemo<SignerContextValue>(
-    () => ({ state, token, verify, goSigning, complete, openField, closeField, setFieldValue }),
-    [state, token, verify, goSigning, complete, openField, closeField, setFieldValue],
+    () => ({
+      state,
+      token,
+      verify,
+      goSigning,
+      openPreview,
+      closePreview,
+      complete,
+      openField,
+      closeField,
+      setFieldValue,
+    }),
+    [
+      state,
+      token,
+      verify,
+      goSigning,
+      openPreview,
+      closePreview,
+      complete,
+      openField,
+      closeField,
+      setFieldValue,
+    ],
   );
 
   return <SignerContext.Provider value={value}>{children}</SignerContext.Provider>;
