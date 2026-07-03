@@ -157,6 +157,51 @@ export const SIGNER_COPY = {
   unavailable: '더 이상 서명할 수 없는 계약이에요. 발신자에게 문의해 주세요.',
   invalidLinkTitle: '링크를 확인해 주세요',
   invalidLink: '서명 링크가 올바르지 않아요. 발신자에게 링크를 다시 요청해 주세요.',
+  /**
+   * Key-clause cards screen chrome (M2) — the swipeable card stack the signer
+   * sees after identity check, before the signature step. Same Toss voice as the
+   * rest. The cards are an *auxiliary reminder*: legal effect stays with the
+   * source document, reachable any time via `clause.viewFull`.
+   */
+  clause: {
+    /** Compact screen heading above the card stack (parallels `verifyTitle`). */
+    title: '핵심 조항 확인',
+    /** Warm one-line intro framing the screen as a pre-sign reminder. */
+    intro: '서명하기 전에 핵심 조항을 짚어 드릴게요.',
+    /**
+     * Advisory disclaimer pinning the AI summary's status — a reference aid; the
+     * accurate content and legal effect live in the source document. The
+     * `/clauses` response does NOT round-trip this line (it carries only status +
+     * cards), so it's authored here and **mirrors the server catalog's
+     * `MESSAGES.clause.advisoryNotice` verbatim** — the two must stay lockstep so
+     * the disclaimer never diverges (messaging.md M1 mirror principle; same
+     * same-value posture as `verifyError`). If the server value ever changes,
+     * change this one too.
+     */
+    advisoryNotice:
+      'AI가 핵심만 간추린 요약이에요. 참고용이며, 정확한 내용과 법적 효력은 계약 원문에 있어요.',
+    /**
+     * '주의' badge shown on a `caution === true` card. Label only — the reason
+     * text is the server-owned `cautionReason` (a fixed `MESSAGES.clause.caution`
+     * label), surfaced verbatim, so no client-side taxonomy is defined here.
+     */
+    cautionBadge: '주의',
+    /** Source reference grounding a card in the full document, e.g. "원문 3쪽". */
+    sourceRef: (page: number): string => `원문 ${page}쪽`,
+    /**
+     * The single bottom CTA into the signature step. Same label/role as the
+     * viewer's `viewerCtaContinue`, kept as its own key for this screen (per the
+     * `verifyCta` precedent — same value, distinct screen/role).
+     */
+    cta: '서명하기',
+    /** Collapsed affordance opening the existing full-PDF viewer (no pressure). */
+    viewFull: '전체 원문 보기',
+    /** aria-label for the swipeable card region (screen-reader landmark). */
+    cardsRegionLabel: '핵심 조항 카드',
+    /** aria-label for the swipe/progress indicator, e.g. "3장 중 1장". */
+    cardPosition: (current: number, total: number): string =>
+      `${total}장 중 ${current}장`,
+  },
   // Document viewer chrome (mirrors the same Toss voice).
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',
