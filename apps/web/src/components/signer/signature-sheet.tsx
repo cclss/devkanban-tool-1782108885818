@@ -17,6 +17,16 @@
  * it immediately) and persists it to the grain-1 `fields` endpoint before the
  * sheet closes. The Sheet/Button/Field primitives come from @repo/ui; every
  * visual value is a design token.
+ *
+ * In the guided sequential mode (`signing` phase, M3 — `conventions/signing-flow.md`
+ * SF3–SF7, wired by grain-3's `signer-context.tsx`), the very SAME capture bodies
+ * are REUSED — this sheet only layers guided chrome on top: a "N곳 중 M곳째" progress
+ * line + an `aria-live` announce (SF4), an entry intro/hint, save-less
+ * '이전'/'다음'/'나중에' navigation (SF5), the last field's '적용→서명 완료' affordance
+ * (SF6), and a save/complete-failure retry that preserves the captured value (SF7).
+ * Every string comes from `SIGNER_COPY` (grain-2), the progress/queue/error state
+ * from the signer context (grain-3); nothing here is redefined. Outside `signing`
+ * (the viewer's non-linear edit path) the chrome is inert — same sheet as before.
  */
 
 import * as React from 'react';
@@ -48,6 +58,39 @@ import { useSigner, type SignerFieldValue } from './signer-context';
 import { SignaturePad, type SignaturePadHandle } from './signature-pad';
 
 const COPY = SIGNER_COPY.sheet;
+const SIGN_FLOW = SIGNER_COPY.signFlow;
+
+/**
+ * The live guided-flow state the sheet chrome reads (SF4–SF7), derived from the
+ * signer context in the `signing` phase. `null` outside that phase, which turns
+ * all guided chrome off so the viewer's non-linear edit path renders unchanged.
+ */
+interface GuidedInfo {
+  /** Fixed denominator N — unfilled count snapshotted at entry (SF4). */
+  total: number;
+  /** 1-based position M within the flow ("N곳 중 M곳째", SF4), clamped to [1, N]. */
+  position: number;
+  /** Short field-type noun for the aria-live announce (SF4). */
+  fieldNoun: string;
+  /** Whether the current field already holds a value (review, not first capture). */
+  currentFilled: boolean;
+  /**
+   * Applying this field empties the unfilled queue → the last '적용' chains
+   * `complete()` (SF6), so the primary action reads '서명 완료' (`applyLast`).
+   */
+  isLastUnfilled: boolean;
+  /** At the first flow position — '이전' is disabled here (SF5). */
+  atFirst: boolean;
+  /** Skipping is meaningful only when the current field is unfilled and more remain. */
+  canSkip: boolean;
+  /** Warm entry banner (intro + hint) shows on the first field only (SF3 entry). */
+  showIntro: boolean;
+  /** Server-owned message when the final `complete()` failed mid-flow (SF7). */
+  signingError: string | null;
+  onPrev: () => void;
+  onNext: () => void;
+  onSkip: () => void;
+}
 
 /** Resolve a design-token color (e.g. `--color-foreground`) to a usable string. */
 function tokenColor(name: string, fallback: string): string {
@@ -105,13 +148,61 @@ async function rasterizeTypedName(text: string, fontFamily: string): Promise<str
 }
 
 export function SignatureInputSheet() {
-  const { token, state, closeField, setFieldValue } = useSigner();
-  const { activeFieldId, payload } = state;
+  const {
+    token,
+    state,
+    closeField,
+    setFieldValue,
+    orderedUnfilled,
+    guidedTotal,
+    signingError,
+    signingPrev,
+    signingNext,
+    signingSkip,
+  } = useSigner();
+  const { activeFieldId, payload, phase, fieldValues } = state;
 
   const field = React.useMemo(
     () => payload?.fields.find((f) => f.id === activeFieldId) ?? null,
     [payload, activeFieldId],
   );
+
+  // Guided sequential chrome is on only in the `signing` phase (SF3–SF7). N and M
+  // come from the context's queue (grain-3), not a re-implemented sort: N is the
+  // fixed entry snapshot `guidedTotal`; M = (already-done) + 1 = N − remaining + 1,
+  // clamped. Outside `signing` this is `null` and every guided element is skipped.
+  const guided = React.useMemo<GuidedInfo | null>(() => {
+    if (phase !== 'signing' || !field) return null;
+    const remaining = orderedUnfilled.length;
+    const total = guidedTotal ?? remaining;
+    const done = Math.max(0, total - remaining);
+    const position = Math.min(Math.max(total, 1), done + 1);
+    const currentFilled = fieldValues[field.id] != null || field.filled;
+    return {
+      total,
+      position,
+      fieldNoun: SIGN_FLOW.fieldNoun[field.type],
+      currentFilled,
+      isLastUnfilled: remaining === 1 && orderedUnfilled[0]?.id === field.id,
+      atFirst: position <= 1,
+      canSkip: !currentFilled && remaining > 1,
+      showIntro: position === 1,
+      signingError,
+      onPrev: signingPrev,
+      onNext: signingNext,
+      onSkip: signingSkip,
+    };
+  }, [
+    phase,
+    field,
+    orderedUnfilled,
+    guidedTotal,
+    fieldValues,
+    signingError,
+    signingPrev,
+    signingNext,
+    signingSkip,
+  ]);
 
   return (
     <Sheet
@@ -122,14 +213,25 @@ export function SignatureInputSheet() {
     >
       <SheetContent side="bottom">
         {field ? (
-          // Key by field id so each capture starts from a fresh, reset state.
-          <SheetBody
-            key={field.id}
-            field={field}
-            token={token}
-            onCommit={(value) => setFieldValue(field.id, value)}
-            onCancel={closeField}
-          />
+          <>
+            {/* Key by field id so each capture starts from a fresh, reset state. */}
+            <SheetBody
+              key={field.id}
+              field={field}
+              token={token}
+              guided={guided}
+              onCommit={(value) => setFieldValue(field.id, value)}
+              onCancel={closeField}
+            />
+            {/* Persistent (not keyed) polite live region: its text changes as the
+                flow auto-advances, so screen-reader users hear the new position +
+                field type without the region remounting away the announcement (SF4). */}
+            {guided ? (
+              <p className="sr-only" aria-live="polite">
+                {SIGN_FLOW.announce(guided.position, guided.total, guided.fieldNoun)}
+              </p>
+            ) : null}
+          </>
         ) : (
           <SheetTitle className="sr-only">{COPY.title.SIGNATURE}</SheetTitle>
         )}
@@ -141,11 +243,13 @@ export function SignatureInputSheet() {
 interface SheetBodyProps {
   field: SigningPayloadField;
   token: string;
+  /** Guided-flow chrome state, or `null` in the viewer's non-linear edit path. */
+  guided: GuidedInfo | null;
   onCommit: (value: SignerFieldValue) => void;
   onCancel: () => void;
 }
 
-function SheetBody({ field, token, onCommit, onCancel }: SheetBodyProps) {
+function SheetBody({ field, token, guided, onCommit, onCancel }: SheetBodyProps) {
   const [saving, setSaving] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -178,30 +282,107 @@ function SheetBody({ field, token, onCommit, onCancel }: SheetBodyProps) {
 
   const title = COPY.title[field.type];
 
+  // A blocked save (field save) or a blocked completion (last field, SF7) both
+  // keep the sheet on this field with the captured value preserved; either turns
+  // the primary action into a value-preserving retry (SF7/C8 — reusing the same
+  // persist path, so the button both applies and retries).
+  const shownError = error ?? guided?.signingError ?? null;
+
+  // Primary-action label (SF6/C6, SF7/C8): retry on a blocking error, '서명 완료'
+  // when this apply finishes the flow, else the plain '적용'. Guided-only; the
+  // viewer edit path always reads '적용'.
+  const applyLabel = guided
+    ? shownError
+      ? SIGN_FLOW.retry
+      : guided.isLastUnfilled
+        ? SIGN_FLOW.applyLast
+        : COPY.apply
+    : COPY.apply;
+
+  // Save-less navigation row ('이전'/'다음'/'나중에', SF5), rendered just above the
+  // apply row inside the reused capture body so it sits with the primary action.
+  const navSlot = guided ? <GuidedNav guided={guided} disabled={saving} /> : null;
+
   return (
     <>
       <SheetHeader>
-        <SheetTitle>{title}</SheetTitle>
+        <div className="flex items-center justify-between gap-md">
+          <SheetTitle>{title}</SheetTitle>
+          {guided ? (
+            <span className="shrink-0 text-sm font-semibold text-foreground-muted">
+              {SIGN_FLOW.progress(guided.position, guided.total)}
+            </span>
+          ) : null}
+        </div>
         <SheetDescription>{hintFor(field.type)}</SheetDescription>
       </SheetHeader>
 
+      {guided?.showIntro ? (
+        <div className="flex flex-col gap-2xs rounded-md bg-surface-muted px-md py-xs text-sm text-foreground-muted">
+          <p>{SIGN_FLOW.intro}</p>
+          <p>{SIGN_FLOW.hint}</p>
+        </div>
+      ) : null}
+
       {field.type === 'SIGNATURE' ? (
-        <SignatureBody saving={saving} onApply={persistAndCommit} onCancel={onCancel} />
+        <SignatureBody
+          saving={saving}
+          applyLabel={applyLabel}
+          navSlot={navSlot}
+          onApply={persistAndCommit}
+          onCancel={onCancel}
+        />
       ) : (
         <InlineValueBody
           type={field.type}
           saving={saving}
+          applyLabel={applyLabel}
+          navSlot={navSlot}
           onApply={persistAndCommit}
           onCancel={onCancel}
         />
       )}
 
-      {error ? (
+      {shownError ? (
         <p className="mt-md text-sm text-danger" role="alert">
-          {error}
+          {shownError}
         </p>
       ) : null}
     </>
+  );
+}
+
+/**
+ * Save-less guided navigation (SF5), consolidating the forward affordance: on an
+ * unfilled field with others still queued it offers '나중에' (skip → next unfilled);
+ * on an already-filled field being reviewed it offers '다음' (step forward); on the
+ * last unfilled field neither shows (the primary action is '서명 완료'). '이전' is
+ * always present, disabled at the first position. All three move without saving —
+ * the "저장 없이 이동" half of SF5, distinct from '적용'. Buttons are `size="md"`
+ * (44px) so they meet the existing `touch/hit-target-min`.
+ */
+function GuidedNav({ guided, disabled }: { guided: GuidedInfo; disabled: boolean }) {
+  return (
+    <div className="flex items-center justify-between gap-xs">
+      <Button
+        type="button"
+        variant="ghost"
+        size="md"
+        onClick={guided.onPrev}
+        disabled={disabled || guided.atFirst}
+      >
+        {SIGN_FLOW.prev}
+      </Button>
+      {guided.canSkip ? (
+        <Button type="button" variant="ghost" size="md" onClick={guided.onSkip} disabled={disabled}>
+          {SIGN_FLOW.skip}
+        </Button>
+      ) : guided.currentFilled ? (
+        <Button type="button" variant="ghost" size="md" onClick={guided.onNext} disabled={disabled}>
+          {SIGN_FLOW.next}
+        </Button>
+      ) : null}
+    </div>
   );
 }
 
@@ -217,10 +398,14 @@ type SignMode = 'draw' | 'type';
 
 function SignatureBody({
   saving,
+  applyLabel,
+  navSlot,
   onApply,
   onCancel,
 }: {
   saving: boolean;
+  applyLabel: string;
+  navSlot?: React.ReactNode;
   onApply: (value: SignerFieldValue) => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -294,7 +479,14 @@ function SignatureBody({
         </div>
       )}
 
-      <ApplyRow saving={busy} canApply={canApply} onApply={apply} onCancel={onCancel} />
+      {navSlot}
+      <ApplyRow
+        saving={busy}
+        canApply={canApply}
+        applyLabel={applyLabel}
+        onApply={apply}
+        onCancel={onCancel}
+      />
     </div>
   );
 }
@@ -378,11 +570,15 @@ function FontChips({
 function InlineValueBody({
   type,
   saving,
+  applyLabel,
+  navSlot,
   onApply,
   onCancel,
 }: {
   type: 'DATE' | 'TEXT';
   saving: boolean;
+  applyLabel: string;
+  navSlot?: React.ReactNode;
   onApply: (value: SignerFieldValue) => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -408,7 +604,14 @@ function InlineValueBody({
           maxLength={type === 'TEXT' ? 200 : undefined}
         />
       </Field>
-      <ApplyRow saving={saving} canApply={canApply} onApply={apply} onCancel={onCancel} />
+      {navSlot}
+      <ApplyRow
+        saving={saving}
+        canApply={canApply}
+        applyLabel={applyLabel}
+        onApply={apply}
+        onCancel={onCancel}
+      />
     </div>
   );
 }
@@ -418,11 +621,14 @@ function InlineValueBody({
 function ApplyRow({
   saving,
   canApply,
+  applyLabel,
   onApply,
   onCancel,
 }: {
   saving: boolean;
   canApply: boolean;
+  /** Primary-action label — '적용' by default; '서명 완료' / '다시 시도' in guided mode. */
+  applyLabel: string;
   onApply: () => void | Promise<void>;
   onCancel: () => void;
 }) {
@@ -439,7 +645,7 @@ function ApplyRow({
         isLoading={saving}
         disabled={!canApply || saving}
       >
-        {COPY.apply}
+        {applyLabel}
       </Button>
     </div>
   );
