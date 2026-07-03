@@ -135,6 +135,9 @@ describe('Completion post-processing (e2e)', () => {
       .set('Authorization', `Bearer ${sessionToken}`)
       .expect(200);
     expect(complete.body.documentCompleted).toBe(true);
+    // The response carries the ISO signing timestamp for the summary card.
+    expect(typeof complete.body.signedAt).toBe('string');
+    expect(Number.isNaN(Date.parse(complete.body.signedAt))).toBe(false);
 
     // The Document is COMPLETED with both artifact keys and a completion time.
     const doc = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });

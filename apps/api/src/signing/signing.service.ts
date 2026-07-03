@@ -403,10 +403,11 @@ export class SigningService {
       throw new BadRequestException(MESSAGES.signing.fieldsIncomplete);
     }
 
+    const signedAt = new Date();
     const documentCompleted = await this.prisma.$transaction(async (tx) => {
       await tx.signRequest.update({
         where: { id: signRequest.id },
-        data: { status: SignRequestStatus.SIGNED, signedAt: new Date() },
+        data: { status: SignRequestStatus.SIGNED, signedAt },
       });
       await tx.auditLog.create({
         data: {
@@ -449,6 +450,7 @@ export class SigningService {
     return {
       status: SignRequestStatus.SIGNED,
       documentCompleted,
+      signedAt: signedAt.toISOString(),
       message: MESSAGES.signing.completed,
     };
   }
@@ -592,6 +594,8 @@ export interface SigningPayload {
 export interface CompleteResult {
   status: SignRequestStatus;
   documentCompleted: boolean;
+  /** ISO-8601 timestamp of when this signer's part was finalized. */
+  signedAt: string;
   message: string;
 }
 
