@@ -14,7 +14,19 @@
  * The signer holds no File, so the document is streamed from the session-guarded
  * `/signing/:token/pdf` endpoint and opened with `loadPdfFromUrl`. Field values
  * and the open-sheet target live in the signer context: the capture BottomSheet
- * (and the real submit/complete) are later grains that bind to that same state.
+ * binds to that same state.
+ *
+ * In the guided sequential mode (`signing` phase, M3 — `conventions/signing-flow.md`
+ * SF1–SF7; orchestrated by grain-3's `signer-context.tsx`, sheet chrome by grain-4)
+ * this viewer is the *substrate* the flow runs on top of. The bottom CTA / a field
+ * tap hand off to the context's `openField`, which enters the guided flow from the
+ * `viewing` fallback (SF1/SF2); the unfilled queue comes from the context's
+ * `orderedUnfilled` (the sequencing single source, SF3 — no local re-sort). While
+ * signing, the substrate follows the flow: the active field is scrolled into view
+ * on entry / auto-advance / save-less nav (reduced-motion-aware, SF4). The
+ * cumulative progress line is a polite live region, kept distinct from the sheet's
+ * positional announce (SF4). The fallback `complete()` still rejects for this CTA
+ * to surface a friendly retry (I4); guided completion/`signingError` is the sheet's.
  */
 
 import * as React from 'react';
@@ -55,19 +67,13 @@ function fieldDomId(id: string): string {
   return `signer-field-${id}`;
 }
 
-/** A field is done when the signer captured a value, or the server has one. */
-function isFilled(field: SigningPayloadField, values: Record<string, SignerFieldValue>): boolean {
-  return values[field.id] != null || field.filled;
-}
-
-/** Top edge (px) of a field on its page — for top-to-bottom reading order. */
-function topOf(field: SigningPayloadField): number {
-  return 1 - field.y - field.height; // normalized; page-height-independent ordering
-}
-
 export function DocumentViewer({ meta }: { meta: SigningMeta }) {
-  const { token, state, openField, complete } = useSigner();
-  const { payload, fieldValues } = state;
+  // `orderedUnfilled` (the unfilled queue in guided walk order, page → top → left)
+  // is the context's sequencing single source (SF3, signing-flow-impl.md I2): the
+  // viewer consumes it rather than re-sorting locally, so the guided flow and the
+  // page overlay always walk the same fields.
+  const { token, state, openField, complete, orderedUnfilled } = useSigner();
+  const { payload, fieldValues, phase, activeFieldId } = state;
 
   // Finalize state for the bottom CTA. A failed `complete` keeps every captured
   // value in place (the context never clears them), so the signer just retries.
@@ -143,32 +149,35 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
     return () => ro.disconnect();
   }, []);
 
-  const orderedUnfilled = React.useMemo(
-    () =>
-      [...fields]
-        .filter((f) => !isFilled(f, fieldValues))
-        .sort((a, b) => a.page - b.page || topOf(a) - topOf(b) || a.x - b.x),
-    [fields, fieldValues],
-  );
   const remaining = orderedUnfilled.length;
   const total = fields.length;
 
+  // Center a field in the scroll column. Honors reduced-motion: the global
+  // `globals.css` fallback forces CSS `scroll-behavior: auto`, but that can't
+  // reach an explicit JS `scrollIntoView({ behavior: 'smooth' })` (the option
+  // wins over CSS), so we read the media query and drop to an instant jump (the
+  // `matchMedia` posture mirrors `wizard/fields-step.tsx`; no new util/hook).
   const scrollToField = React.useCallback((id: string) => {
-    document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    const el = document.getElementById(fieldDomId(id));
+    if (!el) return;
+    const reduce =
+      typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    el.scrollIntoView({ behavior: reduce ? 'auto' : 'smooth', block: 'center' });
   }, []);
 
-  const onFieldTap = React.useCallback(
-    (field: SigningPayloadField) => {
-      scrollToField(field.id);
-      openField(field.id);
-    },
-    [openField, scrollToField],
-  );
+  // A field tap hands off to the context's `openField`: from the `viewing` fallback
+  // it enters the guided flow targeting that field (SF1/SF2, I1); within `signing`
+  // it's a non-linear override (jump to any field). Either way the tracking effect
+  // below centers it.
+  const onFieldTap = React.useCallback((field: SigningPayloadField) => openField(field.id), [openField]);
 
   const onCta = React.useCallback(async () => {
     const next = orderedUnfilled[0];
     if (next) {
-      scrollToField(next.id);
+      // Enter (from the `viewing` fallback) or resume (within `signing`) the guided
+      // flow via the context's `openField` — the grain-3 entry contract (I1). The
+      // tracking effect below scrolls the opened field into view.
       openField(next.id);
       return;
     }
@@ -184,7 +193,18 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
       setCompleteError(err instanceof ApiError ? err.message : SIGNER_COPY.completeError);
       setCompleting(false);
     }
-  }, [orderedUnfilled, scrollToField, openField, complete, completing]);
+  }, [orderedUnfilled, openField, complete, completing]);
+
+  // Guided substrate tracking (SF3/SF4): while signing, the viewer follows the
+  // flow — whenever the active field changes (entry, '적용' auto-advance, save-less
+  // '이전'/'다음'/'나중에' nav) the field is centered behind the sheet so the signer
+  // sees where each capture lands. `status` is a dep so entry re-centers once the
+  // pages have rasterized. Inert outside `signing` (the free-browse fallback) and
+  // when the sheet is closed (`activeFieldId` null). Reduced-motion via scrollToField.
+  React.useEffect(() => {
+    if (phase !== 'signing' || !activeFieldId) return;
+    scrollToField(activeFieldId);
+  }, [phase, activeFieldId, status, scrollToField]);
 
   const progress =
     total === 0
@@ -204,7 +224,16 @@ export function DocumentViewer({ meta }: { meta: SigningMeta }) {
         <h1 className="truncate text-xl font-bold text-foreground">
           {payload?.documentTitle ?? meta.documentTitle}
         </h1>
-        <p className="mt-2xs text-sm text-foreground-subtle">{progress}</p>
+        {/* Cumulative completion tally as a polite live region so screen-reader
+            users hear progress as the queue shrinks. Distinct from the sheet's
+            positional announce ("N곳 중 M곳째, … 차례예요", SF4): one is a running
+            tally, the other the current step. No conflict — the capture Sheet is a
+            modal Dialog that aria-hides this content while open, so the sheet owns
+            the announce during active capture and this tally speaks between beats
+            (and in the free-browse fallback). */}
+        <p aria-live="polite" className="mt-2xs text-sm text-foreground-subtle">
+          {progress}
+        </p>
       </div>
 
       <div
