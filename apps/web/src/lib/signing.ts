@@ -206,6 +206,20 @@ export const SIGNER_COPY = {
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',
   viewerLoadError: '문서를 불러올 수 없어요. 잠시 후 다시 시도해 주세요.',
+  /**
+   * Non-alarming context line for the full-PDF viewer when it's reached as the
+   * *fallback* — i.e. verify routed to `viewing` because no `READY` clause cards
+   * existed (`EMPTY`/`FAILED`/`PENDING`). It softly frames the source document as
+   * the authoritative full text and reaffirms the AI summary was only an aid,
+   * WITHOUT ever implying an extraction failure — no blame, no internal cause
+   * (messaging.md M2). Distinct surface from `clause.advisoryNotice` (which rides
+   * *alongside* the cards on the happy path): this speaks to the no-summary path,
+   * so the two never collide. Optional single line — the value is defined here;
+   * whether/where it's surfaced is the flow-integration component grain's call
+   * (grain-2/3). Client-authored chrome (no server round-trip).
+   */
+  viewerFallbackNotice:
+    '계약 원문 전체예요. 요약은 참고용일 뿐, 정식 계약 내용은 원문에 있어요.',
   fieldFilled: '작성됨',
   /** "Tap here" affordance shown on an unfilled field, by type. */
   fieldAffordance: {
@@ -310,6 +324,26 @@ export const SIGNER_COPY = {
      */
     retry: '다시 시도',
   },
+  /**
+   * Cross-phase step-transition announcements for screen readers (flow
+   * integration). As the state machine advances
+   * (`loading → verify → clauses/viewing → signing → done`,
+   * `signer-context.tsx`), an `aria-live="polite"` region announces the step the
+   * signer just landed on so non-visual users can track where they are across the
+   * whole flow — the visual chrome already changes, this narrates it. `viewing` is
+   * the full-PDF fallback that stands in for `clauses` when no `READY` cards exist,
+   * so both card and fallback paths have an announcement. Announcement-only (not
+   * visible chrome): each value is a full sentence, so it never duplicates the
+   * screen titles (`verifyTitle` '본인확인' / `clause.title` '핵심 조항 확인'). Same
+   * Toss voice (M2). Wiring/exposure is the flow-integration component grain's job.
+   */
+  flowStep: {
+    verify: '본인확인 단계예요.',
+    clauses: '핵심 조항 확인 단계예요.',
+    viewing: '계약 원문 보기 단계예요.',
+    signing: '서명 단계예요.',
+    done: '서명 완료 단계예요.',
+  },
   /** Completion takeover chrome (same Toss voice as the rest). */
   done: {
     /** Celebration headline — mirrors the server's `completed` catalog entry. */
@@ -332,6 +366,28 @@ export const SIGNER_COPY = {
   },
   /** Final-CTA failure fallback (no blame, just retry) — when the server gives none. */
   completeError: '서명을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
+  /**
+   * Retry affordance for the flow's load / complete failures (flow integration).
+   * The failure *prose* is REUSED, not duplicated — `viewerLoadError` (PDF source
+   * load failed), `completeError` (finalize request failed) and `sheet.saveError`
+   * already carry the no-blame "잠시 후 다시 시도해 주세요" message; this is the
+   * action label that lets the signer re-run the failed request in place.
+   *
+   * `retryCta` deliberately shares the '다시 시도' value with `signFlow.retry` —
+   * same word, distinct surface (guided per-field save retry vs the PDF-load /
+   * completion retry of the integrated flow) — following this file's established
+   * same-value / distinct-role precedent (`verifyCta`↔`verifyTitle`,
+   * `clause.cta`↔`viewerCtaContinue`, `signFlow.applyLast`↔`viewerCtaComplete`).
+   * The two are independent per-surface single sources, not a value that must
+   * stay in sync.
+   */
+  retryCta: '다시 시도',
+  /**
+   * Transient microcopy while a retry request is in flight (parallels the OTP
+   * `verifySubmitting` '확인 중이에요' beat). Type-neutral so it fits both the PDF
+   * reload and the completion re-request. Client-authored, no server round-trip.
+   */
+  retrying: '다시 시도하고 있어요',
 } as const;
 
 // --- session token persistence ----------------------------------------------
