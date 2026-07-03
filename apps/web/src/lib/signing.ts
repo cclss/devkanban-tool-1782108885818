@@ -81,14 +81,44 @@ export interface SigningPayload {
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
 
 /**
- * The handful of signer-facing strings authored on the client (the server only
- * returns error copy, not screen chrome). Kept here as the single source so the
- * tone stays consistent and auditable — same Toss voice as the server catalog.
+ * The handful of signer-facing strings (and a greeting builder) authored on the
+ * client — the server only returns error copy, not screen chrome. Kept here as
+ * the single source so the tone stays consistent and auditable — same Toss voice
+ * as the server catalog (`common/messages.ts`).
  */
 export const SIGNER_COPY = {
+  // --- Identity-check (OTP) screen ------------------------------------------
+  // A light, friendly entry: warm welcome → one clear instruction → auto-submit
+  // affordance → calm "checking" / "done" beats. Error tone mirrors the server
+  // catalog (no blame, just the next step). Auto-submit is the primary path; the
+  // button is an explicit/accessible fallback.
   verifyTitle: '본인확인',
+  /**
+   * Warm welcome above the code entry, using the pre-auth masked recipient name
+   * (`meta.recipientNameMasked`, e.g. `홍*동`). Use `verifyGreetingFallback`
+   * when the name is `null`.
+   */
+  verifyGreeting: (recipientNameMasked: string): string =>
+    `${recipientNameMasked} 님, 안녕하세요.`,
+  /** Name-less welcome when `recipientNameMasked` is `null`. */
+  verifyGreetingFallback: '안녕하세요.',
   verifyHint: '문자로 받은 6자리 인증 코드를 입력해 주세요.',
+  /** Auto-submit affordance — entering all six digits verifies without a tap. */
+  verifyAutoSubmitHint: '6자리를 모두 입력하면 자동으로 확인돼요.',
   codeLabel: '인증 코드',
+  /** Explicit/accessible fallback CTA label (auto-submit is the primary path). */
+  verifyCta: '본인확인',
+  /** Transient microcopy while the entered code is being checked. */
+  verifySubmitting: '확인 중이에요',
+  /** Brief success beat shown as the screen advances into the document. */
+  verifySuccess: '확인됐어요',
+  /**
+   * Client-side fallback when verification fails without a server message
+   * (network / unexpected error). Mirrors the server catalog's no-blame,
+   * just-retry tone — the server's own code-mismatch/lock copy is surfaced
+   * verbatim when present.
+   */
+  verifyError: '문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
   loading: '잠시만 기다려 주세요.',
   // Friendly terminal screens for non-signable links (mirror the server catalog).
   alreadySignedTitle: '서명을 완료했어요',
