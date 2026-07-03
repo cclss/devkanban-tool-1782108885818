@@ -121,6 +121,12 @@ export interface SignerState {
   /** Set once `complete` succeeds: whether the whole document is now finalized. */
   documentCompleted: boolean;
   /**
+   * ISO-8601 timestamp of when this signer finalized (server clock), captured on
+   * `complete` success. The completion screen renders it as the signed-at line and
+   * feeds it to `CompletionDownload` as `completedAt`. `null` until `done`.
+   */
+  signedAt: string | null;
+  /**
    * AI-extracted key-clause cards (M2), fetched right after a successful verify.
    * `null` while the fetch is in flight; an empty array once it settles with no
    * cards — the signal to fall back to the full-PDF view.
@@ -163,6 +169,7 @@ const initialState: SignerState = {
   fieldValues: {},
   activeFieldId: null,
   documentCompleted: false,
+  signedAt: null,
   clauses: null,
   clauseStatus: null,
   previewOpen: false,
@@ -185,7 +192,7 @@ type SignerAction =
   | { type: 'SIGNING_ERROR'; message: string }
   | { type: 'OPEN_PREVIEW' }
   | { type: 'CLOSE_PREVIEW' }
-  | { type: 'DONE'; documentCompleted: boolean }
+  | { type: 'DONE'; documentCompleted: boolean; signedAt: string }
   | { type: 'OPEN_FIELD'; fieldId: string }
   | { type: 'CLOSE_FIELD' }
   | { type: 'SET_FIELD_VALUE'; fieldId: string; value: SignerFieldValue };
@@ -251,7 +258,15 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
     case 'CLOSE_PREVIEW':
       return { ...state, previewOpen: false };
     case 'DONE':
-      return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
+      // Spreading `...state` keeps the already-loaded `clauses`/`clauseStatus`
+      // alive through `done` (no re-fetch); we only flip phase and record the
+      // completion outcome + the server's signed-at timestamp for the summary.
+      return {
+        ...state,
+        phase: 'done',
+        documentCompleted: action.documentCompleted,
+        signedAt: action.signedAt,
+      };
     case 'OPEN_FIELD':
       return { ...state, activeFieldId: action.fieldId };
     case 'CLOSE_FIELD':
@@ -440,7 +455,11 @@ export function SignerProvider({
       throw new ApiError(SIGNER_COPY.completeError, 401);
     }
     const result = await completeSigning(token, session);
-    dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
+    dispatch({
+      type: 'DONE',
+      documentCompleted: result.documentCompleted,
+      signedAt: result.signedAt,
+    });
   }, [token]);
 
   // The last guided apply chains completion (SF6). Unlike the viewer's `complete`

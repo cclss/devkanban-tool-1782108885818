@@ -315,8 +315,17 @@ export const SIGNER_COPY = {
     /** Celebration headline — mirrors the server's `completed` catalog entry. */
     title: '서명이 완료되었습니다!',
     body: '작성하신 서명이 안전하게 전달됐어요.',
+    /**
+     * aria-label for the just-signed contract summary card region (sr landmark),
+     * so the card reads as one grouped "what you just signed" summary.
+     */
+    summaryLabel: '서명한 계약 요약',
     /** Calm post-summary: which document was signed. */
     documentLabel: '서명한 문서',
+    /** Field label for the signed-at timestamp (grain-1 `signedAt`, KST). */
+    signedAtLabel: '서명 일시',
+    /** Section label above the key-clause recap inside the summary card. */
+    clausesLabel: '핵심 조항',
     /** What happens next, by whether the whole document is now complete. */
     nextAllDone: '모든 서명이 끝났어요. 완료된 계약서를 메일로 보내 드릴게요.',
     nextWaiting: '다른 분들의 서명이 끝나면 완료된 계약서를 메일로 보내 드릴게요.',
@@ -448,6 +457,12 @@ export interface CompleteResult {
   status: SignRequestStatus;
   /** True when this was the last outstanding signer — the whole doc is now done. */
   documentCompleted: boolean;
+  /**
+   * ISO-8601 timestamp of when this signer's part was finalized (server clock).
+   * The completion screen formats it as the signed-at line via `formatKstDateTime`
+   * and hands it to `CompletionDownload` as `completedAt` so its notice renders.
+   */
+  signedAt: string;
   message: string;
 }
 
