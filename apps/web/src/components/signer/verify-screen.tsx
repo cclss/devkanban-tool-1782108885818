@@ -3,11 +3,17 @@
 /**
  * VerifyScreen — the branded identity-check landing.
  *
- * Sender branding header (brand color applied via `brandStyle`), the document
- * title, and the segmented 6-digit code entry. Entering all six digits
- * auto-submits (Toss "one decision per screen" feel); a button is kept as an
- * explicit/accessible fallback. A wrong or expired code shakes the cells, wipes
- * them, and surfaces the server's Toss-tone message — no blame, just retry.
+ * A light, friendly entry: a masked-recipient welcome, the document title, and
+ * the segmented 6-digit code entry. Entering all six digits auto-submits (Toss
+ * "one decision per screen" feel) and dismisses the keyboard; an inline
+ * "확인 중이에요" beat gives feedback while the code is checked. The 본인확인
+ * button lives in a sticky bottom bar as an explicit/accessible fallback (kept
+ * always-reachable, out of the input flow to soften the auto-submit overlap).
+ * A wrong or expired code shakes the cells, wipes them, refocuses for retry, and
+ * surfaces the server's Toss-tone message — no blame, just retry.
+ *
+ * Copy is single-sourced in `SIGNER_COPY` (see `@/lib/signing`); the bottom-bar
+ * treatment mirrors the signer document-viewer / wizard footer conventions.
  */
 
 import * as React from 'react';
@@ -38,11 +44,9 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
         await verify(value);
         // Success: the provider advances to `viewing` and this screen unmounts.
       } catch (err) {
-        setError(
-          err instanceof ApiError
-            ? err.message
-            : '문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
-        );
+        // The server's Toss-tone message wins when present; otherwise fall back
+        // to the single-sourced client copy (same value/tone — no regression).
+        setError(err instanceof ApiError ? err.message : SIGNER_COPY.verifyError);
         setCode('');
         setShakeNonce((n) => n + 1);
         setSubmitting(false);
@@ -51,15 +55,20 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
     [submitting, verify],
   );
 
+  const greeting = meta.recipientNameMasked
+    ? SIGNER_COPY.verifyGreeting(meta.recipientNameMasked)
+    : SIGNER_COPY.verifyGreetingFallback;
+
   return (
     <main
       style={brandStyle(meta.sender.brandColor)}
-      className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
+      className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={meta.sender} />
 
-      <div className="motion-stagger mt-2xl flex flex-1 flex-col">
-        <h1 className="text-2xl font-bold text-foreground">{SIGNER_COPY.verifyTitle}</h1>
+      <div className="motion-stagger mt-2xl flex flex-1 flex-col pb-2xl">
+        <p className="text-base text-foreground-subtle">{greeting}</p>
+        <h1 className="mt-2xs text-2xl font-bold text-foreground">{SIGNER_COPY.verifyTitle}</h1>
         <p className="mt-2xs text-base text-foreground-subtle">{SIGNER_COPY.verifyHint}</p>
 
         <p className="mt-lg truncate rounded-md bg-surface-muted px-md py-sm text-sm font-medium text-foreground-muted">
@@ -87,18 +96,32 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
           >
             {error}
           </p>
+          {/* Auto-submit affordance, swapped for the inline "checking" beat while
+              the code is verified (polite so it never interrupts the error alert). */}
+          <p aria-live="polite" className="text-sm text-foreground-subtle">
+            {submitting ? SIGNER_COPY.verifySubmitting : SIGNER_COPY.verifyAutoSubmitHint}
+          </p>
         </div>
+      </div>
 
-        <Button
-          size="lg"
-          fullWidth
-          className="mt-auto"
-          disabled={code.length !== CODE_LENGTH}
-          isLoading={submitting}
-          onClick={() => submit(code)}
-        >
-          {submitting ? '확인 중' : '본인확인'}
-        </Button>
+      {/* Explicit/accessible fallback CTA — auto-submit is the primary path. Kept
+          in a sticky bottom bar (wizard-footer / document-viewer convention) so it
+          stays reachable and reads as persistent chrome, not a duplicate action. */}
+      <div
+        className="sticky bottom-0 z-20 -mx-lg border-t border-border bg-surface/95 backdrop-blur"
+        style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+      >
+        <div className="px-lg py-md">
+          <Button
+            size="lg"
+            fullWidth
+            disabled={code.length !== CODE_LENGTH}
+            isLoading={submitting}
+            onClick={() => submit(code)}
+          >
+            {submitting ? SIGNER_COPY.verifySubmitting : SIGNER_COPY.verifyCta}
+          </Button>
+        </div>
       </div>
     </main>
   );

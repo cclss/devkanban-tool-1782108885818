@@ -9,6 +9,11 @@
  *   - ArrowLeft/Right move between cells
  *   - pasting a 6-digit string fills every cell at once
  *   - `inputMode="numeric"` summons the numeric keypad on mobile
+ *   - filling the last cell auto-submits and blurs, dismissing the keyboard
+ *
+ * Cells carry conservative keypad hints (`enterKeyHint="done"`, autoCorrect /
+ * autoCapitalize off, spellCheck off) so the OS keypad and autofill stay out of
+ * the way of numeric entry — behaviour hints only, no design values.
  *
  * Stateless / controlled: the parent owns the `value` string and is notified via
  * `onChange`; `onComplete` fires once all cells are full. The `invalid` flag
@@ -87,8 +92,14 @@ export function OtpInput({
       chars[cursor] = d;
       cursor += 1;
     }
-    commit(chars.join(''));
-    focusCell(cursor);
+    const clean = commit(chars.join(''));
+    if (clean.length === length) {
+      // Auto-submit boundary: drop the keyboard once the last cell is filled
+      // (the parent's `onComplete` has already fired the verification).
+      refs.current[length - 1]?.blur();
+    } else {
+      focusCell(cursor);
+    }
   };
 
   const handleKeyDown = (index: number, e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -117,7 +128,12 @@ export function OtpInput({
     const pasted = e.clipboardData.getData('text').replace(DIGITS_ONLY, '');
     if (!pasted) return;
     const clean = commit(pasted);
-    focusCell(clean.length);
+    if (clean.length === length) {
+      // A full paste auto-submits too — dismiss the keyboard like typed entry.
+      refs.current[length - 1]?.blur();
+    } else {
+      focusCell(clean.length);
+    }
   };
 
   return (
@@ -138,6 +154,12 @@ export function OtpInput({
           inputMode="numeric"
           pattern="\d*"
           autoComplete={i === 0 ? 'one-time-code' : 'off'}
+          // Keypad hints: keep the numeric keypad clean and autofill/keyboard
+          // heuristics out of the way of one-digit-per-cell entry.
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          enterKeyHint="done"
           maxLength={1}
           // eslint-disable-next-line jsx-a11y/no-autofocus -- single intentional entry focus
           autoFocus={autoFocus && i === 0}
