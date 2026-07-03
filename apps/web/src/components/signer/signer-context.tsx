@@ -5,14 +5,16 @@
  *
  * One signing link drives a small client state machine:
  *
- *   loading ──▶ verify ──▶ viewing ──▶ signing ──▶ done
- *      │
+ *   loading ──▶ verify ──▶ clauses ──▶ viewing ──▶ signing ──▶ done
+ *      │                   (READY cards only; otherwise verify ──▶ viewing)
  *      └─▶ blocked (invalidLink | alreadySigned | unavailable)
  *
- * The happy path is the five-phase line from the brief; non-signable links
- * branch to a friendly `blocked` terminal with a reason. This grain (grain-2)
- * drives transitions up to `viewing` (a placeholder); later grains own the
- * PDF viewer, signature capture (`signing`) and the completion screen (`done`),
+ * The happy path threads the AI key-clause reminder (`clauses`, M2) between
+ * identity check and the document viewer; non-signable links branch to a
+ * friendly `blocked` terminal with a reason. The clause stack is an auxiliary
+ * reminder, never a gate: when the send-time extraction isn't `READY` with
+ * cards, verify routes straight to `viewing` (the full-PDF fallback). Later
+ * grains own signature capture (`signing`) and the completion screen (`done`),
  * binding to the `payload` + `session` this context already holds.
  *
  * The shell owns chrome and routing-free state; steps read state and dispatch
@@ -33,6 +35,7 @@ import {
   verifyCode,
   SIGNER_COPY,
   type ClauseCard,
+  type ClauseCardsResult,
   type SigningMeta,
   type SigningPayload,
 } from '@/lib/signing';
@@ -51,6 +54,7 @@ export type SignerFieldValue =
 export type SignerPhase =
   | 'loading'
   | 'verify'
+  | 'clauses'
   | 'viewing'
   | 'signing'
   | 'done'
@@ -101,8 +105,12 @@ const initialState: SignerState = {
 type SignerAction =
   | { type: 'META_OK'; meta: SigningMeta }
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
-  | { type: 'VERIFIED'; payload: SigningPayload }
-  | { type: 'CLAUSES_OK'; clauses: ClauseCard[]; clauseStatus: ClauseExtractionStatus }
+  | {
+      type: 'VERIFIED';
+      payload: SigningPayload;
+      clauses: ClauseCard[];
+      clauseStatus: ClauseExtractionStatus;
+    }
   | { type: 'GO_SIGNING' }
   | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'OPEN_FIELD'; fieldId: string }
@@ -120,14 +128,25 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         meta: action.meta ?? state.meta,
         blockReason: action.reason,
       };
-    case 'VERIFIED':
-      return { ...state, phase: 'viewing', payload: action.payload };
-    case 'CLAUSES_OK':
-      // Clause cards land after the viewer is already reachable — they only
-      // populate the reminder data, never the phase.
-      return { ...state, clauses: action.clauses, clauseStatus: action.clauseStatus };
+    case 'VERIFIED': {
+      // The clause reminder is shown only when the send-time extraction is
+      // `READY` with at least one card; every other outcome (empty / failed /
+      // pending) routes straight to the full-PDF viewer. The cards are an aid,
+      // not a gate — so a missing set never blocks reaching the document.
+      const hasClauseCards =
+        action.clauseStatus === 'READY' && action.clauses.length > 0;
+      return {
+        ...state,
+        phase: hasClauseCards ? 'clauses' : 'viewing',
+        payload: action.payload,
+        clauses: action.clauses,
+        clauseStatus: action.clauseStatus,
+      };
+    }
     case 'GO_SIGNING':
-      return { ...state, phase: 'signing' };
+      // The clause reminder's single '서명하기' CTA hands off to the document
+      // viewer, where the actual field capture happens.
+      return { ...state, phase: 'viewing' };
     case 'DONE':
       return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
     case 'OPEN_FIELD':
@@ -163,7 +182,7 @@ interface SignerContextValue {
    * code so the screen can shake + reset without leaving `verify`.
    */
   verify: (code: string) => Promise<void>;
-  /** Advance from the viewer into the signature step (later grains). */
+  /** Leave the clause reminder ('서명하기') and open the document viewer. */
   goSigning: () => void;
   /**
    * Finalize the signer's part: call `/complete`, then advance to the completion
@@ -220,24 +239,22 @@ export function SignerProvider({
       setSignerSession(token, sessionToken);
       // Hand the signer's fields + (implicit) session to the viewer.
       const payload = await fetchPayload(token, sessionToken);
-      dispatch({ type: 'VERIFIED', payload });
-      // Clause cards are an auxiliary reminder, not a gate: load them in the
-      // background right after the viewer is reachable, and never let a failure
-      // undo the verified state. A rejection (network / timeout) — like a
-      // server-signalled non-READY status — falls back to an empty card set so
-      // the flow degrades to the full-PDF view. Deliberately not awaited: this
-      // must not delay or reject the `verify()` the screen is awaiting.
-      void fetchClauses(token, sessionToken)
-        .then((result) =>
-          dispatch({
-            type: 'CLAUSES_OK',
-            clauses: result.clauses,
-            clauseStatus: result.status,
-          }),
-        )
-        .catch(() =>
-          dispatch({ type: 'CLAUSES_OK', clauses: [], clauseStatus: 'FAILED' }),
-        );
+      // Resolve the cached clause cards up front so the post-verify entry screen
+      // is decided in one transition (READY cards → the reminder stack; anything
+      // else → the full-PDF viewer). The cards are an auxiliary reminder, never
+      // a gate: any rejection (network / timeout) — like a server-signalled
+      // non-READY status — resolves to an empty set so the flow falls back to
+      // the viewer. This catch keeps `verify()` from ever rejecting on the
+      // clause fetch; only the code check / payload load can fail the screen.
+      const clauseResult = await fetchClauses(token, sessionToken).catch(
+        (): ClauseCardsResult => ({ status: 'FAILED', clauses: [] }),
+      );
+      dispatch({
+        type: 'VERIFIED',
+        payload,
+        clauses: clauseResult.clauses,
+        clauseStatus: clauseResult.status,
+      });
     },
     [token],
   );
