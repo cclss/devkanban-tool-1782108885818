@@ -235,6 +235,81 @@ export const SIGNER_COPY = {
     apply: '적용',
     saveError: '서명을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.',
   },
+  /**
+   * Guided sequential signing-flow chrome (M3, `signing` phase) — the copy for
+   * running the reused `SignatureInputSheet` through the unfilled fields one at a
+   * time (see `conventions/signing-flow.md`, SF3–SF8). Same Toss voice (M2). This
+   * group holds ONLY the new orchestration-layer strings; the per-field capture
+   * labels (`sheet.*`, type titles/hints) and the viewer CTAs
+   * (`viewerCtaContinue`/`viewerCtaComplete`) are REUSED as-is, not duplicated.
+   */
+  signFlow: {
+    /**
+     * Warm intro shown as the guided flow opens (parallels `clause.intro`) —
+     * frames the step as "we'll walk you through it in order".
+     */
+    intro: '이제 서명할 곳을 순서대로 안내해 드릴게요.',
+    /**
+     * One-line hint that applying advances to the next field automatically, so
+     * the '적용 → 뷰어 복귀 → 다시 탭' round-trip is gone (SF3).
+     */
+    hint: '한 곳을 마치면 다음 서명할 곳으로 바로 넘어가요.',
+    /**
+     * Sequential position within the guided queue, e.g. "3곳 중 1곳째" (SF4).
+     * `total` (denominator) is the unfilled count snapshotted at entry — fixed so
+     * skipping (SF5) never makes it jitter; `current` is the 1-based position of
+     * the field the sheet is on. Distinct from the viewer's *cumulative* progress
+     * line ("서명할 항목 N곳 중 M곳을 작성했어요"), which stays unchanged — one is a
+     * position, the other a completed tally (SF4). Function-value copy per the
+     * `clause.cardPosition` / `verifyGreeting` precedent.
+     */
+    progress: (current: number, total: number): string =>
+      `${total}곳 중 ${current}곳째`,
+    /**
+     * `aria-live="polite"` line announced as the sheet auto-advances to the next
+     * field (SF4) — position + which kind of field is now due, so screen-reader
+     * users hear "what am I doing now". Uses `fieldNoun` for the type; phrased
+     * with '차례' to sidestep 을/를 particle agreement across types.
+     */
+    announce: (current: number, total: number, fieldNoun: string): string =>
+      `${total}곳 중 ${current}곳째, ${fieldNoun} 차례예요.`,
+    /** Short field-type nouns for the `announce` aria-live line (SF4). */
+    fieldNoun: {
+      SIGNATURE: '서명',
+      DATE: '날짜',
+      TEXT: '내용',
+    },
+    /**
+     * Save-less step back to the previous field for review/edit (SF5). Hidden/
+     * disabled on the first field. Distinct from '적용' (save + advance).
+     */
+    prev: '이전',
+    /**
+     * Save-less step forward to review an already-filled field (SF5, the '이전'
+     * counterpart). "Move without saving", as opposed to '적용'.
+     */
+    next: '다음',
+    /**
+     * Leave the current field unfilled for now and move on (SF5). The field stays
+     * in the queue and must be filled before completion — the progress line and
+     * `announce` keep signalling that something remains.
+     */
+    skip: '나중에',
+    /**
+     * Primary-action label on the LAST field: applying here saves and chains
+     * `complete()` (SF6), so the button reads as finishing rather than '적용'.
+     * Same value/role as the viewer's `viewerCtaComplete` — kept as its own key
+     * for this surface (the `verifyCta` precedent: same value, distinct role).
+     */
+    applyLast: '서명 완료',
+    /**
+     * Retry affordance when a field save fails and the flow blocks auto-advance
+     * (SF7). The error message itself REUSES `sheet.saveError` (`role="alert"`);
+     * this is just the action label to try the save again — distinct from
+     * `sheet.reset` ('다시', which clears the canvas).
+     */
+    retry: '다시 시도',
+  },
   /** Completion takeover chrome (same Toss voice as the rest). */
   done: {
     /** Celebration headline — mirrors the server's `completed` catalog entry. */
