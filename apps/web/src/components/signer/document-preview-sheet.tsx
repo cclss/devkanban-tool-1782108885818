@@ -45,7 +45,14 @@ type LoadStatus = 'loading' | 'ready' | 'error';
 export function DocumentPreviewSheet() {
   const { state, closePreview } = useSigner();
 
-  const title = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
+  // The `SheetTitle` is this dialog's accessible name (Radix labels the overlay by
+  // it). The document name is virtually always present here, but guard the empty
+  // case so the overlay is never announced as an unlabeled dialog — fall back to
+  // the trigger's own '전체 원문 보기' label (existing copy, no new string). `||`
+  // (not `??`) so an empty-string title is caught too.
+  const documentTitle =
+    state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
+  const title = documentTitle || SIGNER_COPY.clause.viewFull;
 
   return (
     <Sheet

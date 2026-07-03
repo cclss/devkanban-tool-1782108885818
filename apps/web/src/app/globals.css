@@ -198,7 +198,20 @@
   *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
+    /*
+     * Neutralize animation/transition delays too. Without this, a delayed
+     * animation still *waits* its delay before snapping to the end-state — so a
+     * staggered/fan-out effect flashes its live start-state for that interval
+     * before collapsing. The completion celebration is exactly this shape: each
+     * Confetti particle carries a 0–90ms fan delay and the SuccessCheck tick a
+     * 250ms draw delay, so a bare duration reset would still let the burst
+     * flicker at the origin (and the tick sit hidden) for a beat. A negative
+     * delay starts every animation already past its (now-instant) end, so
+     * Confetti lands invisible and the check reads fully drawn from frame one.
+     */
+    animation-delay: -1ms !important;
     transition-duration: 0.001ms !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 
