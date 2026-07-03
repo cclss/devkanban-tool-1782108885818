@@ -9,7 +9,6 @@ import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt } from 'crypto';
 import {
   DocumentStatus,
-  Plan,
   Prisma,
   SignRequestStatus,
   type Document,
@@ -18,7 +17,8 @@ import { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NotificationsService, type NotificationJob } from '../notifications/notifications.service';
-import { FREE_PLAN_MONTHLY_LIMIT, MESSAGES } from '../common/messages';
+import { MESSAGES } from '../common/messages';
+import { SendQuotaService } from '../common/send-quota.service';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
 import {
   artifactFilename,
@@ -37,6 +37,7 @@ export class DocumentsService {
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
+    private readonly sendQuota: SendQuotaService,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -157,7 +158,7 @@ export class DocumentsService {
       throw new BadRequestException(MESSAGES.send.noFields);
     }
 
-    await this.assertWithinQuota(ownerId);
+    await this.sendQuota.assertWithinQuota(ownerId);
 
     // Normalize recipient order: explicit `order` wins, else input order.
     const recipients = dto.recipients.map((r, i) => ({
@@ -171,7 +172,7 @@ export class DocumentsService {
 
     const result = await this.prisma.$transaction(async (tx) => {
       // Re-check quota inside the transaction to avoid a race past the limit.
-      await this.assertWithinQuota(ownerId, tx);
+      await this.sendQuota.assertWithinQuota(ownerId, tx);
 
       const createdRequests = [];
       for (const r of recipients) {
@@ -319,35 +320,11 @@ export class DocumentsService {
   }
 
   /** Remaining Free-plan sends this calendar month. */
-  async quota(ownerId: string): Promise<{ used: number; limit: number; remaining: number }> {
-    const used = await this.monthlySendCount(ownerId);
-    return { used, limit: FREE_PLAN_MONTHLY_LIMIT, remaining: Math.max(0, FREE_PLAN_MONTHLY_LIMIT - used) };
+  quota(ownerId: string): Promise<{ used: number; limit: number; remaining: number }> {
+    return this.sendQuota.quota(ownerId);
   }
 
   // --- internals ----------------------------------------------------------
-
-  private async assertWithinQuota(
-    ownerId: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<void> {
-    const client = tx ?? this.prisma;
-    const user = await client.user.findUnique({ where: { id: ownerId }, select: { plan: true } });
-    if (user?.plan && user.plan !== Plan.FREE) return; // Paid plans are unmetered here.
-
-    const used = await this.monthlySendCount(ownerId, tx);
-    if (used >= FREE_PLAN_MONTHLY_LIMIT) {
-      throw new ForbiddenException(MESSAGES.send.quotaExceeded);
-    }
-  }
-
-  private async monthlySendCount(ownerId: string, tx?: Prisma.TransactionClient): Promise<number> {
-    const client = tx ?? this.prisma;
-    const now = new Date();
-    const startOfMonth = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
-    return client.document.count({
-      where: { ownerId, sentAt: { gte: startOfMonth } },
-    });
-  }
 
   private async requireOwnedDocument(ownerId: string, documentId: string): Promise<Document> {
     const document = await this.prisma.document.findUnique({ where: { id: documentId } });
@@ -438,7 +415,8 @@ export interface DocumentSummary {
 export interface DocumentDetail extends DocumentSummary {
   recipients: Array<{
     id: string;
-    recipientEmail: string;
+    // Null for LINK-mode share links (no addressed recipient).
+    recipientEmail: string | null;
     recipientName: string | null;
     order: number;
     status: SignRequestStatus;

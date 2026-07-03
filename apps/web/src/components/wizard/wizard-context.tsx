@@ -5,12 +5,21 @@
  *
  * The shell (contract-wizard.tsx) owns the StepIndicator, step transitions, and
  * footer navigation; this module owns the *data* that flows across steps so each
- * step is a thin, stateless slot:
+ * step is a thin, stateless slot.
  *
- *   upload (grain-6)  → sets `document` + the local `file`
- *   place fields (7)  → sets `fields`
- *   recipients (8)    → sets `recipients`
- *   review/send (9)   → reads everything, dispatches the send
+ * The step sequence is not a fixed list — it forks on how the finished contract
+ * is delivered. Every contract shares the lead-in:
+ *
+ *   upload → place fields → delivery method
+ *
+ * then the chosen `deliveryMethod` decides the tail:
+ *
+ *   'email' → recipients → review/send   (the classic path)
+ *   'link'  → share link                 (generate a shareable link)
+ *
+ * Steps are addressed by a stable `StepKey`, never a raw index, so the branch
+ * can grow or shrink without index math drifting. `state.step` is still the
+ * cursor, but it indexes into `stepSequence(deliveryMethod)`.
  *
  * Steps never advance themselves: they populate state, and `canProceed()`
  * derives whether the shell's "다음" button unlocks. This keeps the gating in
@@ -43,9 +52,42 @@ export interface RecipientDraft {
   name: string;
 }
 
-/** Ordered wizard steps. The labels surface in the StepIndicator. */
-export const WIZARD_STEPS = ['업로드', '필드 배치', '받는 분', '발송 검토'] as const;
-export const LAST_STEP = WIZARD_STEPS.length - 1;
+/** How the finished contract reaches its signer. */
+export type DeliveryMethod = 'email' | 'link';
+
+/**
+ * A single wizard step, addressed by a stable key rather than a raw index so
+ * the sequence can branch on the chosen delivery method.
+ */
+export type StepKey = 'upload' | 'fields' | 'delivery' | 'recipients' | 'review' | 'link';
+
+/** Human labels for each step. These surface in the StepIndicator. */
+export const STEP_LABELS: Record<StepKey, string> = {
+  upload: '업로드',
+  fields: '필드 배치',
+  delivery: '전달 방법',
+  recipients: '받는 분',
+  review: '발송 검토',
+  link: '링크 공유',
+};
+
+/** Steps every contract passes through, up to the delivery-method fork. */
+const COMMON_STEPS: readonly StepKey[] = ['upload', 'fields', 'delivery'];
+/** Tail that follows an 'email' choice. */
+const EMAIL_STEPS: readonly StepKey[] = ['recipients', 'review'];
+/** Tail that follows a 'link' choice. */
+const LINK_STEPS: readonly StepKey[] = ['link'];
+
+/**
+ * The ordered step keys for the current delivery choice. Until a method is
+ * picked the sequence stops at 'delivery'; `canProceed()` keeps "다음" locked
+ * there so the flow can't run past an unmade branch decision.
+ */
+export function stepSequence(deliveryMethod: DeliveryMethod | null): readonly StepKey[] {
+  if (deliveryMethod === 'email') return [...COMMON_STEPS, ...EMAIL_STEPS];
+  if (deliveryMethod === 'link') return [...COMMON_STEPS, ...LINK_STEPS];
+  return COMMON_STEPS;
+}
 
 export interface WizardState {
   step: number;
@@ -57,6 +99,8 @@ export interface WizardState {
   file: File | null;
   fields: SignFieldDraft[];
   recipients: RecipientDraft[];
+  /** Chosen delivery path; null until the user picks at the 'delivery' step. */
+  deliveryMethod: DeliveryMethod | null;
 }
 
 export const initialWizardState: WizardState = {
@@ -66,6 +110,7 @@ export const initialWizardState: WizardState = {
   file: null,
   fields: [],
   recipients: [],
+  deliveryMethod: null,
 };
 
 type WizardAction =
@@ -75,10 +120,31 @@ type WizardAction =
   | { type: 'GO_BACK' }
   | { type: 'GO_TO'; step: number }
   | { type: 'SET_FIELDS'; fields: SignFieldDraft[] }
-  | { type: 'SET_RECIPIENTS'; recipients: RecipientDraft[] };
+  | { type: 'SET_RECIPIENTS'; recipients: RecipientDraft[] }
+  | { type: 'SET_DELIVERY_METHOD'; method: DeliveryMethod };
 
-function clampStep(step: number): number {
-  return Math.max(0, Math.min(LAST_STEP, step));
+/** Clamp a cursor into the sequence valid for the given delivery method. */
+function clampStep(step: number, deliveryMethod: DeliveryMethod | null): number {
+  const last = stepSequence(deliveryMethod).length - 1;
+  return Math.max(0, Math.min(last, step));
+}
+
+/** The key of the step the cursor currently sits on. */
+export function currentStepKey(state: WizardState): StepKey {
+  const seq = stepSequence(state.deliveryMethod);
+  return seq[state.step] ?? seq[seq.length - 1]!;
+}
+
+/**
+ * Whether the active step is the terminal step of a chosen delivery branch.
+ * Terminal steps ('발송 검토' / '링크 공유') render their own CTA, so the shell
+ * hides its footer "다음" there. The 'delivery' fork is never terminal — even
+ * though it is transiently the last entry while no method is chosen, it still
+ * needs "다음" to move into the selected branch.
+ */
+export function isLastStep(state: WizardState): boolean {
+  if (state.deliveryMethod === null) return false;
+  return state.step === stepSequence(state.deliveryMethod).length - 1;
 }
 
 export function wizardReducer(state: WizardState, action: WizardAction): WizardState {
@@ -90,21 +156,29 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     case 'CLEAR_DOCUMENT':
       return { ...state, document: null, file: null, fields: [] };
     case 'GO_NEXT': {
-      const step = clampStep(state.step + 1);
+      const step = clampStep(state.step + 1, state.deliveryMethod);
       return { ...state, step, direction: 1 };
     }
     case 'GO_BACK': {
-      const step = clampStep(state.step - 1);
+      const step = clampStep(state.step - 1, state.deliveryMethod);
       return { ...state, step, direction: -1 };
     }
     case 'GO_TO': {
-      const step = clampStep(action.step);
+      const step = clampStep(action.step, state.deliveryMethod);
       return { ...state, step, direction: step >= state.step ? 1 : -1 };
     }
     case 'SET_FIELDS':
       return { ...state, fields: action.fields };
     case 'SET_RECIPIENTS':
       return { ...state, recipients: action.recipients };
+    case 'SET_DELIVERY_METHOD':
+      // Chosen at the 'delivery' step (a common step present in every branch),
+      // so the cursor stays valid; re-clamp defensively in case the tail shrank.
+      return {
+        ...state,
+        deliveryMethod: action.method,
+        step: clampStep(state.step, action.method),
+      };
     default:
       return state;
   }
@@ -112,16 +186,20 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
 
 /** Whether the current step is complete enough to advance. */
 export function canProceed(state: WizardState): boolean {
-  switch (state.step) {
-    case 0:
+  switch (currentStepKey(state)) {
+    case 'upload':
       return state.document !== null;
-    case 1:
+    case 'fields':
       return state.fields.length > 0;
-    case 2:
+    case 'delivery':
+      // Locks "다음" until the user picks how the contract is delivered.
+      return state.deliveryMethod !== null;
+    case 'recipients':
       // Need ≥1 recipient and every recipient passing inline validation
       // (email present, well-formed, no duplicates).
       return recipientsComplete(state.recipients);
     default:
+      // 'review' / 'link' terminals own their CTA; nothing to gate here.
       return true;
   }
 }
