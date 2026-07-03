@@ -13,6 +13,7 @@
   },
   "dependencies": {
     "@radix-ui/react-slot": "^1.1.1",
+    "@repo/db": "workspace:*",
     "@repo/ui": "workspace:*",
     "next": "^15.1.2",
     "pdfjs-dist": "4.8.69",

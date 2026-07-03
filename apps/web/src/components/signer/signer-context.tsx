@@ -21,15 +21,18 @@
  */
 
 import * as React from 'react';
+import type { ClauseExtractionStatus } from '@repo/db';
 import { ApiError } from '@/lib/api';
 import {
   completeSigning,
+  fetchClauses,
   fetchMeta,
   fetchPayload,
   getSignerSession,
   setSignerSession,
   verifyCode,
   SIGNER_COPY,
+  type ClauseCard,
   type SigningMeta,
   type SigningPayload,
 } from '@/lib/signing';
@@ -69,6 +72,18 @@ export interface SignerState {
   activeFieldId: string | null;
   /** Set once `complete` succeeds: whether the whole document is now finalized. */
   documentCompleted: boolean;
+  /**
+   * AI-extracted key-clause cards (M2), fetched right after a successful verify.
+   * `null` while the fetch is in flight; an empty array once it settles with no
+   * cards — the signal to fall back to the full-PDF view.
+   */
+  clauses: ClauseCard[] | null;
+  /**
+   * The document's cached clause-extraction status echoed by the server (or
+   * `FAILED` when the fetch itself errors/times out). `null` until the clause
+   * fetch settles; any non-`READY` value means "no cards — use the PDF view".
+   */
+  clauseStatus: ClauseExtractionStatus | null;
 }
 
 const initialState: SignerState = {
@@ -79,12 +94,15 @@ const initialState: SignerState = {
   fieldValues: {},
   activeFieldId: null,
   documentCompleted: false,
+  clauses: null,
+  clauseStatus: null,
 };
 
 type SignerAction =
   | { type: 'META_OK'; meta: SigningMeta }
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
   | { type: 'VERIFIED'; payload: SigningPayload }
+  | { type: 'CLAUSES_OK'; clauses: ClauseCard[]; clauseStatus: ClauseExtractionStatus }
   | { type: 'GO_SIGNING' }
   | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'OPEN_FIELD'; fieldId: string }
@@ -104,6 +122,10 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
       };
     case 'VERIFIED':
       return { ...state, phase: 'viewing', payload: action.payload };
+    case 'CLAUSES_OK':
+      // Clause cards land after the viewer is already reachable — they only
+      // populate the reminder data, never the phase.
+      return { ...state, clauses: action.clauses, clauseStatus: action.clauseStatus };
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
@@ -199,6 +221,23 @@ export function SignerProvider({
       // Hand the signer's fields + (implicit) session to the viewer.
       const payload = await fetchPayload(token, sessionToken);
       dispatch({ type: 'VERIFIED', payload });
+      // Clause cards are an auxiliary reminder, not a gate: load them in the
+      // background right after the viewer is reachable, and never let a failure
+      // undo the verified state. A rejection (network / timeout) — like a
+      // server-signalled non-READY status — falls back to an empty card set so
+      // the flow degrades to the full-PDF view. Deliberately not awaited: this
+      // must not delay or reject the `verify()` the screen is awaiting.
+      void fetchClauses(token, sessionToken)
+        .then((result) =>
+          dispatch({
+            type: 'CLAUSES_OK',
+            clauses: result.clauses,
+            clauseStatus: result.status,
+          }),
+        )
+        .catch(() =>
+          dispatch({ type: 'CLAUSES_OK', clauses: [], clauseStatus: 'FAILED' }),
+        );
     },
     [token],
   );

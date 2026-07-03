@@ -17,12 +17,15 @@
  * and intentionally mirror the server's signing catalog so the voice stays one.
  */
 
+import type { ClauseExtractionStatus } from '@repo/db';
 import { ApiError, apiDownload, apiFetch, apiUrl } from './api';
 import {
   COMPLETION_DOWNLOAD_COPY,
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
+
+export type { ClauseExtractionStatus };
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -76,6 +79,33 @@ export interface SigningPayload {
   pageCount: number;
   pdfPath: string;
   fields: SigningPayloadField[];
+}
+
+/**
+ * One AI-extracted key clause, rendered as a swipeable card (M2). Mirrors the
+ * server's `ClauseCard` DTO (`SigningService`). The card is an *auxiliary*
+ * reminder — legal effect stays with the source document, which the signer can
+ * open at any time via the full-PDF view (`sourcePage` grounds each card there).
+ * `caution` flags a clause worth a second look; `cautionReason` is a fixed label
+ * (or `null` when `caution` is false).
+ */
+export interface ClauseCard {
+  title: string;
+  summary: string;
+  sourcePage: number;
+  caution: boolean;
+  cautionReason: string | null;
+}
+
+/**
+ * Clause-cards response contract (mirrors `SigningService.clauses`). `status`
+ * echoes the document's cached extraction state; only `READY` carries a
+ * non-empty `clauses` array. Every other status (`EMPTY`/`FAILED`/`PENDING`)
+ * returns an empty array as the signal to fall back to the full-PDF view.
+ */
+export interface ClauseCardsResult {
+  status: ClauseExtractionStatus;
+  clauses: ClauseCard[];
 }
 
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
@@ -239,6 +269,23 @@ export function fetchPayload(
   sessionToken: string,
 ): Promise<SigningPayload> {
   return apiFetch<SigningPayload>(`${base(accessToken)}/payload`, {
+    token: sessionToken,
+  });
+}
+
+/**
+ * ③b The AI-extracted key-clause cards for this signing (session required).
+ * Read straight from the send-time cache — never generated on link-open. The
+ * server always resolves with a `ClauseCardsResult`: only `READY` carries cards,
+ * every other status returns an empty array as the fallback signal. Callers
+ * treat a rejection (network / non-ready / timeout) the same as an empty result
+ * — the clause cards are a reminder aid, never a gate on reaching the document.
+ */
+export function fetchClauses(
+  accessToken: string,
+  sessionToken: string,
+): Promise<ClauseCardsResult> {
+  return apiFetch<ClauseCardsResult>(`${base(accessToken)}/clauses`, {
     token: sessionToken,
   });
 }
