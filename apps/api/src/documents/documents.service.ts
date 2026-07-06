@@ -77,7 +77,7 @@ export class DocumentsService {
 
     // Auto-trigger tiered field analysis in the background; the bytes are already
     // in hand, so hand them straight to the orchestration (never blocks upload).
-    this.fieldAnalysis.analyzeInBackground(ownerId, document.id, async () => file.buffer);
+    this.fieldAnalysis.analyzeInBackground(document.id, async () => file.buffer);
 
     return this.toSummary(document, 0);
   }
@@ -114,7 +114,7 @@ export class DocumentsService {
 
     // Auto-trigger tiered field analysis in the background. The bytes live in
     // storage for this path, so defer the read into the background task.
-    this.fieldAnalysis.analyzeInBackground(ownerId, document.id, () =>
+    this.fieldAnalysis.analyzeInBackground(document.id, () =>
       this.storage.read(dto.storageKey),
     );
 
