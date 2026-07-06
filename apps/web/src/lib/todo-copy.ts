@@ -14,6 +14,7 @@
 import type { NextAction, Urgency } from './documents';
 import type { DashboardSummaryCopy } from '@/components/dashboard-summary';
 import type { ViewSwitcherCopy } from '@/components/view-switcher';
+import type { KanbanBoardCopy } from '@/components/kanban-board';
 
 /**
  * Urgency labels — shared verbatim by the UrgencyBadge and the summary cards so
@@ -104,12 +105,21 @@ export const VIEW_SWITCHER_COPY: ViewSwitcherCopy = {
 };
 
 /**
- * Temporary copy for the kanban mount point until grain-2 renders the actual
- * board (status columns 초안/진행 중/완료). Centralized here — rather than
- * hardcoded in the page — so the switch-target has no stray user-facing string;
- * grain-2 replaces this whole placeholder. Base voice: calm, states what's coming
- * without hype or urgency.
+ * Kanban board copy (todo-copy.md "칸반 컬럼 라벨"). Column headers reuse the
+ * project's established status vocabulary — 작성 중 / 진행 중 / 완료됨 / 취소됨,
+ * the same words as the server's DOCUMENT_STATUS_LABEL and the StatusBadge — so a
+ * status reads with the same word on every screen (base voice: never say a state
+ * differently per screen). `countUnit` "건" matches the summary cards; the empty-
+ * column line states calmly that the column has nothing, giving no false urgency.
  */
-export const KANBAN_PLACEHOLDER_COPY = {
-  message: '칸반 보드가 곧 여기에 표시돼요.',
+export const KANBAN_BOARD_COPY: KanbanBoardCopy = {
+  columnLabel: {
+    DRAFT: '작성 중',
+    IN_PROGRESS: '진행 중',
+    COMPLETED: '완료됨',
+    CANCELLED: '취소됨',
+  },
+  countUnit: '건',
+  emptyColumn: '이 상태의 계약이 없어요.',
+  boardLabel: '칸반 보드',
 };

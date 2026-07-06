@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Button,
@@ -15,14 +14,13 @@ import {
   DialogTitle,
   Skeleton,
 } from '@repo/ui';
-import { StatusBadge } from '@/components/status-badge';
-import { UrgencyBadge } from '@/components/urgency-badge';
+import { ContractCard } from '@/components/contract-card';
 import {
   DashboardSummary,
   SUMMARY_FILTERS,
   type SummaryFilterKey,
 } from '@/components/dashboard-summary';
-import { CompletionDownload } from '@/components/completion-download';
+import { KanbanBoard } from '@/components/kanban-board';
 import { OnboardingGuide } from '@/components/onboarding-guide';
 import { ViewSwitcher } from '@/components/view-switcher';
 import { ApiError } from '@/lib/api';
@@ -31,22 +29,17 @@ import { readViewMode, writeViewMode, type ViewMode } from '@/lib/view-mode';
 import { ONBOARDING_COPY } from '@/lib/onboarding-copy';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
-  downloadOwnerArtifact,
   fetchDocuments,
   fetchQuota,
   takeSentSignal,
   type DocumentSummary,
-  type NextAction,
   type Quota,
   type Urgency,
 } from '@/lib/documents';
 import {
   FILTERED_EMPTY_COPY,
-  KANBAN_PLACEHOLDER_COPY,
-  nextActionCopy,
-  pendingSignerLabel,
+  KANBAN_BOARD_COPY,
   SUMMARY_COPY,
-  urgencyLabel,
   VIEW_SWITCHER_COPY,
 } from '@/lib/todo-copy';
 
@@ -231,13 +224,19 @@ export default function DashboardPage() {
               />
             </div>
           ) : null}
-          {/* Pure conditional render: kanban swaps only the body (grain-2 fills the
-              mount point). `filter`, loaded `documents`, and load state are all held
-              by the parent and untouched, so switching loses no context. Loading /
+          {/* Pure conditional render: kanban swaps only the body. `filter`, loaded
+              `documents`, and load state are all held by the parent and untouched,
+              so switching loses no context. The board lays out the *same* `visible`
+              set the list shows (filtered by the active summary card + urgency-
+              sorted), so the filter applies identically in both views. Loading /
               empty / onboarding / error all flow through DashboardBody (the list
               path) — there is nothing to lay out on a board until contracts load. */}
-          {documents && documents.length > 0 && viewMode === 'kanban' ? (
-            <KanbanPlaceholder />
+          {documents && documents.length > 0 && viewMode === 'kanban' && visible ? (
+            <KanbanBoard
+              documents={visible}
+              copy={KANBAN_BOARD_COPY}
+              highlightId={highlightId}
+            />
           ) : (
             <DashboardBody
               documents={documents}
@@ -437,128 +436,6 @@ function DashboardBody({
   );
 }
 
-function ContractCard({ document, highlighted }: { document: DocumentSummary; highlighted: boolean }) {
-  const completed = document.status === 'COMPLETED';
-  const href = `/contracts/${document.id}`;
-  const cardClass =
-    'flex flex-col gap-md p-lg transition-shadow ' + (highlighted ? 'ring-2 ring-focus' : '');
-
-  // Completed cards hold their own interactive download buttons, so the whole
-  // card can't be a link (no nested interactives). Only the header row navigates;
-  // the download area stays a separate, unaffected region below it.
-  if (completed) {
-    return (
-      <Card className={cardClass}>
-        <Link
-          href={href}
-          className="-m-2xs flex items-center gap-md rounded-md p-2xs transition-colors duration-fast ease-standard hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
-        >
-          <CardHeaderRow document={document} completed />
-        </Link>
-        <CompletionDownload
-          className="border-t border-border pt-md"
-          ready={document.downloadsReady}
-          completedAt={document.completedAt}
-          statusLabel={document.statusLabel}
-          onDownload={(kind) => downloadOwnerArtifact(document.id, kind, document.title)}
-        />
-      </Card>
-    );
-  }
-
-  // Non-completed cards have no inner interactives, so the entire card navigates.
-  return (
-    <Link
-      href={href}
-      className="block rounded-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
-    >
-      <Card interactive className={cardClass}>
-        <div className="flex items-center gap-md">
-          <CardHeaderRow document={document} completed={false} />
-        </div>
-      </Card>
-    </Link>
-  );
-}
-
-function CardHeaderRow({ document, completed }: { document: DocumentSummary; completed: boolean }) {
-  return (
-    <>
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
-        <DocumentIcon />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-2xs">
-        <div className="flex flex-wrap items-center gap-xs">
-          <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
-          {/* Completed cards carry the 완료됨 badge inside the download area
-              below, so the title row omits it to avoid a duplicate badge. */}
-          {!completed ? (
-            <StatusBadge status={document.status} label={document.statusLabel} />
-          ) : null}
-          {/* Urgency rides on a separate axis next to the lifecycle status; it
-              renders nothing for NORMAL (incl. completed/cancelled). */}
-          <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency)} />
-        </div>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
-      </div>
-      {/* The single next action. Completed cards render DOWNLOAD via the download
-          area below, so the hint is shown only for non-completed cards. */}
-      {!completed ? <NextActionHint action={document.nextAction} /> : null}
-      <ChevronIcon />
-    </>
-  );
-}
-
-/**
- * The document's single next action as a compact hint (copy: todo-copy.md). CTAs
- * (발송하기 / 내려받기) read as a primary-tinted pill — the whole card is the
- * link that opens the contract where the action lives, so this is a visual
- * affordance, not a nested interactive. `AWAITING_SIGN` is a passive status label
- * (no owner action right now — no reminder feature); CANCELLED renders nothing.
- */
-function NextActionHint({ action }: { action: NextAction | null }) {
-  const copy = nextActionCopy(action);
-  if (!copy) return null;
-  if (copy.kind === 'status') {
-    return (
-      <span className="shrink-0 text-sm font-medium text-foreground-subtle">{copy.label}</span>
-    );
-  }
-  return (
-    <span className="shrink-0 rounded-full bg-primary-subtle px-sm py-2xs text-sm font-semibold text-primary">
-      {copy.label}
-    </span>
-  );
-}
-
-function metaLine(doc: DocumentSummary): string {
-  const parts: string[] = [];
-  if (doc.recipientCount > 0) parts.push(`받는 분 ${doc.recipientCount}명`);
-  // Signers still awaited (omitted at 0 — see todo-copy.md).
-  const pending = pendingSignerLabel(doc.pendingSignerCount);
-  if (pending) parts.push(pending);
-  if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
-  const sent = doc.status !== 'DRAFT' && doc.sentAt;
-  const when = formatRelative(sent ? (doc.sentAt as string) : doc.createdAt);
-  parts.push(sent ? `${when} 발송` : `${when} 생성`);
-  return parts.join(' · ');
-}
-
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return '방금 전';
-  if (min < 60) return `${min}분 전`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}일 전`;
-  const d = new Date(then);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
-}
-
 function SkeletonList() {
   return (
     <ul className="flex flex-col gap-sm" aria-hidden="true">
@@ -594,24 +471,6 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-/**
- * Temporary mount point for the kanban view. grain-2 replaces this with the real
- * board (documents laid out in status columns 초안/진행 중/완료). Kept intentionally
- * thin — it only needs to be the switch target so the 목록↔칸반 toggle works and
- * preserves context now; the copy comes from the central module (no hardcoded
- * string), consistent with base voice principle 6.
- */
-function KanbanPlaceholder() {
-  return (
-    <Card
-      className="flex flex-col items-center gap-md px-lg py-3xl text-center"
-      aria-label="칸반 보드"
-    >
-      <p className="text-base text-foreground-subtle">{KANBAN_PLACEHOLDER_COPY.message}</p>
-    </Card>
-  );
-}
-
 function FilteredEmptyState({ onClearFilter }: { onClearFilter: () => void }) {
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
@@ -631,28 +490,6 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         다시 시도
       </Button>
     </Card>
-  );
-}
-
-function DocumentIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="M14 3v5h5M8.5 13h7M8.5 16.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-grey-400" fill="none" aria-hidden="true">
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 
