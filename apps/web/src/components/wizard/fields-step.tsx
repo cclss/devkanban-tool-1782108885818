@@ -64,6 +64,8 @@ export function FieldsStep() {
   const [promptDismissed, setPromptDismissed] = React.useState(false);
   /** The premium re-request is in flight (Story 2 consent). */
   const [promptBusy, setPromptBusy] = React.useState(false);
+  /** The initial analysis request is in flight — surfaces the calm "분석 중" notice. */
+  const [analyzing, setAnalyzing] = React.useState(false);
   const seededDocIdRef = React.useRef<string | null>(null);
 
   const setFields = React.useCallback(
@@ -81,12 +83,14 @@ export function FieldsStep() {
     if (seededDocIdRef.current === documentId) return;
     seededDocIdRef.current = documentId;
     setPromptDismissed(false);
+    setAnalyzing(true);
     let cancelled = false;
     void fetchFieldAnalysis(documentId, getToken() ?? undefined).then(({ drafts, status }) => {
       if (cancelled) return;
       if (drafts.length > 0) dispatch({ type: 'SEED_AI_SUGGESTIONS', fields: drafts });
       setAiSeededCount(drafts.length);
       setAnalysisStatus(status);
+      setAnalyzing(false);
     });
     return () => {
       cancelled = true;
@@ -184,10 +188,27 @@ export function FieldsStep() {
           onAccept={acceptPremium}
           onDismiss={placeManually}
         />
+      ) : analyzing ? (
+        /* AI analysis is running (Story 1/2). A calm, non-blocking notice — the
+           editor is already usable for manual placement while it resolves, and the
+           status is announced to assistive tech. Which engine runs (scan vs text)
+           stays hidden per the AI copy tone. */
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center gap-sm rounded-md border border-ai/30 bg-ai-subtle px-sm py-xs"
+        >
+          <AiSuggestionBadge />
+          <p className="text-sm font-medium text-ai-strong">{AI_COPY.analysis.analyzing}</p>
+        </div>
       ) : aiFieldCount > 0 ? (
         /* AI-suggestion notice. While suggestions are on the canvas, a calm banner
            states what the AI proposed and offers a one-tap "clear all". */
-        <div className="flex flex-wrap items-center gap-sm rounded-md border border-ai/30 bg-ai-subtle px-sm py-xs">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex flex-wrap items-center gap-sm rounded-md border border-ai/30 bg-ai-subtle px-sm py-xs"
+        >
           <AiSuggestionBadge />
           <p className="text-sm font-medium text-ai-strong">
             {AI_COPY.suggestion.placed(aiFieldCount)}
@@ -206,7 +227,9 @@ export function FieldsStep() {
       ) : aiSeededCount === 0 ? (
         /* Analysis found nothing to place — a subtle line hands control back to
            the sender. Also the state after declining the premium prompt. */
-        <p className="text-sm text-foreground-subtle">{AI_COPY.suggestion.none}</p>
+        <p role="status" aria-live="polite" className="text-sm text-foreground-subtle">
+          {AI_COPY.suggestion.none}
+        </p>
       ) : null}
 
       {/* Calm "N free trials remaining" note after a trial run (Story 2 tail). */}
