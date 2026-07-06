@@ -24,8 +24,10 @@ import {
 } from '@/components/dashboard-summary';
 import { CompletionDownload } from '@/components/completion-download';
 import { OnboardingGuide } from '@/components/onboarding-guide';
+import { ViewSwitcher } from '@/components/view-switcher';
 import { ApiError } from '@/lib/api';
 import { isOnboardingComplete, markOnboardingComplete } from '@/lib/onboarding';
+import { readViewMode, writeViewMode, type ViewMode } from '@/lib/view-mode';
 import { ONBOARDING_COPY } from '@/lib/onboarding-copy';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
@@ -40,10 +42,12 @@ import {
 } from '@/lib/documents';
 import {
   FILTERED_EMPTY_COPY,
+  KANBAN_PLACEHOLDER_COPY,
   nextActionCopy,
   pendingSignerLabel,
   SUMMARY_COPY,
   urgencyLabel,
+  VIEW_SWITCHER_COPY,
 } from '@/lib/todo-copy';
 
 /**
@@ -72,6 +76,12 @@ export default function DashboardPage() {
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
   // Active summary-card filter, or null when the list is unfiltered.
   const [filter, setFilter] = React.useState<SummaryFilterKey | null>(null);
+  // 목록/칸반 view choice. Switching is a pure conditional render — it never
+  // resets `filter`, refetches, or drops the loaded `documents` (context is
+  // preserved). Persisted to localStorage so it survives a reload; the persisted
+  // value only *seeds* this once after mount (below) and never clobbers an
+  // in-session choice.
+  const [viewMode, setViewMode] = React.useState<ViewMode>('list');
   // First-run onboarding: whether the welcome guide has been permanently retired.
   // Read once from persistence after mount (client-only, so no SSR/hydration read);
   // flips to true the moment the first real contract appears and never back.
@@ -127,6 +137,22 @@ export default function DashboardPage() {
     if (!ready) return;
     setOnboardingComplete(isOnboardingComplete());
   }, [ready]);
+
+  // Seed the view choice from persistence once, after mount (client-only, so no
+  // SSR/hydration read). This only initializes the session's view; every later
+  // switch flows through `changeViewMode` and is never reset by this effect.
+  React.useEffect(() => {
+    if (!ready) return;
+    setViewMode(readViewMode());
+  }, [ready]);
+
+  // Switch views: update session state and persist the choice. A pure state flip —
+  // it deliberately leaves `filter`, `documents`, and load state untouched, so the
+  // 목록↔칸반 switch loses no context and triggers no refetch.
+  const changeViewMode = React.useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    writeViewMode(mode);
+  }, []);
 
   // Permanently retire the first-run guide the moment the first real contract
   // lands in the list — including a DRAFT created by upload (documents.length > 0).
@@ -184,26 +210,47 @@ export default function DashboardPage() {
         <PlanUsage quota={quota} plan={user?.plan} className="mt-lg" />
 
         <section className="mt-xl" aria-label="계약 목록">
+          {/* The switcher + summary sit at the top of the list section. Both only
+              appear once contracts exist — with an empty/onboarding dashboard there
+              is nothing to switch between. The summary stays mounted in both views
+              so its filter (context) persists across a 목록↔칸반 switch. */}
           {documents && documents.length > 0 ? (
-            <DashboardSummary
-              documents={documents}
-              copy={SUMMARY_COPY}
-              selected={filter}
-              onSelect={setFilter}
-              className="mb-lg"
-            />
+            <div className="mb-lg flex flex-col gap-md">
+              <div className="flex justify-end">
+                <ViewSwitcher
+                  value={viewMode}
+                  onChange={changeViewMode}
+                  copy={VIEW_SWITCHER_COPY}
+                />
+              </div>
+              <DashboardSummary
+                documents={documents}
+                copy={SUMMARY_COPY}
+                selected={filter}
+                onSelect={setFilter}
+              />
+            </div>
           ) : null}
-          <DashboardBody
-            documents={documents}
-            visible={visible}
-            filtered={filter !== null}
-            onClearFilter={() => setFilter(null)}
-            error={error}
-            highlightId={highlightId}
-            showOnboarding={showOnboarding}
-            onRetry={() => void load()}
-            onCreate={() => router.push(NEW_CONTRACT_ROUTE)}
-          />
+          {/* Pure conditional render: kanban swaps only the body (grain-2 fills the
+              mount point). `filter`, loaded `documents`, and load state are all held
+              by the parent and untouched, so switching loses no context. Loading /
+              empty / onboarding / error all flow through DashboardBody (the list
+              path) — there is nothing to lay out on a board until contracts load. */}
+          {documents && documents.length > 0 && viewMode === 'kanban' ? (
+            <KanbanPlaceholder />
+          ) : (
+            <DashboardBody
+              documents={documents}
+              visible={visible}
+              filtered={filter !== null}
+              onClearFilter={() => setFilter(null)}
+              error={error}
+              highlightId={highlightId}
+              showOnboarding={showOnboarding}
+              onRetry={() => void load()}
+              onCreate={() => router.push(NEW_CONTRACT_ROUTE)}
+            />
+          )}
         </section>
       </main>
     </div>
@@ -543,6 +590,24 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       <Button size="lg" onClick={onCreate}>
         새 계약 생성
       </Button>
+    </Card>
+  );
+}
+
+/**
+ * Temporary mount point for the kanban view. grain-2 replaces this with the real
+ * board (documents laid out in status columns 초안/진행 중/완료). Kept intentionally
+ * thin — it only needs to be the switch target so the 목록↔칸반 toggle works and
+ * preserves context now; the copy comes from the central module (no hardcoded
+ * string), consistent with base voice principle 6.
+ */
+function KanbanPlaceholder() {
+  return (
+    <Card
+      className="flex flex-col items-center gap-md px-lg py-3xl text-center"
+      aria-label="칸반 보드"
+    >
+      <p className="text-base text-foreground-subtle">{KANBAN_PLACEHOLDER_COPY.message}</p>
     </Card>
   );
 }

@@ -13,6 +13,7 @@
 
 import type { NextAction, Urgency } from './documents';
 import type { DashboardSummaryCopy } from '@/components/dashboard-summary';
+import type { ViewSwitcherCopy } from '@/components/view-switcher';
 
 /**
  * Urgency labels — shared verbatim by the UrgencyBadge and the summary cards so
@@ -86,4 +87,29 @@ export const SUMMARY_COPY: DashboardSummaryCopy = {
 export const FILTERED_EMPTY_COPY = {
   message: '이 조건에 해당하는 계약이 없어요.',
   clear: '전체 보기',
+};
+
+/**
+ * View switcher labels (todo-copy.md "뷰 전환 라벨"). The dashboard shows its
+ * contracts as a TO-DO 목록 (list) or a 칸반 (kanban) board; the ViewSwitcher takes
+ * these as props so it never owns the wording. `groupLabel` names the control for
+ * screen readers. Plain nouns, aligned with the calm base voice — no verbs/urgency.
+ */
+export const VIEW_SWITCHER_COPY: ViewSwitcherCopy = {
+  label: {
+    list: '목록',
+    kanban: '칸반',
+  },
+  groupLabel: '뷰 전환',
+};
+
+/**
+ * Temporary copy for the kanban mount point until grain-2 renders the actual
+ * board (status columns 초안/진행 중/완료). Centralized here — rather than
+ * hardcoded in the page — so the switch-target has no stray user-facing string;
+ * grain-2 replaces this whole placeholder. Base voice: calm, states what's coming
+ * without hype or urgency.
+ */
+export const KANBAN_PLACEHOLDER_COPY = {
+  message: '칸반 보드가 곧 여기에 표시돼요.',
 };
