@@ -126,3 +126,10 @@ export const SHARE_LINK_MAX_EXPIRY_DAYS = 365;
 
 /** Free plan monthly send limit. */
 export const FREE_PLAN_MONTHLY_LIMIT = 5;
+
+/**
+ * Free-trial allowance for the premium Vision/LLM auto-field placement engine,
+ * per user account. After this many trials a non-premium user must upgrade to
+ * keep using the engine. Premium plans (PRO/ENTERPRISE) are unmetered.
+ */
+export const VISION_TRIAL_LIMIT = 2;

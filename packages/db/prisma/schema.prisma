@@ -25,6 +25,11 @@ model User {
   brandLogoUrl String?  @map("brand_logo_url")
   brandColor   String?  @map("brand_color")
   plan         Plan     @default(FREE)
+  // Premium Vision/LLM auto-field engine free-trial meter. Counts how many
+  // trials this account has consumed; capped at VISION_TRIAL_LIMIT (2) by the
+  // application layer via an atomic guarded increment (see VisionTrialService).
+  // Premium plans (PRO/ENTERPRISE) are unmetered and never consume this counter.
+  visionTrialsUsed Int  @default(0) @map("vision_trials_used")
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
 
