@@ -16,6 +16,12 @@ import {
   Skeleton,
 } from '@repo/ui';
 import { StatusBadge } from '@/components/status-badge';
+import { UrgencyBadge } from '@/components/urgency-badge';
+import {
+  DashboardSummary,
+  SUMMARY_FILTERS,
+  type SummaryFilterKey,
+} from '@/components/dashboard-summary';
 import { CompletionDownload } from '@/components/completion-download';
 import { ApiError } from '@/lib/api';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
@@ -25,8 +31,29 @@ import {
   fetchQuota,
   takeSentSignal,
   type DocumentSummary,
+  type NextAction,
   type Quota,
+  type Urgency,
 } from '@/lib/documents';
+import {
+  FILTERED_EMPTY_COPY,
+  nextActionCopy,
+  pendingSignerLabel,
+  SUMMARY_COPY,
+  urgencyLabel,
+} from '@/lib/todo-copy';
+
+/**
+ * Dashboard list ordering by urgency (design-spec/components/urgency-badge/base.md
+ * — "목록 기본 정렬(OVERDUE 우선)"): OVERDUE first, then DUE_SOON, then NORMAL.
+ * Array.prototype.sort is stable, so within one urgency the API's newest-first
+ * order is preserved.
+ */
+const URGENCY_ORDER: Record<Urgency, number> = { OVERDUE: 0, DUE_SOON: 1, NORMAL: 2 };
+
+function sortByUrgency(docs: DocumentSummary[]): DocumentSummary[] {
+  return [...docs].sort((a, b) => URGENCY_ORDER[a.urgency] - URGENCY_ORDER[b.urgency]);
+}
 
 const NEW_CONTRACT_ROUTE = '/contracts/new';
 
@@ -40,6 +67,8 @@ export default function DashboardPage() {
   const [error, setError] = React.useState<string | null>(null);
   // Id of a just-sent contract to highlight after an optimistic prepend.
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
+  // Active summary-card filter, or null when the list is unfiltered.
+  const [filter, setFilter] = React.useState<SummaryFilterKey | null>(null);
 
   // Bounce unauthenticated visitors to login before any data work.
   React.useEffect(() => {
@@ -92,6 +121,15 @@ export default function DashboardPage() {
     return () => window.clearTimeout(t);
   }, [highlightId]);
 
+  // The rendered list: filtered by the active summary card (same predicate the
+  // cards count with, so "card count === filtered list count"), then ordered by
+  // urgency (OVERDUE first). Counts on the summary cards use the *full* list.
+  const visible = React.useMemo(() => {
+    if (!documents) return null;
+    const filtered = filter ? documents.filter(SUMMARY_FILTERS[filter]) : documents;
+    return sortByUrgency(filtered);
+  }, [documents, filter]);
+
   if (!ready) return null;
 
   return (
@@ -114,8 +152,20 @@ export default function DashboardPage() {
         <PlanUsage quota={quota} plan={user?.plan} className="mt-lg" />
 
         <section className="mt-xl" aria-label="계약 목록">
+          {documents && documents.length > 0 ? (
+            <DashboardSummary
+              documents={documents}
+              copy={SUMMARY_COPY}
+              selected={filter}
+              onSelect={setFilter}
+              className="mb-lg"
+            />
+          ) : null}
           <DashboardBody
             documents={documents}
+            visible={visible}
+            filtered={filter !== null}
+            onClearFilter={() => setFilter(null)}
             error={error}
             highlightId={highlightId}
             onRetry={() => void load()}
@@ -242,12 +292,21 @@ function QuotaBar({ quota }: { quota: Quota | null }) {
 
 function DashboardBody({
   documents,
+  visible,
+  filtered,
+  onClearFilter,
   error,
   highlightId,
   onRetry,
   onCreate,
 }: {
+  /** The full list — drives the null/empty (no-contracts) states. */
   documents: DocumentSummary[] | null;
+  /** The filtered + urgency-sorted list actually rendered. */
+  visible: DocumentSummary[] | null;
+  /** Whether a summary-card filter is active. */
+  filtered: boolean;
+  onClearFilter: () => void;
   error: string | null;
   highlightId: string | null;
   onRetry: () => void;
@@ -257,15 +316,20 @@ function DashboardBody({
   if (error && (!documents || documents.length === 0)) {
     return <ErrorState message={error} onRetry={onRetry} />;
   }
-  if (documents === null) {
+  if (documents === null || visible === null) {
     return <SkeletonList />;
   }
   if (documents.length === 0) {
     return <EmptyState onCreate={onCreate} />;
   }
+  // Contracts exist, but none match the active filter — say so calmly and offer
+  // the next action (clear the filter), rather than the wrong "no contracts yet".
+  if (visible.length === 0 && filtered) {
+    return <FilteredEmptyState onClearFilter={onClearFilter} />;
+  }
   return (
     <ul className="motion-stagger flex flex-col gap-sm">
-      {documents.map((doc, i) => (
+      {visible.map((doc, i) => (
         <li
           key={doc.id}
           style={{ ['--stagger-index' as string]: Math.min(i, 12) } as React.CSSProperties}
@@ -328,24 +392,55 @@ function CardHeaderRow({ document, completed }: { document: DocumentSummary; com
         <DocumentIcon />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2xs">
-        <div className="flex items-center gap-xs">
+        <div className="flex flex-wrap items-center gap-xs">
           <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
           {/* Completed cards carry the 완료됨 badge inside the download area
               below, so the title row omits it to avoid a duplicate badge. */}
           {!completed ? (
             <StatusBadge status={document.status} label={document.statusLabel} />
           ) : null}
+          {/* Urgency rides on a separate axis next to the lifecycle status; it
+              renders nothing for NORMAL (incl. completed/cancelled). */}
+          <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency)} />
         </div>
         <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
       </div>
+      {/* The single next action. Completed cards render DOWNLOAD via the download
+          area below, so the hint is shown only for non-completed cards. */}
+      {!completed ? <NextActionHint action={document.nextAction} /> : null}
       <ChevronIcon />
     </>
+  );
+}
+
+/**
+ * The document's single next action as a compact hint (copy: todo-copy.md). CTAs
+ * (발송하기 / 내려받기) read as a primary-tinted pill — the whole card is the
+ * link that opens the contract where the action lives, so this is a visual
+ * affordance, not a nested interactive. `AWAITING_SIGN` is a passive status label
+ * (no owner action right now — no reminder feature); CANCELLED renders nothing.
+ */
+function NextActionHint({ action }: { action: NextAction | null }) {
+  const copy = nextActionCopy(action);
+  if (!copy) return null;
+  if (copy.kind === 'status') {
+    return (
+      <span className="shrink-0 text-sm font-medium text-foreground-subtle">{copy.label}</span>
+    );
+  }
+  return (
+    <span className="shrink-0 rounded-full bg-primary-subtle px-sm py-2xs text-sm font-semibold text-primary">
+      {copy.label}
+    </span>
   );
 }
 
 function metaLine(doc: DocumentSummary): string {
   const parts: string[] = [];
   if (doc.recipientCount > 0) parts.push(`받는 분 ${doc.recipientCount}명`);
+  // Signers still awaited (omitted at 0 — see todo-copy.md).
+  const pending = pendingSignerLabel(doc.pendingSignerCount);
+  if (pending) parts.push(pending);
   if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
   const sent = doc.status !== 'DRAFT' && doc.sentAt;
   const when = formatRelative(sent ? (doc.sentAt as string) : doc.createdAt);
@@ -398,6 +493,17 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
       </div>
       <Button size="lg" onClick={onCreate}>
         새 계약 생성
+      </Button>
+    </Card>
+  );
+}
+
+function FilteredEmptyState({ onClearFilter }: { onClearFilter: () => void }) {
+  return (
+    <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
+      <p className="text-base text-foreground-subtle">{FILTERED_EMPTY_COPY.message}</p>
+      <Button variant="secondary" onClick={onClearFilter}>
+        {FILTERED_EMPTY_COPY.clear}
       </Button>
     </Card>
   );
