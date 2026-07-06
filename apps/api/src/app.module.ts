@@ -11,6 +11,7 @@ import { SigningModule } from './signing/signing.module';
 import { SharingModule } from './sharing/sharing.module';
 import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
+import { FieldDetectionModule } from './field-detection/field-detection.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import { CompletionModule } from './completion/completion.module';
     SharingModule,
     PdfModule,
     CompletionModule,
+    FieldDetectionModule,
     HealthModule,
   ],
 })
