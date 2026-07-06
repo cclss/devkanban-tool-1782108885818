@@ -11,7 +11,14 @@ import type { DocumentStatus } from '@/lib/documents';
  * by the dot (never color alone: the Korean label is always present). The label
  * itself comes from the server (`statusLabel`), the single source of truth.
  */
-const TONE: Record<DocumentStatus, { tint: string; dot: string; text: string }> = {
+/**
+ * Status → tone tokens (tint background / dot hue / label text), the single map
+ * for a contract's lifecycle color across the dashboard. Exported so the kanban
+ * column headers reuse the *same* tone tokens (design-spec/components/kanban-board)
+ * — the same status reads with the same hue whether it's a badge or a board
+ * column, and no color value is re-declared.
+ */
+export const STATUS_TONE: Record<DocumentStatus, { tint: string; dot: string; text: string }> = {
   IN_PROGRESS: { tint: 'bg-primary-subtle', dot: 'bg-primary', text: 'text-primary' },
   COMPLETED: { tint: 'bg-success-subtle', dot: 'bg-success', text: 'text-foreground-muted' },
   DRAFT: { tint: 'bg-grey-100', dot: 'bg-grey-400', text: 'text-foreground-muted' },
@@ -25,7 +32,7 @@ export interface StatusBadgeProps {
 }
 
 export function StatusBadge({ status, label, className }: StatusBadgeProps) {
-  const tone = TONE[status] ?? TONE.DRAFT;
+  const tone = STATUS_TONE[status] ?? STATUS_TONE.DRAFT;
   return (
     <span
       className={cn(

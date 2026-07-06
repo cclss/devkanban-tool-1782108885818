@@ -1,7 +1,6 @@
 'use client';
 
 import * as React from 'react';
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Button,
@@ -15,18 +14,46 @@ import {
   DialogTitle,
   Skeleton,
 } from '@repo/ui';
-import { StatusBadge } from '@/components/status-badge';
-import { CompletionDownload } from '@/components/completion-download';
+import { ContractCard } from '@/components/contract-card';
+import {
+  DashboardSummary,
+  SUMMARY_FILTERS,
+  type SummaryFilterKey,
+} from '@/components/dashboard-summary';
+import { KanbanBoard } from '@/components/kanban-board';
+import { OnboardingGuide } from '@/components/onboarding-guide';
+import { ViewSwitcher } from '@/components/view-switcher';
 import { ApiError } from '@/lib/api';
+import { isOnboardingComplete, markOnboardingComplete } from '@/lib/onboarding';
+import { readViewMode, writeViewMode, type ViewMode } from '@/lib/view-mode';
+import { ONBOARDING_COPY } from '@/lib/onboarding-copy';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
-  downloadOwnerArtifact,
   fetchDocuments,
   fetchQuota,
   takeSentSignal,
   type DocumentSummary,
   type Quota,
+  type Urgency,
 } from '@/lib/documents';
+import {
+  FILTERED_EMPTY_COPY,
+  KANBAN_BOARD_COPY,
+  SUMMARY_COPY,
+  VIEW_SWITCHER_COPY,
+} from '@/lib/todo-copy';
+
+/**
+ * Dashboard list ordering by urgency (design-spec/components/urgency-badge/base.md
+ * — "목록 기본 정렬(OVERDUE 우선)"): OVERDUE first, then DUE_SOON, then NORMAL.
+ * Array.prototype.sort is stable, so within one urgency the API's newest-first
+ * order is preserved.
+ */
+const URGENCY_ORDER: Record<Urgency, number> = { OVERDUE: 0, DUE_SOON: 1, NORMAL: 2 };
+
+function sortByUrgency(docs: DocumentSummary[]): DocumentSummary[] {
+  return [...docs].sort((a, b) => URGENCY_ORDER[a.urgency] - URGENCY_ORDER[b.urgency]);
+}
 
 const NEW_CONTRACT_ROUTE = '/contracts/new';
 
@@ -40,6 +67,18 @@ export default function DashboardPage() {
   const [error, setError] = React.useState<string | null>(null);
   // Id of a just-sent contract to highlight after an optimistic prepend.
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
+  // Active summary-card filter, or null when the list is unfiltered.
+  const [filter, setFilter] = React.useState<SummaryFilterKey | null>(null);
+  // 목록/칸반 view choice. Switching is a pure conditional render — it never
+  // resets `filter`, refetches, or drops the loaded `documents` (context is
+  // preserved). Persisted to localStorage so it survives a reload; the persisted
+  // value only *seeds* this once after mount (below) and never clobbers an
+  // in-session choice.
+  const [viewMode, setViewMode] = React.useState<ViewMode>('list');
+  // First-run onboarding: whether the welcome guide has been permanently retired.
+  // Read once from persistence after mount (client-only, so no SSR/hydration read);
+  // flips to true the moment the first real contract appears and never back.
+  const [onboardingComplete, setOnboardingComplete] = React.useState(false);
 
   // Bounce unauthenticated visitors to login before any data work.
   React.useEffect(() => {
@@ -85,12 +124,62 @@ export default function DashboardPage() {
     return () => window.removeEventListener('focus', onFocus);
   }, [ready, load]);
 
+  // Load the persisted onboarding flag once we're client-ready. Kept in state so
+  // the guide reacts to being retired within this session.
+  React.useEffect(() => {
+    if (!ready) return;
+    setOnboardingComplete(isOnboardingComplete());
+  }, [ready]);
+
+  // Seed the view choice from persistence once, after mount (client-only, so no
+  // SSR/hydration read). This only initializes the session's view; every later
+  // switch flows through `changeViewMode` and is never reset by this effect.
+  React.useEffect(() => {
+    if (!ready) return;
+    setViewMode(readViewMode());
+  }, [ready]);
+
+  // Switch views: update session state and persist the choice. A pure state flip —
+  // it deliberately leaves `filter`, `documents`, and load state untouched, so the
+  // 목록↔칸반 switch loses no context and triggers no refetch.
+  const changeViewMode = React.useCallback((mode: ViewMode) => {
+    setViewMode(mode);
+    writeViewMode(mode);
+  }, []);
+
+  // Permanently retire the first-run guide the moment the first real contract
+  // lands in the list — including a DRAFT created by upload (documents.length > 0).
+  // Once marked complete the guide never returns, even if the list later empties.
+  React.useEffect(() => {
+    if (onboardingComplete) return;
+    if (documents && documents.length > 0) {
+      markOnboardingComplete();
+      setOnboardingComplete(true);
+    }
+  }, [documents, onboardingComplete]);
+
   // Clear the highlight shortly after it's shown.
   React.useEffect(() => {
     if (!highlightId) return;
     const t = window.setTimeout(() => setHighlightId(null), 2400);
     return () => window.clearTimeout(t);
   }, [highlightId]);
+
+  // The rendered list: filtered by the active summary card (same predicate the
+  // cards count with, so "card count === filtered list count"), then ordered by
+  // urgency (OVERDUE first). Counts on the summary cards use the *full* list.
+  const visible = React.useMemo(() => {
+    if (!documents) return null;
+    const filtered = filter ? documents.filter(SUMMARY_FILTERS[filter]) : documents;
+    return sortByUrgency(filtered);
+  }, [documents, filter]);
+
+  // Show the first-run welcome guide only to a genuinely new user: real contract
+  // list is loaded and empty, and onboarding hasn't been completed before. When
+  // shown, the guide takes the place of the plain EmptyState (it shows the path to
+  // a first contract, whereas EmptyState is the calm "nothing here" endpoint —
+  // components/onboarding-guide/base.md keeps the two roles distinct).
+  const showOnboarding = documents !== null && documents.length === 0 && !onboardingComplete;
 
   if (!ready) return null;
 
@@ -114,13 +203,53 @@ export default function DashboardPage() {
         <PlanUsage quota={quota} plan={user?.plan} className="mt-lg" />
 
         <section className="mt-xl" aria-label="계약 목록">
-          <DashboardBody
-            documents={documents}
-            error={error}
-            highlightId={highlightId}
-            onRetry={() => void load()}
-            onCreate={() => router.push(NEW_CONTRACT_ROUTE)}
-          />
+          {/* The switcher + summary sit at the top of the list section. Both only
+              appear once contracts exist — with an empty/onboarding dashboard there
+              is nothing to switch between. The summary stays mounted in both views
+              so its filter (context) persists across a 목록↔칸반 switch. */}
+          {documents && documents.length > 0 ? (
+            <div className="mb-lg flex flex-col gap-md">
+              <div className="flex justify-end">
+                <ViewSwitcher
+                  value={viewMode}
+                  onChange={changeViewMode}
+                  copy={VIEW_SWITCHER_COPY}
+                />
+              </div>
+              <DashboardSummary
+                documents={documents}
+                copy={SUMMARY_COPY}
+                selected={filter}
+                onSelect={setFilter}
+              />
+            </div>
+          ) : null}
+          {/* Pure conditional render: kanban swaps only the body. `filter`, loaded
+              `documents`, and load state are all held by the parent and untouched,
+              so switching loses no context. The board lays out the *same* `visible`
+              set the list shows (filtered by the active summary card + urgency-
+              sorted), so the filter applies identically in both views. Loading /
+              empty / onboarding / error all flow through DashboardBody (the list
+              path) — there is nothing to lay out on a board until contracts load. */}
+          {documents && documents.length > 0 && viewMode === 'kanban' && visible ? (
+            <KanbanBoard
+              documents={visible}
+              copy={KANBAN_BOARD_COPY}
+              highlightId={highlightId}
+            />
+          ) : (
+            <DashboardBody
+              documents={documents}
+              visible={visible}
+              filtered={filter !== null}
+              onClearFilter={() => setFilter(null)}
+              error={error}
+              highlightId={highlightId}
+              showOnboarding={showOnboarding}
+              onRetry={() => void load()}
+              onCreate={() => router.push(NEW_CONTRACT_ROUTE)}
+            />
+          )}
         </section>
       </main>
     </div>
@@ -242,14 +371,26 @@ function QuotaBar({ quota }: { quota: Quota | null }) {
 
 function DashboardBody({
   documents,
+  visible,
+  filtered,
+  onClearFilter,
   error,
   highlightId,
+  showOnboarding,
   onRetry,
   onCreate,
 }: {
+  /** The full list — drives the null/empty (no-contracts) states. */
   documents: DocumentSummary[] | null;
+  /** The filtered + urgency-sorted list actually rendered. */
+  visible: DocumentSummary[] | null;
+  /** Whether a summary-card filter is active. */
+  filtered: boolean;
+  onClearFilter: () => void;
   error: string | null;
   highlightId: string | null;
+  /** Show the first-run welcome guide in place of the plain EmptyState. */
+  showOnboarding: boolean;
   onRetry: () => void;
   onCreate: () => void;
 }) {
@@ -257,15 +398,33 @@ function DashboardBody({
   if (error && (!documents || documents.length === 0)) {
     return <ErrorState message={error} onRetry={onRetry} />;
   }
-  if (documents === null) {
+  if (documents === null || visible === null) {
     return <SkeletonList />;
   }
   if (documents.length === 0) {
-    return <EmptyState onCreate={onCreate} />;
+    // A new user (never onboarded) gets the welcome guide — the path to a first
+    // contract. Everyone else gets the calm EmptyState endpoint. Both reuse the
+    // same onCreate → NEW_CONTRACT_ROUTE flow.
+    return showOnboarding ? (
+      <OnboardingGuide
+        title={ONBOARDING_COPY.title}
+        description={ONBOARDING_COPY.description}
+        steps={ONBOARDING_COPY.steps}
+        ctaLabel={ONBOARDING_COPY.cta}
+        onCreate={onCreate}
+      />
+    ) : (
+      <EmptyState onCreate={onCreate} />
+    );
+  }
+  // Contracts exist, but none match the active filter — say so calmly and offer
+  // the next action (clear the filter), rather than the wrong "no contracts yet".
+  if (visible.length === 0 && filtered) {
+    return <FilteredEmptyState onClearFilter={onClearFilter} />;
   }
   return (
     <ul className="motion-stagger flex flex-col gap-sm">
-      {documents.map((doc, i) => (
+      {visible.map((doc, i) => (
         <li
           key={doc.id}
           style={{ ['--stagger-index' as string]: Math.min(i, 12) } as React.CSSProperties}
@@ -275,97 +434,6 @@ function DashboardBody({
       ))}
     </ul>
   );
-}
-
-function ContractCard({ document, highlighted }: { document: DocumentSummary; highlighted: boolean }) {
-  const completed = document.status === 'COMPLETED';
-  const href = `/contracts/${document.id}`;
-  const cardClass =
-    'flex flex-col gap-md p-lg transition-shadow ' + (highlighted ? 'ring-2 ring-focus' : '');
-
-  // Completed cards hold their own interactive download buttons, so the whole
-  // card can't be a link (no nested interactives). Only the header row navigates;
-  // the download area stays a separate, unaffected region below it.
-  if (completed) {
-    return (
-      <Card className={cardClass}>
-        <Link
-          href={href}
-          className="-m-2xs flex items-center gap-md rounded-md p-2xs transition-colors duration-fast ease-standard hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
-        >
-          <CardHeaderRow document={document} completed />
-        </Link>
-        <CompletionDownload
-          className="border-t border-border pt-md"
-          ready={document.downloadsReady}
-          completedAt={document.completedAt}
-          statusLabel={document.statusLabel}
-          onDownload={(kind) => downloadOwnerArtifact(document.id, kind, document.title)}
-        />
-      </Card>
-    );
-  }
-
-  // Non-completed cards have no inner interactives, so the entire card navigates.
-  return (
-    <Link
-      href={href}
-      className="block rounded-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
-    >
-      <Card interactive className={cardClass}>
-        <div className="flex items-center gap-md">
-          <CardHeaderRow document={document} completed={false} />
-        </div>
-      </Card>
-    </Link>
-  );
-}
-
-function CardHeaderRow({ document, completed }: { document: DocumentSummary; completed: boolean }) {
-  return (
-    <>
-      <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
-        <DocumentIcon />
-      </span>
-      <div className="flex min-w-0 flex-1 flex-col gap-2xs">
-        <div className="flex items-center gap-xs">
-          <h3 className="truncate text-base font-bold text-foreground">{document.title}</h3>
-          {/* Completed cards carry the 완료됨 badge inside the download area
-              below, so the title row omits it to avoid a duplicate badge. */}
-          {!completed ? (
-            <StatusBadge status={document.status} label={document.statusLabel} />
-          ) : null}
-        </div>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
-      </div>
-      <ChevronIcon />
-    </>
-  );
-}
-
-function metaLine(doc: DocumentSummary): string {
-  const parts: string[] = [];
-  if (doc.recipientCount > 0) parts.push(`받는 분 ${doc.recipientCount}명`);
-  if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
-  const sent = doc.status !== 'DRAFT' && doc.sentAt;
-  const when = formatRelative(sent ? (doc.sentAt as string) : doc.createdAt);
-  parts.push(sent ? `${when} 발송` : `${when} 생성`);
-  return parts.join(' · ');
-}
-
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return '방금 전';
-  if (min < 60) return `${min}분 전`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}일 전`;
-  const d = new Date(then);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function SkeletonList() {
@@ -403,6 +471,17 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
+function FilteredEmptyState({ onClearFilter }: { onClearFilter: () => void }) {
+  return (
+    <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
+      <p className="text-base text-foreground-subtle">{FILTERED_EMPTY_COPY.message}</p>
+      <Button variant="secondary" onClick={onClearFilter}>
+        {FILTERED_EMPTY_COPY.clear}
+      </Button>
+    </Card>
+  );
+}
+
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
@@ -411,28 +490,6 @@ function ErrorState({ message, onRetry }: { message: string; onRetry: () => void
         다시 시도
       </Button>
     </Card>
-  );
-}
-
-function DocumentIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5" fill="none" aria-hidden="true">
-      <path
-        d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8l-5-5Z"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        strokeLinejoin="round"
-      />
-      <path d="M14 3v5h5M8.5 13h7M8.5 16.5h4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  );
-}
-
-function ChevronIcon() {
-  return (
-    <svg viewBox="0 0 24 24" className="h-5 w-5 shrink-0 text-grey-400" fill="none" aria-hidden="true">
-      <path d="m9 6 6 6-6 6" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
   );
 }
 

@@ -21,6 +21,23 @@ import {
 
 export type DocumentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
+/**
+ * How much attention a contract needs today, derived server-side at read time
+ * from `status` + `sentAt` (mirrors the API's `Urgency`). Only IN_PROGRESS
+ * contracts are time-pressured; every other status resolves to `NORMAL`.
+ * `OVERDUE` sorts first in the dashboard's urgency ordering.
+ */
+export type Urgency = 'OVERDUE' | 'DUE_SOON' | 'NORMAL';
+
+/**
+ * The single next action the owner can take with a contract, derived
+ * server-side from `status` (mirrors the API's `NextAction`):
+ * `DRAFT` → `SEND_DRAFT`, `IN_PROGRESS` → `AWAITING_SIGN`,
+ * `COMPLETED` → `DOWNLOAD`. `CANCELLED` has no actionable next step and is
+ * represented as `null` on the `nextAction` field (see `DocumentSummary`).
+ */
+export type NextAction = 'SEND_DRAFT' | 'AWAITING_SIGN' | 'DOWNLOAD';
+
 export interface DocumentSummary {
   id: string;
   title: string;
@@ -35,6 +52,23 @@ export interface DocumentSummary {
   completedAt: string | null;
   /** True when both completion artifacts are stored and downloadable. */
   downloadsReady: boolean;
+  /**
+   * How much attention this contract needs today, derived server-side from
+   * `status` + `sentAt`. Always present (never null) — non-urgent contracts are
+   * `NORMAL`.
+   */
+  urgency: Urgency;
+  /**
+   * The owner's single next action, derived server-side from `status`. `null`
+   * is the defined fallback for `CANCELLED` (no actionable next step), so this
+   * field is nullable — callers must handle `null` rather than assume an action.
+   */
+  nextAction: NextAction | null;
+  /**
+   * Signers still awaited (sign requests that are PENDING or VIEWED). `0` when
+   * none are outstanding or the contract has not been sent.
+   */
+  pendingSignerCount: number;
 }
 
 /** A recipient row on a contract's detail (LINK-mode links carry null name/email). */
