@@ -12,6 +12,7 @@ import { SharingModule } from './sharing/sharing.module';
 import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
 import { FieldDetectionModule } from './field-detection/field-detection.module';
+import { VisionDetectionModule } from './vision-detection/vision-detection.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { FieldDetectionModule } from './field-detection/field-detection.module';
     PdfModule,
     CompletionModule,
     FieldDetectionModule,
+    VisionDetectionModule,
     HealthModule,
   ],
 })
