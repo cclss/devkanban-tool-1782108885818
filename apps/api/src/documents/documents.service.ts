@@ -8,9 +8,11 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { randomBytes, randomInt } from 'crypto';
 import {
+  AnalysisEngine as DbAnalysisEngine,
   DocumentStatus,
   Prisma,
   SignRequestStatus,
+  VisionStage as DbVisionStage,
   type Document,
 } from '@repo/db';
 import { Readable } from 'stream';
@@ -20,6 +22,17 @@ import { NotificationsService, type NotificationJob } from '../notifications/not
 import { MESSAGES } from '../common/messages';
 import { SendQuotaService } from '../common/send-quota.service';
 import { FieldAnalysisService } from '../field-analysis/field-analysis.service';
+import type {
+  AnalysisEngine,
+  FieldAnalysisResult,
+  FieldAnalysisStatus,
+  VisionStage,
+} from '../field-analysis/field-analysis.types';
+import type {
+  DetectionSignal,
+  FieldCandidate,
+} from '../field-detection/field-detection.types';
+import { VisionTrialService } from '../trials/vision-trial.service';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
 import {
   artifactFilename,
@@ -28,6 +41,24 @@ import {
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
+
+/**
+ * Persisted `AnalysisEngine` / `VisionStage` enums → the wire values the frontend
+ * consumes. The inverse of the forward maps in `field-analysis.store.ts`; kept
+ * local so the read path stays inside this grain's boundary (documents module).
+ */
+const ENGINE_TO_WIRE: Record<DbAnalysisEngine, AnalysisEngine> = {
+  [DbAnalysisEngine.HEURISTIC]: 'heuristic',
+  [DbAnalysisEngine.VISION]: 'vision',
+};
+
+const STAGE_TO_WIRE: Record<DbVisionStage, VisionStage> = {
+  [DbVisionStage.NOT_NEEDED]: 'not-needed',
+  [DbVisionStage.AWAITING_CONSENT]: 'available',
+  [DbVisionStage.BLOCKED]: 'blocked',
+  [DbVisionStage.SUCCEEDED]: 'succeeded',
+  [DbVisionStage.FAILED]: 'failed',
+};
 
 @Injectable()
 export class DocumentsService {
@@ -40,6 +71,7 @@ export class DocumentsService {
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
     private readonly fieldAnalysis: FieldAnalysisService,
+    private readonly visionTrials: VisionTrialService,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -153,6 +185,71 @@ export class DocumentsService {
     });
 
     return { count };
+  }
+
+  /**
+   * Read the stored AI field suggestions plus the current analysis / trial status
+   * for a draft's editor (Story 1 & the Story 2 invite). Owner-only and draft-only
+   * — the placement editor only ever opens a draft. The response mirrors the
+   * frontend `FieldAnalysisResponse` (`{ fields, status }`).
+   *
+   * The candidates + engine/stage are read from the grain-1 persistence written by
+   * the upload-time analysis; the plan / free-trial balance is read live from
+   * {@link VisionTrialService} (never persisted), so the "N free trials remaining"
+   * note always reflects the account's current balance.
+   */
+  async fieldSuggestions(
+    ownerId: string,
+    documentId: string,
+  ): Promise<FieldAnalysisResult> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.DRAFT) {
+      throw new BadRequestException(MESSAGES.send.alreadySent);
+    }
+
+    const [suggestions, trial] = await Promise.all([
+      this.prisma.fieldSuggestion.findMany({
+        where: { documentId },
+        // Reading order (page, then top-to-bottom) — matches the engines' output.
+        orderBy: [{ page: 'asc' }, { y: 'desc' }, { x: 'asc' }],
+      }),
+      this.visionTrials.getStatus(ownerId),
+    ]);
+
+    const fields: FieldCandidate[] = suggestions.map((s) => ({
+      type: s.type,
+      page: s.page,
+      x: s.x,
+      y: s.y,
+      width: s.width,
+      height: s.height,
+      confidence: s.confidence ?? 0,
+      anchorText: s.anchorText ?? '',
+    }));
+
+    return { fields, status: this.buildAnalysisStatus(document, trial) };
+  }
+
+  /**
+   * Story 2 consent step: the sender opted into the premium engine for a scanned
+   * document. Delegates to grain-2's {@link FieldAnalysisService.runPremiumAnalysis},
+   * which atomically spends one free trial (premium plans do not spend), runs the
+   * Vision engine, and persists the outcome — an exhausted account short-circuits
+   * to `upgradeRequired` without spending anything. Owner-only and draft-only. The
+   * returned `{ fields, status }` carries the freshly placed fields and the updated
+   * remaining-trial count.
+   */
+  async premiumAnalysis(
+    ownerId: string,
+    documentId: string,
+  ): Promise<FieldAnalysisResult> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.DRAFT) {
+      throw new BadRequestException(MESSAGES.send.alreadySent);
+    }
+    // Trial metering + the Vision run live entirely in the grain-2 service; this
+    // endpoint only guards ownership/state and forwards the owner id.
+    return this.fieldAnalysis.runPremiumAnalysis(documentId, ownerId);
   }
 
   /**
@@ -343,6 +440,38 @@ export class DocumentsService {
   }
 
   // --- internals ----------------------------------------------------------
+
+  /**
+   * Assemble the frontend-facing analysis status from the persisted document
+   * columns (engine / vision stage, grain-1) and the live trial balance. A
+   * document that has not been analysed yet (all columns null) reads as the
+   * neutral text-PDF happy path (`not-needed`, no prompt).
+   *
+   * `signal` is not persisted (and the frontend ignores it — it branches on
+   * `visionStage`); it is derived best-effort here only to keep the payload shape
+   * identical to the consent-driven {@link premiumAnalysis} response.
+   */
+  private buildAnalysisStatus(
+    document: Pick<Document, 'analysisEngine' | 'visionStage'>,
+    trial: { isPremium: boolean; remaining: number },
+  ): FieldAnalysisStatus {
+    const engine: AnalysisEngine = document.analysisEngine
+      ? ENGINE_TO_WIRE[document.analysisEngine]
+      : 'heuristic';
+    const visionStage: VisionStage = document.visionStage
+      ? STAGE_TO_WIRE[document.visionStage]
+      : 'not-needed';
+    const scanned = visionStage !== 'not-needed' && visionStage !== 'succeeded';
+    const signal: DetectionSignal = scanned ? 'no-text' : 'ok';
+    return {
+      engine,
+      signal,
+      visionStage,
+      isPremium: trial.isPremium,
+      trialsRemaining: trial.remaining,
+      upgradeRequired: visionStage === 'blocked',
+    };
+  }
 
   private async requireOwnedDocument(ownerId: string, documentId: string): Promise<Document> {
     const document = await this.prisma.document.findUnique({ where: { id: documentId } });

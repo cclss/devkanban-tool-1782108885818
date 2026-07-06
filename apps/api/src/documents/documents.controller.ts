@@ -130,6 +130,26 @@ export class DocumentsController {
     stream.pipe(res);
   }
 
+  /**
+   * Stored AI field suggestions + analysis/trial status for a draft's editor
+   * (Story 1 & the Story 2 invite). Owner-only, draft-only.
+   */
+  @Get(':id/field-suggestions')
+  fieldSuggestions(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.documents.fieldSuggestions(user.id, id);
+  }
+
+  /**
+   * Story 2 consent: run the premium engine on a scanned document. Atomically
+   * spends one free trial via the analysis service, places fields, and returns the
+   * updated suggestions + status (or `upgradeRequired` for an exhausted account).
+   */
+  @Post(':id/premium-analysis')
+  @HttpCode(HttpStatus.OK)
+  premiumAnalysis(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.documents.premiumAnalysis(user.id, id);
+  }
+
   /** Replace placed sign fields on a draft. */
   @Put(':id/fields')
   saveFields(
