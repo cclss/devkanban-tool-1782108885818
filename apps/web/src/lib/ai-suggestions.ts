@@ -8,15 +8,14 @@
  * placement canvas can render them with the AI-suggestion visual language and
  * the sender can review / edit / clear them.
  *
- * Boundary (grain-6): this is the *frontend* seam only. It targets the document's
- * field-suggestions endpoint and degrades gracefully to "no suggestions" on any
- * error — so while the server pipeline's text extractor / page renderer are still
- * unbound (the whole feature is dark end-to-end, like grains 2–4), the editor
- * simply opens blank instead of failing. When a later grain lights up the server
- * path, the same seam surfaces real suggestions with no editor change.
+ * Boundary: this is the *frontend* candidate→field mapping only. The network
+ * ingress (which also carries the trial/upgrade analysis status) lives in
+ * `premium-trial.ts` and reuses {@link parseSuggestions} below; while the server
+ * pipeline's text extractor / page renderer are still unbound (the whole feature
+ * is dark end-to-end, like grains 2–4), that seam degrades to "no suggestions"
+ * so the editor simply opens blank instead of failing.
  */
 
-import { apiFetch } from './api';
 import { clampNormRect, FIELD_TYPES, type SignFieldType } from './field-geometry';
 import { nextFieldId } from './field-id';
 import type { SignFieldDraft } from '@/components/wizard/wizard-context';
@@ -37,11 +36,6 @@ export interface AiFieldSuggestion {
   y: number;
   width: number;
   height: number;
-}
-
-/** Server response for the field-suggestions read seam. */
-interface FieldSuggestionsResponse {
-  fields?: unknown;
 }
 
 function isFieldType(value: unknown): value is SignFieldType {
@@ -120,25 +114,14 @@ export function withoutAiSuggestions(fields: SignFieldDraft[]): SignFieldDraft[]
 }
 
 /**
- * Fetch the AI field suggestions for a document, already adapted to editor
- * fields. Never throws: a missing endpoint, an auth lapse, a transport error, or
- * a malformed body all resolve to an empty list, so the editor treats "couldn't
- * get suggestions" the same as "AI found nothing" — the sender simply places
- * fields by hand.
+ * Adapt a raw `fields` payload (untrusted wire input) into editor drafts: keep
+ * only the entries that survive validation, then tag them `source: 'ai'`. The
+ * network ingress in `premium-trial.ts` feeds this the server response body, so
+ * a missing / malformed list collapses to an empty batch rather than a broken
+ * canvas.
  */
-export async function fetchAiFieldDrafts(
-  documentId: string,
-  token?: string,
-): Promise<SignFieldDraft[]> {
-  try {
-    const res = await apiFetch<FieldSuggestionsResponse>(
-      `/documents/${encodeURIComponent(documentId)}/field-suggestions`,
-      { token },
-    );
-    const raw = Array.isArray(res?.fields) ? res.fields : [];
-    const parsed = raw.map(parseSuggestion).filter((s): s is AiFieldSuggestion => s !== null);
-    return toAiFieldDrafts(parsed);
-  } catch {
-    return [];
-  }
+export function parseSuggestions(raw: unknown): SignFieldDraft[] {
+  const list = Array.isArray(raw) ? raw : [];
+  const parsed = list.map(parseSuggestion).filter((s): s is AiFieldSuggestion => s !== null);
+  return toAiFieldDrafts(parsed);
 }

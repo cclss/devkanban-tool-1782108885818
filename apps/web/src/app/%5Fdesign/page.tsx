@@ -31,6 +31,7 @@ import {
   SuccessCheck,
 } from '@repo/ui';
 import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
+import { PremiumAiPrompt } from '@/components/ai/premium-ai-prompt';
 import { AI_COPY } from '@/lib/ai-copy';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
@@ -124,6 +125,22 @@ export default function DesignSystemPage() {
           </div>
         </div>
         <p className="pt-2xs text-sm text-foreground-muted">{AI_COPY.suggestion.placed(3)}</p>
+      </Section>
+
+      <Section
+        title="프리미엄 AI 안내"
+        hint="스캔 문서 감지 시 무료 체험 권유, 체험 소진 시 업그레이드 경로. 비침습적 인라인 배너 — 항상 '직접 배치' 거절 경로를 동등하게 제공."
+      >
+        <div className="grid gap-md sm:grid-cols-2">
+          <PremiumAiPrompt
+            mode="invite"
+            trialsRemaining={2}
+            showTrialCount
+            onAccept={() => {}}
+            onDismiss={() => {}}
+          />
+          <PremiumAiPrompt mode="upgrade" onAccept={() => {}} onDismiss={() => {}} />
+        </div>
       </Section>
 
       <Section title="Typography" hint="Pretendard 기반 타입 스케일">

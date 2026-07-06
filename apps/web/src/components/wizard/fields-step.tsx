@@ -17,6 +17,7 @@
  */
 
 import * as React from 'react';
+import { useRouter } from 'next/navigation';
 import { cn } from '@repo/ui';
 import {
   FIELD_TYPE_META,
@@ -25,9 +26,17 @@ import {
   type SignFieldType,
 } from '@/lib/field-geometry';
 import { getToken } from '@/lib/auth';
-import { fetchAiFieldDrafts } from '@/lib/ai-suggestions';
+import {
+  fetchFieldAnalysis,
+  requestPremiumAnalysis,
+  resolvePremiumPrompt,
+  showsTrialCount,
+  NEUTRAL_STATUS,
+  type AnalysisStatus,
+} from '@/lib/premium-trial';
 import { AI_COPY } from '@/lib/ai-copy';
 import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
+import { PremiumAiPrompt } from '@/components/ai/premium-ai-prompt';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
 
@@ -39,6 +48,7 @@ const BASE_FIT_WIDTH = 640;
 
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
+  const router = useRouter();
   const { state, dispatch } = useWizard();
   const { file, document, fields } = state;
 
@@ -48,6 +58,12 @@ export function FieldsStep() {
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
   /** How many AI fields the analysis proposed for this document (null = not yet loaded). */
   const [aiSeededCount, setAiSeededCount] = React.useState<number | null>(null);
+  /** Trial/upgrade status from the tiered analysis; drives the premium prompt. */
+  const [analysisStatus, setAnalysisStatus] = React.useState<AnalysisStatus>(NEUTRAL_STATUS);
+  /** The sender chose to place fields by hand, so the premium prompt is hidden. */
+  const [promptDismissed, setPromptDismissed] = React.useState(false);
+  /** The premium re-request is in flight (Story 2 consent). */
+  const [promptBusy, setPromptBusy] = React.useState(false);
   const seededDocIdRef = React.useRef<string | null>(null);
 
   const setFields = React.useCallback(
@@ -56,18 +72,21 @@ export function FieldsStep() {
   );
 
   // On opening the editor for a document, pull its AI-proposed fields once and
-  // drop them onto the canvas as `source: 'ai'` suggestions. The seam degrades
-  // to an empty list on any error, so this never blocks manual placement.
+  // drop them onto the canvas as `source: 'ai'` suggestions, and capture the
+  // trial/upgrade status so the premium prompt can branch. The seam degrades to
+  // an empty, no-prompt result on any error, so this never blocks manual placement.
   const documentId = document?.id ?? null;
   React.useEffect(() => {
     if (!documentId) return;
     if (seededDocIdRef.current === documentId) return;
     seededDocIdRef.current = documentId;
+    setPromptDismissed(false);
     let cancelled = false;
-    void fetchAiFieldDrafts(documentId, getToken() ?? undefined).then((drafts) => {
+    void fetchFieldAnalysis(documentId, getToken() ?? undefined).then(({ drafts, status }) => {
       if (cancelled) return;
       if (drafts.length > 0) dispatch({ type: 'SEED_AI_SUGGESTIONS', fields: drafts });
       setAiSeededCount(drafts.length);
+      setAnalysisStatus(status);
     });
     return () => {
       cancelled = true;
@@ -78,6 +97,30 @@ export function FieldsStep() {
     setSelectedId(null);
     dispatch({ type: 'CLEAR_AI_SUGGESTIONS' });
   }, [dispatch]);
+
+  // Premium prompt actions. Accept: on the invite, re-request the analysis with
+  // the premium engine (Story 2) and seed the fields it returns; on the upgrade
+  // prompt, route the sender to the plan surface (billing is out of scope).
+  // Dismiss: hide the prompt and let the sender place fields by hand.
+  const acceptPremium = React.useCallback(() => {
+    if (resolvePremiumPrompt(analysisStatus) === 'upgrade') {
+      router.push('/dashboard');
+      return;
+    }
+    if (!documentId) return;
+    setPromptBusy(true);
+    void requestPremiumAnalysis(documentId, getToken() ?? undefined).then(({ drafts, status }) => {
+      if (drafts.length > 0) dispatch({ type: 'SEED_AI_SUGGESTIONS', fields: drafts });
+      setAiSeededCount(drafts.length);
+      setAnalysisStatus(status);
+      setPromptBusy(false);
+    });
+  }, [analysisStatus, documentId, dispatch, router]);
+
+  const placeManually = React.useCallback(() => {
+    setSelectedId(null);
+    setPromptDismissed(true);
+  }, []);
 
   const addAtCenter = React.useCallback(
     (type: SignFieldType) => {
@@ -108,6 +151,15 @@ export function FieldsStep() {
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
   const aiFieldCount = fields.filter((f) => f.source === 'ai').length;
+  // Which premium surface (if any) to show: the scanned-doc invite or the
+  // trials-exhausted upgrade path. Hidden once the sender opts into manual
+  // placement, or once the premium engine has already run (its remaining-count
+  // note takes over instead).
+  const premiumPrompt = promptDismissed ? null : resolvePremiumPrompt(analysisStatus);
+  // After a trial run on a metered account, state the calm remaining count
+  // (Story 2 tail). The invite carries its own count, so only show it standalone.
+  const showRemainingNote =
+    !premiumPrompt && analysisStatus.premiumUsed && !analysisStatus.premium;
 
   return (
     <div className="flex flex-col gap-md">
@@ -118,12 +170,23 @@ export function FieldsStep() {
         </p>
       </div>
 
-      {/* AI-suggestion notice. While suggestions are on the canvas, a calm banner
-          states what the AI proposed and offers a one-tap "clear all". If the
-          analysis found nothing, a subtle line hands control back to the sender.
-          Once the sender clears the batch themselves, neither shows (blank slate,
-          no nagging). */}
-      {aiFieldCount > 0 ? (
+      {/* Premium AI flow (grain-7). A scanned document offers the premium engine
+          (invite) or, once free trials are gone, the upgrade path — both as a
+          non-intrusive inline banner with an equal "place by hand" escape, so it
+          never blocks the editor. It supersedes the standard suggestion notice
+          while shown. */}
+      {premiumPrompt ? (
+        <PremiumAiPrompt
+          mode={premiumPrompt}
+          trialsRemaining={analysisStatus.trialsRemaining}
+          showTrialCount={showsTrialCount(analysisStatus)}
+          busy={promptBusy}
+          onAccept={acceptPremium}
+          onDismiss={placeManually}
+        />
+      ) : aiFieldCount > 0 ? (
+        /* AI-suggestion notice. While suggestions are on the canvas, a calm banner
+           states what the AI proposed and offers a one-tap "clear all". */
         <div className="flex flex-wrap items-center gap-sm rounded-md border border-ai/30 bg-ai-subtle px-sm py-xs">
           <AiSuggestionBadge />
           <p className="text-sm font-medium text-ai-strong">
@@ -141,7 +204,16 @@ export function FieldsStep() {
           </button>
         </div>
       ) : aiSeededCount === 0 ? (
+        /* Analysis found nothing to place — a subtle line hands control back to
+           the sender. Also the state after declining the premium prompt. */
         <p className="text-sm text-foreground-subtle">{AI_COPY.suggestion.none}</p>
+      ) : null}
+
+      {/* Calm "N free trials remaining" note after a trial run (Story 2 tail). */}
+      {showRemainingNote ? (
+        <p className="-mt-2xs text-xs font-medium text-ai-strong/80">
+          {AI_COPY.trial.remaining(analysisStatus.trialsRemaining)}
+        </p>
       ) : null}
 
       {/* Tool palette */}
