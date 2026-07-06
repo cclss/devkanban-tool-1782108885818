@@ -23,7 +23,10 @@ import {
   type SummaryFilterKey,
 } from '@/components/dashboard-summary';
 import { CompletionDownload } from '@/components/completion-download';
+import { OnboardingGuide } from '@/components/onboarding-guide';
 import { ApiError } from '@/lib/api';
+import { isOnboardingComplete, markOnboardingComplete } from '@/lib/onboarding';
+import { ONBOARDING_COPY } from '@/lib/onboarding-copy';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
   downloadOwnerArtifact,
@@ -69,6 +72,10 @@ export default function DashboardPage() {
   const [highlightId, setHighlightId] = React.useState<string | null>(null);
   // Active summary-card filter, or null when the list is unfiltered.
   const [filter, setFilter] = React.useState<SummaryFilterKey | null>(null);
+  // First-run onboarding: whether the welcome guide has been permanently retired.
+  // Read once from persistence after mount (client-only, so no SSR/hydration read);
+  // flips to true the moment the first real contract appears and never back.
+  const [onboardingComplete, setOnboardingComplete] = React.useState(false);
 
   // Bounce unauthenticated visitors to login before any data work.
   React.useEffect(() => {
@@ -114,6 +121,24 @@ export default function DashboardPage() {
     return () => window.removeEventListener('focus', onFocus);
   }, [ready, load]);
 
+  // Load the persisted onboarding flag once we're client-ready. Kept in state so
+  // the guide reacts to being retired within this session.
+  React.useEffect(() => {
+    if (!ready) return;
+    setOnboardingComplete(isOnboardingComplete());
+  }, [ready]);
+
+  // Permanently retire the first-run guide the moment the first real contract
+  // lands in the list — including a DRAFT created by upload (documents.length > 0).
+  // Once marked complete the guide never returns, even if the list later empties.
+  React.useEffect(() => {
+    if (onboardingComplete) return;
+    if (documents && documents.length > 0) {
+      markOnboardingComplete();
+      setOnboardingComplete(true);
+    }
+  }, [documents, onboardingComplete]);
+
   // Clear the highlight shortly after it's shown.
   React.useEffect(() => {
     if (!highlightId) return;
@@ -129,6 +154,13 @@ export default function DashboardPage() {
     const filtered = filter ? documents.filter(SUMMARY_FILTERS[filter]) : documents;
     return sortByUrgency(filtered);
   }, [documents, filter]);
+
+  // Show the first-run welcome guide only to a genuinely new user: real contract
+  // list is loaded and empty, and onboarding hasn't been completed before. When
+  // shown, the guide takes the place of the plain EmptyState (it shows the path to
+  // a first contract, whereas EmptyState is the calm "nothing here" endpoint —
+  // components/onboarding-guide/base.md keeps the two roles distinct).
+  const showOnboarding = documents !== null && documents.length === 0 && !onboardingComplete;
 
   if (!ready) return null;
 
@@ -168,6 +200,7 @@ export default function DashboardPage() {
             onClearFilter={() => setFilter(null)}
             error={error}
             highlightId={highlightId}
+            showOnboarding={showOnboarding}
             onRetry={() => void load()}
             onCreate={() => router.push(NEW_CONTRACT_ROUTE)}
           />
@@ -297,6 +330,7 @@ function DashboardBody({
   onClearFilter,
   error,
   highlightId,
+  showOnboarding,
   onRetry,
   onCreate,
 }: {
@@ -309,6 +343,8 @@ function DashboardBody({
   onClearFilter: () => void;
   error: string | null;
   highlightId: string | null;
+  /** Show the first-run welcome guide in place of the plain EmptyState. */
+  showOnboarding: boolean;
   onRetry: () => void;
   onCreate: () => void;
 }) {
@@ -320,7 +356,20 @@ function DashboardBody({
     return <SkeletonList />;
   }
   if (documents.length === 0) {
-    return <EmptyState onCreate={onCreate} />;
+    // A new user (never onboarded) gets the welcome guide — the path to a first
+    // contract. Everyone else gets the calm EmptyState endpoint. Both reuse the
+    // same onCreate → NEW_CONTRACT_ROUTE flow.
+    return showOnboarding ? (
+      <OnboardingGuide
+        title={ONBOARDING_COPY.title}
+        description={ONBOARDING_COPY.description}
+        steps={ONBOARDING_COPY.steps}
+        ctaLabel={ONBOARDING_COPY.cta}
+        onCreate={onCreate}
+      />
+    ) : (
+      <EmptyState onCreate={onCreate} />
+    );
   }
   // Contracts exist, but none match the active filter — say so calmly and offer
   // the next action (clear the filter), rather than the wrong "no contracts yet".
