@@ -30,6 +30,8 @@ import {
   StepIndicator,
   SuccessCheck,
 } from '@repo/ui';
+import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
+import { AI_COPY } from '@/lib/ai-copy';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -56,6 +58,9 @@ const TOKEN_SWATCHES: { name: string; className: string; ring?: boolean }[] = [
   { name: 'foreground', className: 'bg-foreground' },
   { name: 'foreground-muted', className: 'bg-foreground-muted' },
   { name: 'border', className: 'bg-border', ring: true },
+  { name: 'ai', className: 'bg-ai' },
+  { name: 'ai-strong', className: 'bg-ai-strong' },
+  { name: 'ai-subtle', className: 'bg-ai-subtle', ring: true },
 ];
 
 const TYPE_SCALE = ['display', '3xl', '2xl', 'xl', 'lg', 'md', 'base', 'sm', 'xs', '2xs'] as const;
@@ -98,6 +103,27 @@ export default function DesignSystemPage() {
             </div>
           ))}
         </div>
+      </Section>
+
+      <Section
+        title="AI 제안"
+        hint="AI가 제안한 요소를 사람이 만든 요소와 구분하는 시각 언어. violet ai 액센트 + 스파클 글리프 + 라벨(색만으로 의미를 전달하지 않음)."
+      >
+        <div className="flex flex-wrap items-center gap-md">
+          <AiSuggestionBadge />
+          <AiSuggestionBadge tone="solid" />
+        </div>
+        {/* Sample AI-suggested field marker — the field-box tint/border the
+            editor (grain-6) will apply, shown here on a neutral surface. */}
+        <div className="flex flex-wrap gap-md pt-md">
+          <div className="relative flex h-16 w-56 items-center justify-center rounded-sm border-2 border-dashed border-ai bg-ai-subtle text-sm font-semibold text-ai-strong">
+            서명란
+            <span className="absolute -right-2.5 -top-2.5">
+              <AiSuggestionBadge className="shadow-sm" />
+            </span>
+          </div>
+        </div>
+        <p className="pt-2xs text-sm text-foreground-muted">{AI_COPY.suggestion.placed(3)}</p>
       </Section>
 
       <Section title="Typography" hint="Pretendard 기반 타입 스케일">

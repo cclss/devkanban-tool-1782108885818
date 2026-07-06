@@ -78,6 +78,14 @@ const config: Config = {
           foreground: 'var(--color-warning-foreground)',
           subtle: 'var(--color-warning-subtle)',
         },
+        // AI accent — marks AI-generated content (suggested fields, premium-AI
+        // surfaces). Deliberately outside the `--brand-*` hook: see globals.css.
+        ai: {
+          DEFAULT: 'var(--color-ai-accent)',
+          strong: 'var(--color-ai-accent-strong)',
+          foreground: 'var(--color-ai-accent-foreground)',
+          subtle: 'var(--color-ai-accent-subtle)',
+        },
         grey: {
           50: 'var(--grey-50)',
           100: 'var(--grey-100)',

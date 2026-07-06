@@ -70,6 +70,21 @@
     --color-warning-foreground: #ffffff;
     --color-warning-subtle: #fff4e6;
 
+    /* — AI accent —
+       Signals content the AI generated for the user (suggested fields, the
+       premium-AI trial/upgrade surfaces) so it reads as distinct from both
+       manual work and the primary action blue. A violet that no other token
+       occupies. It is intentionally NOT wired to the `--brand-*` hook: it marks
+       *our* AI feature, not the sender's brand, so it must stay constant even
+       when a sender re-skins primary. Both pairings clear WCAG AA:
+       white on `ai-accent` ≈5.7:1; `ai-accent-strong` on `ai-accent-subtle`
+       ≈6.3:1. Colour is never the only signal — the accent always rides with a
+       sparkle glyph and a Korean label. */
+    --color-ai-accent: #7c3aed;
+    --color-ai-accent-strong: #6d28d9;
+    --color-ai-accent-foreground: #ffffff;
+    --color-ai-accent-subtle: #f3efff;
+
     /* — Interaction — */
     --color-ring: var(--brand-primary);
     --color-overlay: rgba(13, 16, 21, 0.55);
