@@ -3,10 +3,8 @@ import { FieldDetectionModule } from '../field-detection/field-detection.module'
 import { VisionDetectionModule } from '../vision-detection/vision-detection.module';
 import { VisionTrialModule } from '../trials/vision-trial.module';
 import { FieldAnalysisService } from './field-analysis.service';
-import {
-  EmptyPdfPageRenderer,
-  PDF_PAGE_RENDERER,
-} from './pdf-page-renderer';
+import { PDF_PAGE_RENDERER } from './pdf-page-renderer';
+import { PdfjsPageRenderer } from './pdfjs-page-renderer';
 import {
   FIELD_ANALYSIS_STORE,
   PrismaFieldAnalysisStore,
@@ -35,8 +33,10 @@ import {
  *    candidates + engine/stage snapshot (grain-1 schema).
  *  - {@link DOCUMENT_PDF_SOURCE} → {@link StorageDocumentPdfSource}: re-reads the
  *    PDF bytes for the consent-driven premium run.
- *  - {@link PDF_PAGE_RENDERER} → {@link EmptyPdfPageRenderer}: renders nothing
- *    until a real rasterizer is bound (Vision path then resolves as unavailable).
+ *  - {@link PDF_PAGE_RENDERER} → {@link PdfjsPageRenderer}: rasterizes each PDF
+ *    page to a PNG image (pdf.js + native canvas) so the consent-driven premium
+ *    run can actually call Vision. It degrades to no images (an `unavailable`
+ *    Vision path) on an unreadable document rather than throwing.
  *
  * Exports {@link FieldAnalysisService} so the upload flow can trigger analysis in
  * the background on a successful upload.
@@ -45,7 +45,7 @@ import {
   imports: [FieldDetectionModule, VisionDetectionModule, VisionTrialModule],
   providers: [
     FieldAnalysisService,
-    { provide: PDF_PAGE_RENDERER, useClass: EmptyPdfPageRenderer },
+    { provide: PDF_PAGE_RENDERER, useClass: PdfjsPageRenderer },
     { provide: FIELD_ANALYSIS_STORE, useClass: PrismaFieldAnalysisStore },
     { provide: DOCUMENT_PDF_SOURCE, useClass: StorageDocumentPdfSource },
   ],

@@ -17,6 +17,7 @@
     "@aws-sdk/client-s3": "^3.717.0",
     "@aws-sdk/client-sesv2": "^3.717.0",
     "@aws-sdk/s3-request-presigner": "^3.717.0",
+    "@napi-rs/canvas": "^1.0.2",
     "@nestjs/bullmq": "^10.2.3",
     "@nestjs/common": "^10.4.15",
     "@nestjs/config": "^3.3.0",
