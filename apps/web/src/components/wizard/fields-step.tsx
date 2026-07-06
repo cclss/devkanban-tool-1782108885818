@@ -29,7 +29,6 @@ import {
   fetchFieldAnalysis,
   requestPremiumAnalysis,
   resolvePremiumPrompt,
-  showsTrialCount,
   nextAnalysisPollDelay,
   ANALYSIS_POLL,
   NEUTRAL_STATUS,
@@ -38,7 +37,6 @@ import {
 import { AI_COPY } from '@/lib/ai-copy';
 import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
 import { PremiumAiPrompt } from '@/components/ai/premium-ai-prompt';
-import { UpgradeDialog } from '@/components/upgrade-dialog';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
 
@@ -71,8 +69,6 @@ export function FieldsStep() {
   /** The analysis reached a terminal failure (or polling timed out) — surfaces the
       calm "분석을 마치지 못했어요" fallback; the editor stays usable for manual placement. */
   const [analysisFailed, setAnalysisFailed] = React.useState(false);
-  /** The value-first upgrade surface is open over the editor (wizard state preserved). */
-  const [upgradeOpen, setUpgradeOpen] = React.useState(false);
   const seededDocIdRef = React.useRef<string | null>(null);
 
   const setFields = React.useCallback(
@@ -150,18 +146,12 @@ export function FieldsStep() {
     dispatch({ type: 'CLEAR_AI_SUGGESTIONS' });
   }, [dispatch]);
 
-  // Premium prompt actions. Accept: on either invite — the scanned-doc invite
-  // (Story 2) or the text-PDF accuracy boost — re-request the analysis with the
-  // premium engine and seed the fields it returns (a trial is spent on consent,
-  // never by merely showing the invite); on the upgrade prompt, open the
-  // value-first upgrade surface *over* the editor (a modal, no navigation) so the
-  // wizard's placed fields survive — billing is out of scope, so it only shows
-  // value + guidance. Dismiss: hide the prompt and keep the current placement.
+  // Premium prompt actions. Accept: on either invite — the scanned-doc consent
+  // invite (Story 2) or the text-PDF accuracy boost — re-request the analysis with
+  // the premium engine and seed the fields it returns. Premium is unlimited, so
+  // consent spends nothing. Dismiss: hide the prompt and keep the current
+  // placement (or place by hand).
   const acceptPremium = React.useCallback(() => {
-    if (resolvePremiumPrompt(analysisStatus) === 'upgrade') {
-      setUpgradeOpen(true);
-      return;
-    }
     if (!documentId) return;
     setPromptBusy(true);
     void requestPremiumAnalysis(documentId, getToken() ?? undefined).then(({ drafts, status }) => {
@@ -171,7 +161,7 @@ export function FieldsStep() {
       setAnalysisFailed(status.failed);
       setPromptBusy(false);
     });
-  }, [analysisStatus, documentId, dispatch]);
+  }, [documentId, dispatch]);
 
   const placeManually = React.useCallback(() => {
     setSelectedId(null);
@@ -207,15 +197,11 @@ export function FieldsStep() {
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
   const aiFieldCount = fields.filter((f) => f.source === 'ai').length;
-  // Which premium surface (if any) to show: the scanned-doc invite, the optional
-  // text-PDF accuracy boost, or the trials-exhausted upgrade path. Hidden once the
-  // sender dismisses it (keeping the base placement / placing by hand), or once the
-  // premium engine has already run (its remaining-count note takes over instead).
+  // Which premium surface (if any) to show: the scanned-doc consent invite or the
+  // optional text-PDF accuracy boost. Hidden once the sender dismisses it (keeping
+  // the base placement / placing by hand), or once the premium engine has already
+  // run. Premium is unlimited, so there is no trial count and no upgrade surface.
   const premiumPrompt = promptDismissed ? null : resolvePremiumPrompt(analysisStatus);
-  // After a trial run on a metered account, state the calm remaining count
-  // (Story 2 tail). The invite carries its own count, so only show it standalone.
-  const showRemainingNote =
-    !premiumPrompt && analysisStatus.premiumUsed && !analysisStatus.premium;
 
   return (
     <div className="flex flex-col gap-md">
@@ -226,18 +212,16 @@ export function FieldsStep() {
         </p>
       </div>
 
-      {/* Premium AI flow. A scanned document offers the premium engine (invite) or,
-          once free trials are gone, the upgrade path; a text PDF the base engine
-          already handled offers the premium engine as an *optional* accuracy boost
-          (boost) — the base placement stays unlimited. All are a non-intrusive
-          inline banner with an equal "keep it / place by hand" escape, so they
-          never block the editor. It supersedes the standard suggestion notice while
-          shown. */}
+      {/* Premium AI flow. A scanned document offers the premium engine as a consent
+          invite (invite); a text PDF the base engine already handled offers it as an
+          *optional* accuracy boost (boost) — the base placement stays unlimited.
+          Premium is unlimited on every plan, so there is no trial count and no
+          upgrade wall. Both are a non-intrusive inline banner with an equal
+          "keep it / place by hand" escape, so they never block the editor. It
+          supersedes the standard suggestion notice while shown. */}
       {premiumPrompt ? (
         <PremiumAiPrompt
           mode={premiumPrompt}
-          trialsRemaining={analysisStatus.trialsRemaining}
-          showTrialCount={showsTrialCount(analysisStatus)}
           busy={promptBusy}
           onAccept={acceptPremium}
           onDismiss={placeManually}
@@ -290,26 +274,6 @@ export function FieldsStep() {
            the sender. Also the state after declining the premium prompt. */
         <p role="status" aria-live="polite" className="text-sm text-foreground-subtle">
           {AI_COPY.suggestion.none}
-        </p>
-      ) : null}
-
-      {/* Value-first upgrade surface. Opened by the depleted banner's [플랜 업그레이드]
-          as a modal *over* the editor — it never navigates away, so the fields the
-          sender already placed survive. Billing is out of scope, so it leads with the
-          premium-AI value and closes on a calm "coming soon". The equal "직접 배치하기"
-          escape on the banner keeps the workflow open. */}
-      <UpgradeDialog
-        open={upgradeOpen}
-        onOpenChange={setUpgradeOpen}
-        tone="ai"
-        title={AI_COPY.upgrade.dialogTitle}
-        description={AI_COPY.upgrade.dialogBody}
-      />
-
-      {/* Calm "N free trials remaining" note after a trial run (Story 2 tail). */}
-      {showRemainingNote ? (
-        <p className="-mt-2xs text-xs font-medium text-ai-strong/80">
-          {AI_COPY.trial.remaining(analysisStatus.trialsRemaining)}
         </p>
       ) : null}
 

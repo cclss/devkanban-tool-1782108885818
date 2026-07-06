@@ -36,33 +36,22 @@ import { UpgradeDialog } from '@/components/upgrade-dialog';
 import { AI_COPY } from '@/lib/ai-copy';
 
 /**
- * The workflow-preserving upgrade surface (`upgrade-dialog`). Shown here in both
- * tones: the neutral plan guidance (dashboard) and the premium-AI value-first
- * variant reached from the depleted banner's [플랜 업그레이드] — a modal, never a
- * navigation, so the editor's placed fields survive.
+ * The workflow-preserving upgrade surface (`upgrade-dialog`), neutral tone — the
+ * dashboard plan-card guidance, opened in place so the caller's state survives.
+ * (The premium-AI upgrade path was retired with the 2026-07-06 unlimited decision.)
  */
 function UpgradeDialogShowcase() {
-  const [open, setOpen] = React.useState<'neutral' | 'ai' | null>(null);
+  const [open, setOpen] = React.useState(false);
   return (
     <div className="flex flex-wrap gap-xs pt-xs">
-      <Button variant="secondary" size="sm" onClick={() => setOpen('neutral')}>
+      <Button variant="secondary" size="sm" onClick={() => setOpen(true)}>
         업그레이드 안내 (기본)
       </Button>
-      <Button variant="secondary" size="sm" onClick={() => setOpen('ai')}>
-        업그레이드 안내 (프리미엄 AI)
-      </Button>
       <UpgradeDialog
-        open={open === 'neutral'}
-        onOpenChange={(o) => setOpen(o ? 'neutral' : null)}
+        open={open}
+        onOpenChange={setOpen}
         title="곧 유료 플랜을 만나요"
         description="더 넉넉한 발송 한도와 팀 기능을 준비하고 있어요. 조금만 기다려 주세요."
-      />
-      <UpgradeDialog
-        open={open === 'ai'}
-        onOpenChange={(o) => setOpen(o ? 'ai' : null)}
-        tone="ai"
-        title={AI_COPY.upgrade.dialogTitle}
-        description={AI_COPY.upgrade.dialogBody}
       />
     </div>
   );
@@ -168,24 +157,11 @@ export default function DesignSystemPage() {
 
       <Section
         title="프리미엄 AI 안내"
-        hint="스캔 문서 감지 시 무료 체험 권유(invite), 텍스트 PDF에선 기본 무제한 배치 위에 선택형 정확도 부스터(boost), 체험 소진 시 업그레이드 경로(upgrade). 비침습적 인라인 배너 — 항상 '이대로/직접 배치' 거절 경로를 동등하게 제공."
+        hint="스캔 문서 감지 시 무제한 동의 권유(invite), 텍스트 PDF에선 기본 무제한 배치 위에 선택형 정확도 부스터(boost). 프리미엄 AI는 모든 플랜에서 무제한 — 체험 카운트·업그레이드 벽 없음. 비침습적 인라인 배너, 항상 '이대로/직접 배치' 거절 경로를 동등하게 제공."
       >
         <div className="grid gap-md sm:grid-cols-2">
-          <PremiumAiPrompt
-            mode="invite"
-            trialsRemaining={2}
-            showTrialCount
-            onAccept={() => {}}
-            onDismiss={() => {}}
-          />
-          <PremiumAiPrompt
-            mode="boost"
-            trialsRemaining={2}
-            showTrialCount
-            onAccept={() => {}}
-            onDismiss={() => {}}
-          />
-          <PremiumAiPrompt mode="upgrade" onAccept={() => {}} onDismiss={() => {}} />
+          <PremiumAiPrompt mode="invite" onAccept={() => {}} onDismiss={() => {}} />
+          <PremiumAiPrompt mode="boost" onAccept={() => {}} onDismiss={() => {}} />
         </div>
         <UpgradeDialogShowcase />
       </Section>
