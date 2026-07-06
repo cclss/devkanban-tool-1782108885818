@@ -60,12 +60,28 @@ export const AI_COPY = {
 
   upgrade: {
     /**
-     * Trials depleted (Story 4). Leads with the unlocked value, then the path.
+     * Trials depleted (Story 4). One clear upgrade message that leads with the
+     * unlocked value — "제한 없이" names the unlimited analysis premium adds
+     * *beyond* the trial (the free trial already analyzed scanned docs, so the
+     * upgrade's value is that it no longer stops) — and never blames. Clarity and
+     * the non-blocking design coexist because the equal "직접 배치하기" escape below,
+     * not this sentence, keeps the user in the workflow: `premium-ai-prompt` is an
+     * inline banner, not a modal.
      */
-    depleted: '무료 체험을 모두 사용했어요. 프리미엄으로 업그레이드하면 스캔한 문서도 자동으로 분석할 수 있어요.',
-    /** Primary path to the plan upgrade. */
+    depleted:
+      '무료 체험을 모두 사용했어요. 프리미엄으로 업그레이드하면 스캔한 문서도 제한 없이 자동으로 분석할 수 있어요.',
+    /**
+     * Primary path to the plan upgrade. Kept as "플랜 업그레이드" — not the brief's
+     * literal [요금제 업그레이드] — to match the plan vocabulary this CTA routes
+     * into: dashboard "Free 플랜"/"유료 플랜"/"업그레이드" and the API's sibling
+     * limit message ("…플랜을 업그레이드해 주세요"). See messaging/ai-copy.md CTA rule.
+     */
     upgradePlan: '플랜 업그레이드',
-    /** Fallback path — proceed manually. */
+    /**
+     * Fallback path — proceed manually. Kept as "직접 배치하기" — not the brief's
+     * literal [수동으로 필드 배치] — the base voice's neutral, autonomy-respecting
+     * reject label, consistent with "직접 배치" used across the product.
+     */
     placeManually: '직접 배치하기',
   },
 } as const;
