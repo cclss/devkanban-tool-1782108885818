@@ -188,6 +188,21 @@ export class FieldAnalysisService {
       );
     } catch (err) {
       this.logger.warn(`문서 ${documentId} 자동 필드 분석 실패: ${String(err)}`);
+      // The upload stamped the document `ANALYZING`; a background failure must
+      // move it to a terminal `failed` stage so the editor's bounded polling
+      // stops promptly and shows the "분석을 마치지 못했어요" fallback instead of
+      // spinning until timeout. Never let this recovery write throw.
+      try {
+        await this.store.saveAnalysis(documentId, {
+          engine: 'heuristic',
+          visionStage: 'failed',
+          fields: [],
+        });
+      } catch (persistErr) {
+        this.logger.warn(
+          `문서 ${documentId} 분석 실패 상태 기록 실패: ${String(persistErr)}`,
+        );
+      }
     }
   }
 

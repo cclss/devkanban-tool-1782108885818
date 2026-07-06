@@ -11,6 +11,8 @@ import {
   resolvePremiumPrompt,
   showsTrialCount,
   parseAnalysisStatus,
+  nextAnalysisPollDelay,
+  ANALYSIS_POLL,
   NEUTRAL_STATUS,
   type AnalysisStatus,
 } from './premium-trial';
@@ -159,6 +161,24 @@ describe('parseAnalysisStatus', () => {
     expect(resolvePremiumPrompt(s)).toBe('boost');
   });
 
+  it('reads a pending "analyzing" stage as in-progress, not scanned, with no prompt', () => {
+    const s = parseAnalysisStatus({ visionStage: 'analyzing', isPremium: false, trialsRemaining: 2 });
+    expect(s.analyzing).toBe(true);
+    expect(s.failed).toBe(false);
+    // Pending is a lifecycle state, not a scanned-doc signal — no premium invite.
+    expect(s.scannedDocument).toBe(false);
+    expect(resolvePremiumPrompt(s)).toBeNull();
+  });
+
+  it('reads a "failed" stage as a terminal failure, distinct from found-nothing', () => {
+    const s = parseAnalysisStatus({ visionStage: 'failed', isPremium: false, trialsRemaining: 2 });
+    expect(s.failed).toBe(true);
+    expect(s.analyzing).toBe(false);
+    // Failure is handled by the guidance notice, not a premium banner.
+    expect(s.scannedDocument).toBe(false);
+    expect(resolvePremiumPrompt(s)).toBeNull();
+  });
+
   it('coerces a missing / malformed status to neutral (dark pipeline safe)', () => {
     expect(parseAnalysisStatus(undefined)).toEqual(NEUTRAL_STATUS);
     expect(parseAnalysisStatus({})).toEqual(NEUTRAL_STATUS);
@@ -169,5 +189,26 @@ describe('parseAnalysisStatus', () => {
     expect(
       parseAnalysisStatus({ visionStage: 'blocked', trialsRemaining: 'lots' as unknown }).trialsRemaining,
     ).toBe(0);
+  });
+});
+
+describe('nextAnalysisPollDelay (bounded polling)', () => {
+  it('backs off linearly from the base delay', () => {
+    expect(nextAnalysisPollDelay(1)).toBe(ANALYSIS_POLL.baseMs);
+    expect(nextAnalysisPollDelay(2)).toBe(ANALYSIS_POLL.baseMs * 2);
+  });
+
+  it('caps the delay at the ceiling', () => {
+    expect(nextAnalysisPollDelay(999)).toBe(ANALYSIS_POLL.maxMs);
+  });
+
+  it('floors the attempt at 1 (never a zero / negative delay)', () => {
+    expect(nextAnalysisPollDelay(0)).toBe(ANALYSIS_POLL.baseMs);
+    expect(nextAnalysisPollDelay(-5)).toBe(ANALYSIS_POLL.baseMs);
+  });
+
+  it('is strictly bounded so polling can never spin forever', () => {
+    expect(ANALYSIS_POLL.maxAttempts).toBeGreaterThan(0);
+    expect(Number.isFinite(ANALYSIS_POLL.maxAttempts)).toBe(true);
   });
 });

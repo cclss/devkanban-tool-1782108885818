@@ -20,9 +20,12 @@ export const AI_COPY = {
 
   analysis: {
     /**
-     * In-progress notice shown after a scanned document is detected and AI
-     * analysis starts (Story 1/2). Assistant framing, a calm "hold on" — never
-     * exposes which engine runs or that a scan/text distinction exists.
+     * In-progress notice shown while the background analysis triggered on upload
+     * has not landed yet — for any upload, text or scanned (Story 1/2). The editor
+     * keeps this up and polls until a terminal result arrives, distinguishing
+     * "still analyzing" from "analyzed, found nothing". Assistant framing, a calm
+     * "hold on" — never exposes which engine runs or that a scan/text distinction
+     * exists (see design-spec messaging/ai-copy.md "분석 중(진행)").
      */
     analyzing: 'AI가 문서를 살펴보며 서명란을 찾고 있어요. 잠시만 기다려 주세요.',
     /**

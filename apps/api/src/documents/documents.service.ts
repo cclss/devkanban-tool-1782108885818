@@ -53,6 +53,7 @@ const ENGINE_TO_WIRE: Record<DbAnalysisEngine, AnalysisEngine> = {
 };
 
 const STAGE_TO_WIRE: Record<DbVisionStage, VisionStage> = {
+  [DbVisionStage.ANALYZING]: 'analyzing',
   [DbVisionStage.NOT_NEEDED]: 'not-needed',
   [DbVisionStage.AWAITING_CONSENT]: 'available',
   [DbVisionStage.BLOCKED]: 'blocked',
@@ -95,8 +96,12 @@ export class DocumentsService {
     await this.storage.save(storageKey, file.buffer);
 
     const title = this.deriveTitle(file.originalname);
+    // Stamp `ANALYZING` atomically with the row: analysis fires below and the
+    // editor opens moments later, so persisting the in-progress marker up front
+    // closes the race where a not-yet-finished analysis would read as "found
+    // nothing". The background run overwrites this with a terminal stage.
     const document = await this.prisma.document.create({
-      data: { ownerId, title, storageKey, pageCount },
+      data: { ownerId, title, storageKey, pageCount, visionStage: DbVisionStage.ANALYZING },
     });
 
     await this.writeAudit({
@@ -137,8 +142,18 @@ export class DocumentsService {
       }
     }
 
+    // Stamp `ANALYZING` up front (same rationale as the multipart path): the
+    // background analysis is triggered below, so the editor never mistakes a
+    // pending analysis for an empty one. Overwritten with a terminal stage on
+    // completion (or `failed` if the background run cannot read the bytes).
     const document = await this.prisma.document.create({
-      data: { ownerId, title: dto.title, storageKey: dto.storageKey, pageCount },
+      data: {
+        ownerId,
+        title: dto.title,
+        storageKey: dto.storageKey,
+        pageCount,
+        visionStage: DbVisionStage.ANALYZING,
+      },
     });
 
     await this.writeAudit({
@@ -443,9 +458,11 @@ export class DocumentsService {
 
   /**
    * Assemble the frontend-facing analysis status from the persisted document
-   * columns (engine / vision stage, grain-1) and the live trial balance. A
-   * document that has not been analysed yet (all columns null) reads as the
-   * neutral text-PDF happy path (`not-needed`, no prompt).
+   * columns (engine / vision stage, grain-1) and the live trial balance. Upload
+   * stamps the document `ANALYZING`, so a freshly uploaded document whose
+   * background run has not landed yet reads as `analyzing` (the editor keeps a
+   * calm "분석 중" notice and polls). A legacy document with a null stage reads as
+   * the neutral text-PDF happy path (`not-needed`, no prompt).
    *
    * `signal` is not persisted (and the frontend ignores it — it branches on
    * `visionStage`); it is derived best-effort here only to keep the payload shape

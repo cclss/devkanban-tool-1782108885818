@@ -61,17 +61,21 @@ model Document {
   certificateStorageKey String?         @map("certificate_storage_key")
   completedAt           DateTime?       @map("completed_at")
   // --- AI auto-field analysis state (grain-1: persistence) ---
-  // Set once the background auto-field-placement pipeline finishes for this
-  // document. All three stay null until analysis has run, so pre-analysis /
-  // legacy documents read as "never analyzed":
+  // Tracks the background auto-field-placement pipeline for this document:
   //   • analysisEngine — which engine produced the stored FieldSuggestions
-  //                      (heuristic default or the premium Vision engine).
-  //   • visionStage    — outcome of the premium Vision fallback stage, including
-  //                      the consent-gating states: AWAITING_CONSENT (image-only
-  //                      PDF, waiting for the user to opt into a premium trial)
-  //                      and BLOCKED (no trials left / not on a premium plan).
-  //   • analyzedAt     — when analysis completed; a non-null value is also the
-  //                      "has been analyzed" idempotency marker.
+  //                      (heuristic default or the premium Vision engine). Null
+  //                      until an engine has actually produced a result.
+  //   • visionStage    — lifecycle + outcome of analysis. Stamped ANALYZING the
+  //                      instant the row is created (the fire-and-forget analysis
+  //                      is still running), then overwritten with a terminal stage
+  //                      when it lands: NOT_NEEDED (confident text PDF),
+  //                      AWAITING_CONSENT (image-only PDF waiting for premium
+  //                      consent), SUCCEEDED / FAILED, or the legacy BLOCKED. A
+  //                      persisted ANALYZING lets a reader distinguish "still
+  //                      analyzing" from "analyzed, found nothing".
+  //   • analyzedAt     — when analysis completed; stays null while ANALYZING and
+  //                      a non-null value is the "has been analyzed" marker.
+  // Pre-analysis / legacy documents read as "never analyzed" (all three null).
   analysisEngine        AnalysisEngine? @map("analysis_engine")
   visionStage           VisionStage?    @map("vision_stage")
   analyzedAt            DateTime?       @map("analyzed_at")
@@ -270,6 +274,11 @@ enum AnalysisEngine {
 
 /// Outcome of the (optional) premium Vision fallback stage for a document.
 enum VisionStage {
+  /// The background analysis has been triggered on upload but has not produced a
+  /// result yet. Stamped the instant the document row is created (before the
+  /// fire-and-forget analysis finishes), so the editor can tell "still analyzing"
+  /// apart from "analyzed, found nothing" and poll until a terminal stage lands.
+  ANALYZING
   /// The heuristic engine was confident; Vision was never needed. (Text PDF.)
   NOT_NEEDED
   /// Image-only / low-confidence PDF: Vision is offered and the flow is waiting

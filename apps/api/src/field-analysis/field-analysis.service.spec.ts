@@ -463,6 +463,25 @@ describe('FieldAnalysisService', () => {
       expect(analyzeSpy).not.toHaveBeenCalled();
       expect(fieldDetection.analyze).toHaveBeenCalledTimes(1); // only the first run
     });
+
+    it('persists a terminal "failed" stage when the background run throws (so polling stops)', async () => {
+      // Upload stamped the document `ANALYZING`; a background failure must move it
+      // to `failed`, not leave it pending forever — the editor's bounded polling
+      // relies on a terminal stage landing.
+      const { service, saved } = makeService();
+
+      service.analyzeInBackground('doc-3', USER, async () => {
+        throw new Error('storage down');
+      });
+      await flush();
+
+      expect(saved).toHaveLength(1);
+      expect(saved[0]).toMatchObject({
+        documentId: 'doc-3',
+        snapshot: { engine: 'heuristic', visionStage: 'failed' },
+      });
+      expect(saved[0].snapshot.fields).toEqual([]);
+    });
   });
 });
 

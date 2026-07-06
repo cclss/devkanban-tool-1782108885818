@@ -32,6 +32,11 @@ export type AnalysisEngine = DetectionEngine;
  * Vision (the external call ships page pixels = PII), so a scanned PDF resolves to
  * `available` until the user consents.
  *
+ *  - `analyzing`  — the background analysis was triggered on upload but has not
+ *                   produced a result yet. Stamped the instant the document is
+ *                   created, so a reader can tell "still analyzing" apart from a
+ *                   terminal "found nothing" and poll until a terminal stage
+ *                   lands. (Persisted `ANALYZING`; overwritten on completion.)
  *  - `not-needed` — the heuristic engine was confident; Vision was never
  *                   considered. (Text PDF happy path.)
  *  - `available`  — the document read as scanned; the premium engine has not run
@@ -53,6 +58,7 @@ export type AnalysisEngine = DetectionEngine;
  * premium engine already ran.
  */
 export type VisionStage =
+  | 'analyzing'
   | 'not-needed'
   | 'available'
   | 'blocked'

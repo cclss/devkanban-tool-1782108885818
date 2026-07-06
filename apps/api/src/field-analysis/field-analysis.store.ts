@@ -44,8 +44,9 @@ const ENGINE_MAP: Record<AnalysisEngine, DbAnalysisEngine> = {
 };
 
 /** Wire stage value → persisted `VisionStage` enum (the two gating states map to
- * `AWAITING_CONSENT` / `BLOCKED`). */
+ * `AWAITING_CONSENT` / `BLOCKED`; the in-progress marker maps to `ANALYZING`). */
 const STAGE_MAP: Record<VisionStage, DbVisionStage> = {
+  analyzing: DbVisionStage.ANALYZING,
   'not-needed': DbVisionStage.NOT_NEEDED,
   available: DbVisionStage.AWAITING_CONSENT,
   blocked: DbVisionStage.BLOCKED,

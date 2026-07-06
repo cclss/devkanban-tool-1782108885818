@@ -43,8 +43,10 @@ import type {
 } from '../src/vision-detection/vision-detection.types';
 import { PDF_PAGE_RENDERER } from '../src/field-analysis/pdf-page-renderer';
 
-/** Build a 1-page PDF whose Title marks it text-based or scanned for the fake. */
-async function makePdf(marker: 'TEXT' | 'SCAN'): Promise<Buffer> {
+type Marker = 'TEXT' | 'SCAN' | 'SLOW';
+
+/** Build a 1-page PDF whose Title marks how the fake detector should behave. */
+async function makePdf(marker: Marker): Promise<Buffer> {
   const doc = await PDFDocument.create();
   doc.addPage([600, 800]);
   doc.setTitle(marker);
@@ -81,10 +83,30 @@ const SCAN_RESULT: FieldDetectionResult = {
   fallbackToVision: true,
 };
 
-/** Fake heuristic engine: text vs scan decided by the PDF's marker Title. */
+/**
+ * A gate the `SLOW` marker blocks on so a test can observe the persisted
+ * "analyzing" (pending) state before the background run lands. Resolved by the
+ * test to let the run finish. Reset per use.
+ */
+// A blocker the `SLOW` marker awaits so a test can observe the persisted
+// "analyzing" (pending) state before the background run lands. The executor runs
+// synchronously at module load, so `releaseSlow` is assigned up front; the test
+// calls it to let the gated run finish.
+let releaseSlow: () => void = () => undefined;
+const slowBlocker = new Promise<void>((resolve) => {
+  releaseSlow = resolve;
+});
+
+/** Fake heuristic engine: text vs scan decided by the PDF's marker Title; `SLOW`
+ * awaits {@link slowBlocker} so the pending state is observable. */
 const fakeDetection = {
   async analyze(pdf: Buffer): Promise<FieldDetectionResult> {
-    return (await readMarker(pdf)) === 'TEXT' ? TEXT_RESULT : SCAN_RESULT;
+    const marker = await readMarker(pdf);
+    if (marker === 'SLOW') {
+      await slowBlocker;
+      return TEXT_RESULT;
+    }
+    return marker === 'TEXT' ? TEXT_RESULT : SCAN_RESULT;
   },
 };
 
@@ -184,7 +206,7 @@ describe('Field-suggestions flow (e2e)', () => {
     await app.close();
   });
 
-  async function upload(marker: 'TEXT' | 'SCAN'): Promise<string> {
+  async function upload(marker: Marker): Promise<string> {
     const pdf = await makePdf(marker);
     const res = await request(app.getHttpServer())
       .post('/api/documents/upload')
@@ -225,11 +247,30 @@ describe('Field-suggestions flow (e2e)', () => {
     expect(body.status.trialsRemaining).toBe(2);
   });
 
+  it('reports a persisted "analyzing" state before the run lands — distinct from "found nothing"', async () => {
+    const id = await upload('SLOW');
+
+    // The background analysis is gated open, so the very first fetch reports the
+    // pending marker (not a terminal empty result). This is exactly the race the
+    // grain fixes: a not-yet-finished analysis must NOT read as "found nothing".
+    const pending = await getSuggestions(id);
+    expect(pending.status.visionStage).toBe('analyzing');
+    expect(pending.fields).toHaveLength(0);
+
+    // Release the gate; the terminal text result now lands with suggestions —
+    // proving the editor's polling would seed them the moment analysis completes.
+    releaseSlow();
+
+    const done = await waitFor(id, (b) => b.status.visionStage === 'not-needed');
+    expect(done.fields.length).toBeGreaterThan(0);
+  });
+
   it('Story 2: a scanned PDF invites premium, and consent runs + places fields with no charge', async () => {
     const id = await upload('SCAN');
 
-    // Upload records an invite (AWAITING_CONSENT) — nothing spent.
-    const invited = await waitFor(id, (b) => b.status.visionStage !== 'not-needed');
+    // Upload records an invite (AWAITING_CONSENT) — nothing spent. The document
+    // starts `analyzing` (pending marker), so wait for the terminal `available`.
+    const invited = await waitFor(id, (b) => b.status.visionStage === 'available');
     expect(invited.status.visionStage).toBe('available');
     expect(invited.status.upgradeRequired).toBe(false);
     expect(invited.fields).toHaveLength(0);
@@ -261,7 +302,7 @@ describe('Field-suggestions flow (e2e)', () => {
     // Run the premium engine several more times — well past the old 2-trial cap.
     for (let run = 0; run < 3; run += 1) {
       const doc = await upload('SCAN');
-      const invited = await waitFor(doc, (b) => b.status.visionStage !== 'not-needed');
+      const invited = await waitFor(doc, (b) => b.status.visionStage === 'available');
       // Every scanned PDF resolves to `available` (awaiting consent) — never blocked.
       expect(invited.status.visionStage).toBe('available');
       expect(invited.status.upgradeRequired).toBe(false);

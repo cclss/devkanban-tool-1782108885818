@@ -30,6 +30,8 @@ import {
   requestPremiumAnalysis,
   resolvePremiumPrompt,
   showsTrialCount,
+  nextAnalysisPollDelay,
+  ANALYSIS_POLL,
   NEUTRAL_STATUS,
   type AnalysisStatus,
 } from '@/lib/premium-trial';
@@ -63,8 +65,12 @@ export function FieldsStep() {
   const [promptDismissed, setPromptDismissed] = React.useState(false);
   /** The premium re-request is in flight (Story 2 consent). */
   const [promptBusy, setPromptBusy] = React.useState(false);
-  /** The initial analysis request is in flight — surfaces the calm "분석 중" notice. */
+  /** The analysis is still running (initial fetch + bounded polling) — surfaces the
+      calm "분석 중" notice while the background run resolves. */
   const [analyzing, setAnalyzing] = React.useState(false);
+  /** The analysis reached a terminal failure (or polling timed out) — surfaces the
+      calm "분석을 마치지 못했어요" fallback; the editor stays usable for manual placement. */
+  const [analysisFailed, setAnalysisFailed] = React.useState(false);
   /** The value-first upgrade surface is open over the editor (wizard state preserved). */
   const [upgradeOpen, setUpgradeOpen] = React.useState(false);
   const seededDocIdRef = React.useRef<string | null>(null);
@@ -74,10 +80,17 @@ export function FieldsStep() {
     [dispatch],
   );
 
-  // On opening the editor for a document, pull its AI-proposed fields once and
-  // drop them onto the canvas as `source: 'ai'` suggestions, and capture the
-  // trial/upgrade status so the premium prompt can branch. The seam degrades to
-  // an empty, no-prompt result on any error, so this never blocks manual placement.
+  // On opening the editor for a document, pull its AI-proposed fields and drop
+  // them onto the canvas as `source: 'ai'` suggestions, capturing the
+  // trial/upgrade status so the premium prompt can branch.
+  //
+  // The analysis runs in the background on upload, so the first fetch can come
+  // back still `analyzing` (the upload stamped the document as pending). We then
+  // poll — bounded by `ANALYSIS_POLL.maxAttempts` with a backing-off delay — and
+  // seed the fields the moment a terminal stage lands. Polling stops on
+  // completion or failure; if it never settles within the bound we fall back to
+  // the failure notice + manual placement. The seam degrades to an empty,
+  // no-prompt result on any error, so this never blocks manual placement.
   const documentId = document?.id ?? null;
   React.useEffect(() => {
     if (!documentId) return;
@@ -85,16 +98,50 @@ export function FieldsStep() {
     seededDocIdRef.current = documentId;
     setPromptDismissed(false);
     setAnalyzing(true);
+    setAnalysisFailed(false);
+
     let cancelled = false;
-    void fetchFieldAnalysis(documentId, getToken() ?? undefined).then(({ drafts, status }) => {
-      if (cancelled) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let attempts = 0;
+    const token = getToken() ?? undefined;
+
+    // A terminal analysis landed (or we gave up): seed any fields, record the
+    // status, and stop the "분석 중" notice.
+    const settle = (analysis: Awaited<ReturnType<typeof fetchFieldAnalysis>>) => {
+      const { drafts, status } = analysis;
       if (drafts.length > 0) dispatch({ type: 'SEED_AI_SUGGESTIONS', fields: drafts });
       setAiSeededCount(drafts.length);
       setAnalysisStatus(status);
       setAnalyzing(false);
-    });
+      setAnalysisFailed(status.failed);
+    };
+
+    const poll = () => {
+      void fetchFieldAnalysis(documentId, token).then((analysis) => {
+        if (cancelled) return;
+        // Still pending: re-fetch after a bounded, backing-off delay.
+        if (analysis.status.analyzing) {
+          if (attempts < ANALYSIS_POLL.maxAttempts) {
+            attempts += 1;
+            timer = setTimeout(poll, nextAnalysisPollDelay(attempts));
+            return;
+          }
+          // Bound reached and it never settled — degrade to manual placement
+          // with the calm failure notice instead of spinning forever.
+          setAnalysisStatus(NEUTRAL_STATUS);
+          setAiSeededCount(0);
+          setAnalyzing(false);
+          setAnalysisFailed(true);
+          return;
+        }
+        settle(analysis);
+      });
+    };
+    poll();
+
     return () => {
       cancelled = true;
+      if (timer) clearTimeout(timer);
     };
   }, [documentId, dispatch]);
 
@@ -121,6 +168,7 @@ export function FieldsStep() {
       if (drafts.length > 0) dispatch({ type: 'SEED_AI_SUGGESTIONS', fields: drafts });
       setAiSeededCount(drafts.length);
       setAnalysisStatus(status);
+      setAnalysisFailed(status.failed);
       setPromptBusy(false);
     });
   }, [analysisStatus, documentId, dispatch]);
@@ -207,6 +255,13 @@ export function FieldsStep() {
           <AiSuggestionBadge />
           <p className="text-sm font-medium text-ai-strong">{AI_COPY.analysis.analyzing}</p>
         </div>
+      ) : analysisFailed ? (
+        /* Analysis could not complete (service hiccup / timeout, or polling gave
+           up). A calm, non-blaming line that hands control back — the editor is
+           fully usable for manual placement. Distinct from "found nothing". */
+        <p role="status" aria-live="polite" className="text-sm text-foreground-subtle">
+          {AI_COPY.analysis.failed}
+        </p>
       ) : aiFieldCount > 0 ? (
         /* AI-suggestion notice. While suggestions are on the canvas, a calm banner
            states what the AI proposed and offers a one-tap "clear all". */

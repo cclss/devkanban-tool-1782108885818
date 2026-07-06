@@ -42,6 +42,19 @@ import type { SignFieldDraft } from '@/components/wizard/wizard-context';
  */
 export interface AnalysisStatus {
   /**
+   * The background analysis is still running (the upload stamped the document
+   * `analyzing` and no terminal stage has landed yet). While true, the editor
+   * shows the calm "분석 중" notice and keeps polling; no premium prompt is shown.
+   * Distinct from a terminal result with zero fields ("analyzed, found nothing").
+   */
+  analyzing: boolean;
+  /**
+   * The analysis reached a terminal *failure* (service hiccup / timeout) rather
+   * than completing — no suggestions, but distinct from "found nothing". Drives
+   * the "분석을 마치지 못했어요" fallback so the sender knows to retry or place by hand.
+   */
+  failed: boolean;
+  /**
    * The document looks scanned / image-only, so the standard engine found
    * nothing and the premium engine is the way to auto-place fields. Derived from
    * the server telling us the premium stage was relevant at all.
@@ -71,6 +84,8 @@ export interface AnalysisStatus {
 
 /** A text-PDF happy-path status: nothing scanned, nothing to prompt. */
 export const NEUTRAL_STATUS: AnalysisStatus = {
+  analyzing: false,
+  failed: false,
   scannedDocument: false,
   premium: false,
   premiumUsed: false,
@@ -166,8 +181,16 @@ function asCount(value: unknown): number {
 export function parseAnalysisStatus(raw: RawAnalysisStatus | undefined): AnalysisStatus {
   if (!raw || typeof raw !== 'object') return NEUTRAL_STATUS;
   const stage = raw.visionStage;
-  const scannedDocument = typeof stage === 'string' && stage !== 'not-needed';
+  const analyzing = stage === 'analyzing';
+  const failed = stage === 'failed';
+  // `analyzing` (pending) and `failed` are lifecycle states, not a scanned-doc
+  // signal — neither should surface a premium invite. Only the genuine premium
+  // stages (`available` / `blocked` / `succeeded`) mark a scanned document.
+  const scannedDocument =
+    typeof stage === 'string' && stage !== 'not-needed' && !analyzing && !failed;
   return {
+    analyzing,
+    failed,
     scannedDocument,
     premium: asBool(raw.isPremium),
     premiumUsed: stage === 'succeeded',
@@ -227,4 +250,31 @@ export async function requestPremiumAnalysis(
   } catch {
     return EMPTY_ANALYSIS;
   }
+}
+
+// --- bounded polling --------------------------------------------------------
+
+/**
+ * Bounds for the editor's "wait for the background analysis" polling. Upload
+ * stamps the document `analyzing`, so the first {@link fetchFieldAnalysis} may
+ * come back still-pending; the editor re-fetches until a terminal stage lands.
+ * Polling is strictly bounded so it can never spin forever or block manual use:
+ * after {@link ANALYSIS_POLL.maxAttempts} re-fetches it gives up and falls back
+ * to manual placement. The delay backs off linearly and caps, keeping early
+ * checks snappy (the offline heuristic path finishes fast) without hammering the
+ * API on a slow run.
+ */
+export const ANALYSIS_POLL = {
+  /** Re-fetches after the initial request before giving up (~30s total). */
+  maxAttempts: 12,
+  /** First backoff, in ms. */
+  baseMs: 1000,
+  /** Backoff ceiling, in ms. */
+  maxMs: 4000,
+} as const;
+
+/** Delay before the Nth re-fetch (1-based): linear backoff, capped. */
+export function nextAnalysisPollDelay(attempt: number): number {
+  const n = Math.max(1, Math.trunc(attempt));
+  return Math.min(ANALYSIS_POLL.maxMs, ANALYSIS_POLL.baseMs * n);
 }
