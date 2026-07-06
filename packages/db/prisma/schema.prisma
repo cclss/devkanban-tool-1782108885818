@@ -14,24 +14,24 @@ datasource db {
 
 /// Application user (the sender who creates and dispatches contracts).
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  name         String?
-  passwordHash String?  @map("password_hash")
+  id               String   @id @default(cuid())
+  email            String   @unique
+  name             String?
+  passwordHash     String?  @map("password_hash")
   // Google account subject (`sub`) for social sign-in. Null for password-only
   // accounts; set when a user signs in/links via Google.
-  googleId     String?  @unique @map("google_id")
+  googleId         String?  @unique @map("google_id")
   // Sender branding (logo + brand color) — available on all plans per spec.
-  brandLogoUrl String?  @map("brand_logo_url")
-  brandColor   String?  @map("brand_color")
-  plan         Plan     @default(FREE)
+  brandLogoUrl     String?  @map("brand_logo_url")
+  brandColor       String?  @map("brand_color")
+  plan             Plan     @default(FREE)
   // Premium Vision/LLM auto-field engine free-trial meter. Counts how many
   // trials this account has consumed; capped at VISION_TRIAL_LIMIT (2) by the
   // application layer via an atomic guarded increment (see VisionTrialService).
   // Premium plans (PRO/ENTERPRISE) are unmetered and never consume this counter.
-  visionTrialsUsed Int  @default(0) @map("vision_trials_used")
-  createdAt    DateTime @default(now()) @map("created_at")
-  updatedAt    DateTime @updatedAt @map("updated_at")
+  visionTrialsUsed Int      @default(0) @map("vision_trials_used")
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
 
   documents Document[]
   auditLogs AuditLog[]
@@ -41,32 +41,48 @@ model User {
 
 /// An uploaded PDF that a contract is built on top of.
 model Document {
-  id        String         @id @default(cuid())
-  ownerId   String         @map("owner_id")
-  title     String
+  id                    String          @id @default(cuid())
+  ownerId               String          @map("owner_id")
+  title                 String
   // Object storage key (e.g. S3). Stub-friendly: no cloud wiring at this grain.
-  storageKey String        @map("storage_key")
-  pageCount Int            @default(0) @map("page_count")
-  status    DocumentStatus @default(DRAFT)
+  storageKey            String          @map("storage_key")
+  pageCount             Int             @default(0) @map("page_count")
+  status                DocumentStatus  @default(DRAFT)
   // Timestamp the contract was dispatched (status → IN_PROGRESS). Used to
   // count monthly sends for the Free-plan quota guard.
-  sentAt    DateTime?      @map("sent_at")
+  sentAt                DateTime?       @map("sent_at")
   // Completion post-processing outputs (grain-5). Populated once the last
   // signer finishes and the worker has generated/stored the artifacts:
   //   • signedStorageKey      — object key of the flattened, signed final PDF
   //   • certificateStorageKey — object key of the audit-trail certificate PDF
   //   • completedAt           — when the contract completed (also the
   //     idempotency marker: a non-null value means post-processing is done).
-  signedStorageKey      String?   @map("signed_storage_key")
-  certificateStorageKey String?   @map("certificate_storage_key")
-  completedAt           DateTime? @map("completed_at")
-  createdAt DateTime       @default(now()) @map("created_at")
-  updatedAt DateTime       @updatedAt @map("updated_at")
+  signedStorageKey      String?         @map("signed_storage_key")
+  certificateStorageKey String?         @map("certificate_storage_key")
+  completedAt           DateTime?       @map("completed_at")
+  // --- AI auto-field analysis state (grain-1: persistence) ---
+  // Set once the background auto-field-placement pipeline finishes for this
+  // document. All three stay null until analysis has run, so pre-analysis /
+  // legacy documents read as "never analyzed":
+  //   • analysisEngine — which engine produced the stored FieldSuggestions
+  //                      (heuristic default or the premium Vision engine).
+  //   • visionStage    — outcome of the premium Vision fallback stage, including
+  //                      the consent-gating states: AWAITING_CONSENT (image-only
+  //                      PDF, waiting for the user to opt into a premium trial)
+  //                      and BLOCKED (no trials left / not on a premium plan).
+  //   • analyzedAt     — when analysis completed; a non-null value is also the
+  //                      "has been analyzed" idempotency marker.
+  analysisEngine        AnalysisEngine? @map("analysis_engine")
+  visionStage           VisionStage?    @map("vision_stage")
+  analyzedAt            DateTime?       @map("analyzed_at")
+  createdAt             DateTime        @default(now()) @map("created_at")
+  updatedAt             DateTime        @updatedAt @map("updated_at")
 
-  owner        User          @relation(fields: [ownerId], references: [id], onDelete: Cascade)
-  signRequests SignRequest[]
-  signFields   SignField[]
-  auditLogs    AuditLog[]
+  owner            User              @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+  signRequests     SignRequest[]
+  signFields       SignField[]
+  fieldSuggestions FieldSuggestion[]
+  auditLogs        AuditLog[]
 
   @@index([ownerId])
   @@map("documents")
@@ -82,36 +98,36 @@ model Document {
 ///     `recipientEmail`/`verifyCode` are absent; access is instead governed by
 ///     the `link*` columns (optional password, expiry, revocation, label).
 model SignRequest {
-  id          String            @id @default(cuid())
-  documentId  String            @map("document_id")
+  id                 String                @id @default(cuid())
+  documentId         String                @map("document_id")
   // Null in LINK mode (no addressed recipient until they identify themselves).
-  recipientEmail String?        @map("recipient_email")
-  recipientName  String?        @map("recipient_name")
+  recipientEmail     String?               @map("recipient_email")
+  recipientName      String?               @map("recipient_name")
   // Signing order for sequential workflows.
-  order       Int               @default(0)
-  status      SignRequestStatus @default(PENDING)
+  order              Int                   @default(0)
+  status             SignRequestStatus     @default(PENDING)
   // How this request is accessed. Defaults to CODE to preserve the existing
   // out-of-band OTP behaviour for all pre-existing rows.
-  accessMode  SignRequestAccessMode @default(CODE) @map("access_mode")
+  accessMode         SignRequestAccessMode @default(CODE) @map("access_mode")
   // Access token embedded in the signing link.
-  accessToken String            @unique @map("access_token")
+  accessToken        String                @unique @map("access_token")
   // 6-digit verification code delivered out of band. CODE mode only.
-  verifyCode  String?           @map("verify_code")
+  verifyCode         String?               @map("verify_code")
   // --- LINK mode access settings (all null/ignored in CODE mode) ---
   // Link password stored as reversible ciphertext so the sender can review and
   // edit it (AES-256-GCM envelope: `encv1:<iv>:<tag>:<ciphertext>`, the key held
   // as an app secret, never in the DB). Null = no password required. Pre-existing
   // rows may still hold a legacy bcrypt hash; the verify path accepts both.
-  linkPasswordCipher String?    @map("link_password_cipher")
+  linkPasswordCipher String?               @map("link_password_cipher")
   // When the link stops working. Null = never expires.
-  linkExpiresAt DateTime?       @map("link_expires_at")
+  linkExpiresAt      DateTime?             @map("link_expires_at")
   // When the sender manually revoked the link. Null = still active.
-  linkRevokedAt DateTime?       @map("link_revoked_at")
+  linkRevokedAt      DateTime?             @map("link_revoked_at")
   // Sender-facing label to tell multiple links apart. Null = unlabelled.
-  linkLabel   String?           @map("link_label")
-  signedAt    DateTime?         @map("signed_at")
-  createdAt   DateTime          @default(now()) @map("created_at")
-  updatedAt   DateTime          @updatedAt @map("updated_at")
+  linkLabel          String?               @map("link_label")
+  signedAt           DateTime?             @map("signed_at")
+  createdAt          DateTime              @default(now()) @map("created_at")
+  updatedAt          DateTime              @updatedAt @map("updated_at")
 
   document   Document    @relation(fields: [documentId], references: [id], onDelete: Cascade)
   signFields SignField[]
@@ -123,24 +139,24 @@ model SignRequest {
 
 /// A placed field on a document page (signature, date, or free text).
 model SignField {
-  id            String        @id @default(cuid())
-  documentId    String        @map("document_id")
-  signRequestId String?       @map("sign_request_id")
-  type          SignFieldType
+  id             String        @id @default(cuid())
+  documentId     String        @map("document_id")
+  signRequestId  String?       @map("sign_request_id")
+  type           SignFieldType
   // Which recipient (by 0-based order index) must fill this field. Resolved to
   // a concrete signRequestId at send time. Null = first/only signer.
-  recipientIndex Int?         @default(0) @map("recipient_index")
-  page          Int           @default(1)
+  recipientIndex Int?          @default(0) @map("recipient_index")
+  page           Int           @default(1)
   // Normalized geometry (0..1) relative to the page. Coordinate-system
   // conversion (PDF bottom-left vs canvas top-left) is handled in app logic.
-  x             Float
-  y             Float
-  width         Float
-  height        Float
+  x              Float
+  y              Float
+  width          Float
+  height         Float
   // Captured value once signed (signature image ref / text / date).
-  value         String?
-  createdAt     DateTime      @default(now()) @map("created_at")
-  updatedAt     DateTime      @updatedAt @map("updated_at")
+  value          String?
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
 
   document    Document     @relation(fields: [documentId], references: [id], onDelete: Cascade)
   signRequest SignRequest? @relation(fields: [signRequestId], references: [id], onDelete: SetNull)
@@ -148,6 +164,45 @@ model SignField {
   @@index([documentId])
   @@index([signRequestId])
   @@map("sign_fields")
+}
+
+/// An AI-proposed input field for a document, produced by the auto-field-analysis
+/// pipeline (default heuristic engine or the premium Vision/LLM engine).
+///
+/// This is a *suggestion*: the sender has not reviewed, edited, or saved it yet,
+/// so it is deliberately kept separate from the confirmed `SignField`. On review
+/// the app materializes accepted suggestions into real `SignField` rows; this
+/// table is the pre-confirmation staging area and can be wiped ("제안 모두 지우기")
+/// without ever touching a confirmed field. Rows are removed with their document
+/// (`onDelete: Cascade`).
+model FieldSuggestion {
+  id         String                @id @default(cuid())
+  documentId String                @map("document_id")
+  type       SignFieldType
+  // Origin marker: always AI for this table (mirrors the editor's
+  // `source: 'ai' | 'manual'` axis). Confirmed manual fields live in `SignField`,
+  // never here.
+  source     FieldSuggestionSource @default(AI)
+  page       Int                   @default(1)
+  // Normalized geometry (0..1) with a bottom-left origin — the same convention as
+  // `SignField`, so an accepted suggestion maps to a real field with no
+  // coordinate translation.
+  x          Float
+  y          Float
+  width      Float
+  height     Float
+  // Engine confidence for this candidate (0..1). Null when the engine does not
+  // score its candidates.
+  confidence Float?
+  // The label text that anchored this candidate (e.g. "서명", "Date"). Kept for
+  // telemetry / explaining a suggestion; not itself user-facing copy.
+  anchorText String?               @map("anchor_text")
+  createdAt  DateTime              @default(now()) @map("created_at")
+
+  document Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
+
+  @@index([documentId])
+  @@map("field_suggestions")
 }
 
 /// Immutable trail of every meaningful action for the audit certificate.
@@ -203,4 +258,35 @@ enum SignFieldType {
   SIGNATURE
   DATE
   TEXT
+}
+
+/// Which auto-field-placement engine produced a document's stored analysis.
+enum AnalysisEngine {
+  /// Default text-layer heuristic engine (all plans, no external calls).
+  HEURISTIC
+  /// Premium Vision/LLM engine (image-only / low-confidence PDFs).
+  VISION
+}
+
+/// Outcome of the (optional) premium Vision fallback stage for a document.
+enum VisionStage {
+  /// The heuristic engine was confident; Vision was never needed. (Text PDF.)
+  NOT_NEEDED
+  /// Image-only / low-confidence PDF: Vision is offered and the flow is waiting
+  /// for the user to opt into a free trial (or confirm on a premium plan).
+  AWAITING_CONSENT
+  /// Vision is required but access is denied — no free trials left and the user
+  /// is not on a premium plan. The upgrade path is offered instead.
+  BLOCKED
+  /// Vision ran and produced candidates.
+  SUCCEEDED
+  /// Vision ran but could not produce a result (not configured / timeout /
+  /// transport / bad response).
+  FAILED
+}
+
+/// Origin of a stored field candidate. Suggestions are always AI-produced;
+/// confirmed manual fields live in `SignField`, not this table.
+enum FieldSuggestionSource {
+  AI
 }
