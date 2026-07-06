@@ -6,42 +6,57 @@ import type {
 import type { VisionErrorReason } from '../vision-detection/vision-detection.types';
 
 /**
- * Data contract for the auto-field-placement **analysis orchestration** (grain-3).
+ * Data contract for the auto-field-placement **analysis orchestration** with the
+ * free-trial policy folded in (grain-2).
  *
- * On upload the orchestration runs the default heuristic engine (grain-1 detection
- * + heuristic) first and, for an image-only / low-confidence PDF, rasterizes the
- * pages and falls back to the premium Vision engine (grain-2). It assembles the
- * field candidates plus a {@link FieldAnalysisStatus} the frontend consumes to
- * drive the review UI.
+ * On upload the orchestration runs the default heuristic engine first and
+ * persists the result. For an image-only / low-confidence PDF it does **not**
+ * auto-run the premium Vision engine; instead it records a "scan detected,
+ * premium awaiting" state and leaves the actual Vision run to an explicit,
+ * consent-driven call ({@link FieldAnalysisResult}) that atomically spends a free
+ * trial. The status carries the plan / trial situation the review UI branches on.
  *
  * These are **structured signals**, not user-facing copy: which engine ran, the
- * Vision stage outcome, and — on failure — a structured reason. The actual
- * prompts shown to a user are composed by later UI grains from this payload.
- *
- * Free-trial usage, upgrade gating, and any trial counters are deliberately **out
- * of scope for this grain** and are absent from the payload: an image-only PDF
- * unconditionally runs the premium engine here. A later grain layers the trial
- * policy on top of this orchestration.
+ * Vision stage outcome, whether the account is premium, how many free trials
+ * remain, and whether an upgrade is required. The actual prompts shown to a user
+ * are composed by the editor UI from this payload (see design-spec
+ * `messaging/ai-copy.md`, `components/premium-ai-prompt`, and
+ * `vocabulary/premium-trial-states.md`).
  */
 
 /** Which engine produced the returned candidates. */
 export type AnalysisEngine = DetectionEngine;
 
 /**
- * What happened at the (optional) Vision fallback stage.
+ * What happened at the (optional) premium Vision stage. The two gating states
+ * (`available` / `blocked`) are new in this grain: upload never auto-runs Vision
+ * anymore, so an image-only PDF resolves to one of them until the user consents.
  *
- *  - `not-needed`  — the heuristic engine was confident; Vision was never
- *                    considered. (Text PDF happy path.)
- *  - `succeeded`   — Vision ran and produced candidates (image-only / low
- *                    confidence PDF).
- *  - `failed`      — Vision ran but could not produce a result (not configured /
- *                    timeout / transport / bad response). No candidates are
- *                    returned and `visionError` carries the structured reason.
+ *  - `not-needed` — the heuristic engine was confident; Vision was never
+ *                   considered. (Text PDF happy path.)
+ *  - `available`  — the document read as scanned and the account MAY run the
+ *                   premium engine (premium plan or free trials remaining), but it
+ *                   has not run yet — the flow is waiting for the user to opt in.
+ *                   No trial has been spent. (Persisted `AWAITING_CONSENT`.)
+ *  - `blocked`    — the document read as scanned but the account may NOT run the
+ *                   premium engine: every free trial is spent and the plan is not
+ *                   premium. The upgrade path is offered instead
+ *                   (`upgradeRequired`). (Persisted `BLOCKED`.)
+ *  - `succeeded`  — Vision ran (after consent) and produced candidates.
+ *  - `failed`     — Vision ran but could not produce a result (not configured /
+ *                   timeout / transport / bad response). No candidates are
+ *                   returned and `visionError` carries the structured reason.
  *
- * There is no `blocked` state in this grain: access gating (plan / free trials)
- * is out of scope, so an image-only PDF always attempts the premium engine.
+ * The wire values line up with what the frontend `parseAnalysisStatus` reads:
+ * `visionStage !== 'not-needed'` ⇒ scanned document; `=== 'succeeded'` ⇒ the
+ * premium engine already ran.
  */
-export type VisionStage = 'not-needed' | 'succeeded' | 'failed';
+export type VisionStage =
+  | 'not-needed'
+  | 'available'
+  | 'blocked'
+  | 'succeeded'
+  | 'failed';
 
 /**
  * The frontend-consumable status of one document analysis. Serializable and free
@@ -52,10 +67,24 @@ export interface FieldAnalysisStatus {
   engine: AnalysisEngine;
   /** Final verdict of the engine that produced the candidates. */
   signal: DetectionSignal;
-  /** Outcome of the Vision fallback stage (see {@link VisionStage}). */
+  /** Outcome of the premium Vision stage (see {@link VisionStage}). */
   visionStage: VisionStage;
   /** Structured failure reason, present only when `visionStage === 'failed'`. */
   visionError?: VisionErrorReason;
+  /** The account is on a premium (unmetered) plan — free trials do not apply. */
+  isPremium: boolean;
+  /**
+   * Free premium trials left on the account after this analysis. For a premium
+   * account trials are irrelevant; the value still reports the (unclamped-by-plan)
+   * balance and the UI hides the count for premium plans.
+   */
+  trialsRemaining: number;
+  /**
+   * The premium engine is needed but the account may not use it — every free
+   * trial is spent and the plan is not premium. Drives the upgrade surface. True
+   * exactly when `visionStage === 'blocked'`.
+   */
+  upgradeRequired: boolean;
 }
 
 /**
@@ -63,9 +92,9 @@ export interface FieldAnalysisStatus {
  * the status the frontend needs to render suggestions.
  */
 export interface FieldAnalysisResult {
-  /** Proposed input fields (possibly empty — e.g. a failed Vision run). */
+  /** Proposed input fields (possibly empty — e.g. an awaiting/blocked/failed run). */
   fields: FieldCandidate[];
-  /** Engine / Vision-stage status for the UI. */
+  /** Engine / Vision-stage / trial status for the UI. */
   status: FieldAnalysisStatus;
 }
 

@@ -14,8 +14,8 @@ export interface PdfPageRenderer {
   /**
    * Render every page of a PDF to a raster image. Implementations should return
    * an empty array (rather than throw) when they cannot render — the
-   * orchestration treats "no images" as an unavailable Vision path and never
-   * charges a trial for it.
+   * orchestration treats "no images" as an unavailable Vision path (a `failed`
+   * stage with a structured `unavailable` reason).
    */
   render(pdf: Buffer): Promise<VisionPageImage[]>;
 }
@@ -29,8 +29,10 @@ export const PDF_PAGE_RENDERER = Symbol('PDF_PAGE_RENDERER');
  * The orchestration is deliberately decoupled from any specific PDF rasterizer.
  * Until a real renderer is bound, this default makes the Vision path report as
  * unavailable (no images to send), which the orchestration handles as a safe
- * `failed` stage with **no trial charged** — no crashes, no wrongly-spent trials.
- * Swap this provider for a real renderer to enable end-to-end Vision analysis on
+ * `failed` stage with a structured `unavailable` reason — no crashes. (Consent
+ * and the atomic trial charge happen upstream in `runPremiumAnalysis` before the
+ * render, so this default keeps the pipeline safe while it is still dark.) Swap
+ * this provider for a real renderer to enable end-to-end Vision analysis on
  * image-only PDFs.
  */
 @Injectable()
