@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HeuristicFieldDetector } from './heuristic-field-detector';
+import { ScanDetector } from './scan-detector';
 import { FieldDetectionService } from './field-detection.service';
 import {
   EmptyPdfTextExtractor,
@@ -19,9 +20,10 @@ import {
 @Module({
   providers: [
     HeuristicFieldDetector,
+    ScanDetector,
     FieldDetectionService,
     { provide: PDF_TEXT_EXTRACTOR, useClass: EmptyPdfTextExtractor },
   ],
-  exports: [FieldDetectionService, HeuristicFieldDetector],
+  exports: [FieldDetectionService, HeuristicFieldDetector, ScanDetector],
 })
 export class FieldDetectionModule {}

@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { matchKeyword } from './heuristic-keywords';
+import { classifyScan } from './scan-detector';
 import type {
   DetectedFieldType,
   FieldCandidate,
@@ -33,8 +34,10 @@ export class HeuristicFieldDetector {
   detect(layer: PdfTextLayer): FieldDetectionResult {
     const pages = layer.pages ?? [];
 
-    // "이미지 전용 / 텍스트 없음": no page carries any word-bearing text run.
-    if (!this.hasUsableText(pages)) {
+    // "이미지 전용 / 스캔": delegate the scan verdict to the shared detector so
+    // there is a single source of truth for text-density judgment. A fully
+    // image-only document has no usable text layer for the heuristic to work on.
+    if (classifyScan(layer).visionRequired) {
       return {
         engine: 'heuristic',
         signal: 'no-text',
@@ -83,16 +86,6 @@ export class HeuristicFieldDetector {
       // premium engine — the caller keeps these as a starting point either way.
       fallbackToVision: lowConfidence,
     };
-  }
-
-  /** True when at least one run on any page contains a letter or digit. */
-  private hasUsableText(pages: PdfPageText[]): boolean {
-    for (const page of pages) {
-      for (const token of page.tokens ?? []) {
-        if (WORD_CHAR.test(token.text)) return true;
-      }
-    }
-    return false;
   }
 
   /**
@@ -187,9 +180,6 @@ const WIDTH_PT: Record<DetectedFieldType, number> = {
   [SignFieldType.DATE]: 120,
   [SignFieldType.SIGNATURE]: 150,
 };
-
-/** Matches any Unicode letter or digit — used to tell text PDFs from scans. */
-const WORD_CHAR = /[\p{L}\p{N}]/u;
 
 function clamp01(n: number): number {
   if (n < 0) return 0;
