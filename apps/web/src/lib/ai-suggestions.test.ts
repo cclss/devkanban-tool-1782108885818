@@ -9,6 +9,7 @@
  */
 
 import {
+  parseSuggestions,
   toAiFieldDrafts,
   withAiSuggestions,
   withoutAiSuggestions,
@@ -38,6 +39,47 @@ const manual = (id: string): SignFieldDraft => ({
   width: 0.2,
   height: 0.05,
   source: 'manual',
+});
+
+// AI output is untrusted wire input. A malformed candidate must be *dropped*,
+// never adapted into a broken box on the canvas — the editor should open with
+// only the valid suggestions (or blank) rather than a field with NaN/absent
+// geometry. This pins the ingress boundary the reducer's SEED action rests on.
+describe('parseSuggestions (untrusted wire → editor drafts)', () => {
+  it('adapts valid wire candidates into ai-source drafts', () => {
+    const drafts = parseSuggestions([candidate(), candidate({ type: 'DATE' })]);
+    expect(drafts).toHaveLength(2);
+    expect(drafts.every((d) => d.source === 'ai')).toBe(true);
+    expect(drafts.map((d) => d.type)).toEqual(['SIGNATURE', 'DATE']);
+    expect(new Set(drafts.map((d) => d.id)).size).toBe(2);
+  });
+
+  it('drops candidates with non-finite geometry instead of making a broken box', () => {
+    const drafts = parseSuggestions([
+      candidate(), // valid
+      candidate({ width: Number.NaN }), // broken
+      candidate({ x: Number.POSITIVE_INFINITY }), // broken
+      candidate({ height: 'big' as unknown as number }), // wrong type
+    ]);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.source).toBe('ai');
+  });
+
+  it('drops candidates with an unknown field type', () => {
+    const drafts = parseSuggestions([
+      candidate(),
+      candidate({ type: 'CHECKBOX' as unknown as AiFieldSuggestion['type'] }),
+    ]);
+    expect(drafts).toHaveLength(1);
+    expect(drafts[0]?.type).toBe('SIGNATURE');
+  });
+
+  it('collapses a missing / malformed list to an empty batch (blank canvas)', () => {
+    expect(parseSuggestions(undefined)).toEqual([]);
+    expect(parseSuggestions(null)).toEqual([]);
+    expect(parseSuggestions({ not: 'an array' })).toEqual([]);
+    expect(parseSuggestions([null, 42, 'x', {}])).toEqual([]);
+  });
 });
 
 describe('toAiFieldDrafts', () => {
