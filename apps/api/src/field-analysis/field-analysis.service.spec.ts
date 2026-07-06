@@ -231,6 +231,47 @@ describe('FieldAnalysisService', () => {
       expect(status.isPremium).toBe(false);
       expect(status.trialsRemaining).toBe(2);
       expect(status.upgradeRequired).toBe(false);
+      // Base handled it (unlimited) but a trial remains → offer the optional
+      // premium accuracy boost. No trial is spent by merely offering it.
+      expect(status.boostAvailable).toBe(true);
+    });
+
+    it('offers no accuracy boost once trials are gone on a non-premium plan (base stays unlimited, no upsell wall)', async () => {
+      const { service } = makeService({
+        detection: heuristicOk(),
+        status: {
+          plan: 'FREE',
+          isPremium: false,
+          used: 2,
+          limit: 2,
+          remaining: 0,
+          exhausted: true,
+        } as TrialStatus,
+      });
+
+      const { status } = await service.analyze(DOC, USER, PDF);
+
+      expect(status.visionStage).toBe('not-needed');
+      expect(status.upgradeRequired).toBe(false);
+      expect(status.boostAvailable).toBe(false);
+    });
+
+    it('offers the accuracy boost to a premium account (trials do not apply)', async () => {
+      const { service } = makeService({
+        detection: heuristicOk(),
+        status: {
+          plan: 'PRO',
+          isPremium: true,
+          used: 0,
+          limit: 0,
+          remaining: 0,
+          exhausted: false,
+        } as TrialStatus,
+      });
+
+      const { status } = await service.analyze(DOC, USER, PDF);
+
+      expect(status.boostAvailable).toBe(true);
     });
   });
 

@@ -470,6 +470,12 @@ export class DocumentsService {
       isPremium: trial.isPremium,
       trialsRemaining: trial.remaining,
       upgradeRequired: visionStage === 'blocked',
+      // Text PDF the base engine handled → offer the optional premium accuracy
+      // boost while the account can still run it (premium or trials remaining).
+      // Base placement stays unlimited; there is no upsell wall here.
+      boostAvailable:
+        visionStage === 'not-needed' &&
+        (trial.isPremium || trial.remaining > 0),
     };
   }
 

@@ -58,6 +58,15 @@ export interface AnalysisStatus {
    * trial is spent and the plan isn't premium. Drives the upgrade surface.
    */
   upgradeRequired: boolean;
+  /**
+   * The base engine already handled this text PDF (nothing scanned) and the
+   * account may *optionally* run the premium engine for a more accurate pass
+   * (premium plan or free trials remaining). Drives the non-coercive accuracy
+   * boost invite. The base auto-placement is unlimited, so this is a pure
+   * opt-in — an exhausted non-premium account simply sees no prompt, never an
+   * upgrade wall on a text PDF.
+   */
+  boostAvailable: boolean;
 }
 
 /** A text-PDF happy-path status: nothing scanned, nothing to prompt. */
@@ -67,32 +76,55 @@ export const NEUTRAL_STATUS: AnalysisStatus = {
   premiumUsed: false,
   trialsRemaining: 0,
   upgradeRequired: false,
+  boostAvailable: false,
 };
 
-/** Which non-intrusive premium surface the editor should show, if any. */
-export type PremiumPrompt = 'invite' | 'upgrade' | null;
+/**
+ * Which non-intrusive premium surface the editor should show, if any.
+ *   • invite  — scanned document, try the premium engine to place fields.
+ *   • boost   — text PDF the base engine already handled; offer the premium
+ *               engine as an *optional* accuracy boost (base stays unlimited).
+ *   • upgrade — premium is needed but every free trial is spent (scanned only).
+ */
+export type PremiumPrompt = 'invite' | 'boost' | 'upgrade' | null;
 
 /**
- * Decide the premium surface from an analysis status. Order matters: an exhausted
- * account (`upgradeRequired`) always sees the upgrade path, even though the
- * document is also "scanned"; the invite is only for accounts that can still try
- * the premium engine and haven't yet.
+ * Whether the account can still run a premium pass on this document: on a premium
+ * (unmetered) plan, or with free trials left, and it hasn't already run.
+ */
+function canRunPremium(status: AnalysisStatus): boolean {
+  return !status.premiumUsed && (status.premium || status.trialsRemaining > 0);
+}
+
+/**
+ * Decide the premium surface from an analysis status. Order matters:
+ *   1. An exhausted account (`upgradeRequired`, scanned-only) always sees the
+ *      upgrade path — never a "try it" invite it cannot accept.
+ *   2. A scanned document the account can still run → the `invite` (Story 2).
+ *   3. A text PDF the base engine handled, where the account can still run
+ *      premium → the optional `boost` invite (accuracy booster). There is no
+ *      upgrade wall on a text PDF: base placement is unlimited, so an exhausted
+ *      non-premium account here simply gets no prompt.
  */
 export function resolvePremiumPrompt(status: AnalysisStatus): PremiumPrompt {
   if (status.upgradeRequired) return 'upgrade';
-  if (status.scannedDocument && !status.premiumUsed && (status.premium || status.trialsRemaining > 0)) {
-    return 'invite';
-  }
+  if (status.scannedDocument && canRunPremium(status)) return 'invite';
+  if (status.boostAvailable && canRunPremium(status)) return 'boost';
   return null;
 }
 
 /**
  * Whether the editor should show the "N free trials remaining" note. Shown right
- * after a trial run (Story 2 tail) and on the invite (so the sender sees the cost
- * before consenting) — never for premium accounts, where trials don't apply.
+ * after a trial run (Story 2 tail) and on either invite — scanned (`invite`) or
+ * the text-PDF accuracy boost (`boost`) — so the sender sees the cost before
+ * consenting. Never for premium accounts, where trials don't apply.
  */
 export function showsTrialCount(status: AnalysisStatus): boolean {
-  return !status.premium && status.trialsRemaining >= 0 && (status.premiumUsed || status.scannedDocument);
+  return (
+    !status.premium &&
+    status.trialsRemaining >= 0 &&
+    (status.premiumUsed || status.scannedDocument || status.boostAvailable)
+  );
 }
 
 // --- wire mapping -----------------------------------------------------------
@@ -103,6 +135,7 @@ interface RawAnalysisStatus {
   isPremium?: unknown;
   trialsRemaining?: unknown;
   upgradeRequired?: unknown;
+  boostAvailable?: unknown;
 }
 
 interface FieldAnalysisResponse {
@@ -140,6 +173,7 @@ export function parseAnalysisStatus(raw: RawAnalysisStatus | undefined): Analysi
     premiumUsed: stage === 'succeeded',
     trialsRemaining: asCount(raw.trialsRemaining),
     upgradeRequired: asBool(raw.upgradeRequired),
+    boostAvailable: asBool(raw.boostAvailable),
   };
 }
 

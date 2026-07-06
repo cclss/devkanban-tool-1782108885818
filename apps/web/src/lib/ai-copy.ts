@@ -56,6 +56,27 @@ export const AI_COPY = {
     accept: '프리미엄 AI로 찾기',
     /** Decline and place fields by hand. */
     declineManual: '직접 배치할게요',
+
+    /**
+     * Optional accuracy-boost invite shown on a *text* PDF the base engine already
+     * handled — premium reframed as a "make it more accurate" booster, not a
+     * scanned-doc-only substitute (see messaging/ai-copy.md "정확도 부스터 권유").
+     * The first clause makes the base engine's unlimited, always-on nature explicit
+     * ("지금도 무제한으로"), so the invite never reads as a paywall on the default
+     * placement; the second offers premium as a calm, decline-equal question. Kept
+     * plan-agnostic (no "무료" in the headline) so it reads right for both metered
+     * accounts — the "무료 체험 N번 남음" note supplies the free-trial framing — and
+     * premium plans, where that note is hidden. Never names the engine internals.
+     */
+    boostInvite:
+      '서명란은 지금도 무제한으로 자동 배치돼요. 더 정확하게 하고 싶다면 프리미엄 AI로 다시 찾아볼까요?',
+    /** Accept the accuracy boost — value-first, accuracy-toned verb phrase. */
+    boostAccept: '프리미엄 AI로 더 정확하게',
+    /**
+     * Decline the boost and keep the current (base) placement. Neutral,
+     * autonomy-respecting — the base result is already good enough to proceed.
+     */
+    boostDecline: '이대로 괜찮아요',
   },
 
   upgrade: {

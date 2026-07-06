@@ -17,9 +17,13 @@ import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
  * "place fields by hand" escape next to the premium action, never a single
  * take-it path (messaging/ai-copy.md: 거절 경로를 항상 동등하게 제공).
  *
- * Two content modes over one structure:
+ * Three content modes over one structure (copy differs, layout / token language
+ * identical — a "mode", not a Variant, per design-spec `premium-ai-prompt`):
  *   • invite  — "스캔한 문서 같아요…" + optional "무료 체험 N번 남음", with
  *               [프리미엄 AI로 찾기] / [직접 배치할게요].
+ *   • boost   — text PDF the base engine handled; the *optional* accuracy booster.
+ *               "서명란은 지금도 무제한으로…" + optional "무료 체험 N번 남음", with
+ *               [프리미엄 AI로 더 정확하게] / [이대로 괜찮아요].
  *   • upgrade — "무료 체험을 모두 사용했어요…", with
  *               [플랜 업그레이드] / [직접 배치하기].
  *
@@ -27,7 +31,7 @@ import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
  * words.
  */
 export interface PremiumAiPromptProps {
-  mode: 'invite' | 'upgrade';
+  mode: 'invite' | 'boost' | 'upgrade';
   /** Remaining free trials — shown on the invite for non-premium accounts. */
   trialsRemaining?: number;
   /** Whether to render the "무료 체험 N번 남음" note (hidden for premium plans). */
@@ -41,6 +45,28 @@ export interface PremiumAiPromptProps {
   className?: string;
 }
 
+/** Per-mode copy: same structure, different words (design-spec "mode"). */
+const MODE_COPY: Record<
+  PremiumAiPromptProps['mode'],
+  { headline: string; accept: string; dismiss: string }
+> = {
+  invite: {
+    headline: AI_COPY.trial.scannedInvite,
+    accept: AI_COPY.trial.accept,
+    dismiss: AI_COPY.trial.declineManual,
+  },
+  boost: {
+    headline: AI_COPY.trial.boostInvite,
+    accept: AI_COPY.trial.boostAccept,
+    dismiss: AI_COPY.trial.boostDecline,
+  },
+  upgrade: {
+    headline: AI_COPY.upgrade.depleted,
+    accept: AI_COPY.upgrade.upgradePlan,
+    dismiss: AI_COPY.upgrade.placeManually,
+  },
+};
+
 export function PremiumAiPrompt({
   mode,
   trialsRemaining = 0,
@@ -51,10 +77,12 @@ export function PremiumAiPrompt({
   className,
 }: PremiumAiPromptProps) {
   const headlineId = React.useId();
-  const isInvite = mode === 'invite';
-  const headline = isInvite ? AI_COPY.trial.scannedInvite : AI_COPY.upgrade.depleted;
-  const acceptLabel = isInvite ? AI_COPY.trial.accept : AI_COPY.upgrade.upgradePlan;
-  const dismissLabel = isInvite ? AI_COPY.trial.declineManual : AI_COPY.upgrade.placeManually;
+  // Both invites carry the "무료 체험 N번 남음" note; only the upgrade mode omits it.
+  const isUpgrade = mode === 'upgrade';
+  const copy = MODE_COPY[mode];
+  const headline = copy.headline;
+  const acceptLabel = copy.accept;
+  const dismissLabel = copy.dismiss;
 
   return (
     <section
@@ -69,7 +97,7 @@ export function PremiumAiPrompt({
         <p id={headlineId} className="text-sm font-semibold text-ai-strong">
           {headline}
         </p>
-        {isInvite && showTrialCount ? (
+        {!isUpgrade && showTrialCount ? (
           <p className="text-xs font-medium text-ai-strong/80">
             {AI_COPY.trial.remaining(trialsRemaining)}
           </p>

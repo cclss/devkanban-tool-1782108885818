@@ -71,7 +71,12 @@ export class FieldAnalysisService {
   ): Promise<FieldAnalysisResult> {
     const heuristic = await this.fieldDetection.analyze(pdf);
 
-    // Confident text PDF: the premium engine is never involved.
+    // Confident text PDF: the base engine handled it and the premium engine is
+    // never required. The base placement is unlimited — no trial is spent here.
+    // We only expose whether the account *may optionally* run premium for a more
+    // accurate pass (`boostAvailable`); the editor turns that into a non-coercive
+    // accuracy-boost invite. Never true once trials are gone on a non-premium plan
+    // (there is no upsell wall on a text PDF — base stays free and unlimited).
     if (!heuristic.fallbackToVision) {
       const trial = await this.trials.getStatus(userId);
       return this.persistAndReturn(documentId, heuristic.fields, {
@@ -81,6 +86,7 @@ export class FieldAnalysisService {
         isPremium: trial.isPremium,
         trialsRemaining: trial.remaining,
         upgradeRequired: false,
+        boostAvailable: trial.isPremium || trial.remaining > 0,
       });
     }
 
@@ -96,6 +102,9 @@ export class FieldAnalysisService {
       isPremium: access.isPremium,
       trialsRemaining: access.remaining,
       upgradeRequired: !access.allowed,
+      // Scanned document: the premium path runs through `visionStage`, not the
+      // text-PDF accuracy boost.
+      boostAvailable: false,
     });
   }
 
@@ -124,6 +133,7 @@ export class FieldAnalysisService {
         isPremium: access.isPremium,
         trialsRemaining: access.remaining,
         upgradeRequired: true,
+        boostAvailable: false,
       });
     }
 
@@ -144,6 +154,7 @@ export class FieldAnalysisService {
         isPremium: access.isPremium,
         trialsRemaining: access.remaining,
         upgradeRequired: false,
+        boostAvailable: false,
       });
     }
 
@@ -154,6 +165,7 @@ export class FieldAnalysisService {
       isPremium: access.isPremium,
       trialsRemaining: access.remaining,
       upgradeRequired: false,
+      boostAvailable: false,
     });
   }
 

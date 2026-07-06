@@ -168,11 +168,18 @@ export default function DesignSystemPage() {
 
       <Section
         title="프리미엄 AI 안내"
-        hint="스캔 문서 감지 시 무료 체험 권유, 체험 소진 시 업그레이드 경로. 비침습적 인라인 배너 — 항상 '직접 배치' 거절 경로를 동등하게 제공."
+        hint="스캔 문서 감지 시 무료 체험 권유(invite), 텍스트 PDF에선 기본 무제한 배치 위에 선택형 정확도 부스터(boost), 체험 소진 시 업그레이드 경로(upgrade). 비침습적 인라인 배너 — 항상 '이대로/직접 배치' 거절 경로를 동등하게 제공."
       >
         <div className="grid gap-md sm:grid-cols-2">
           <PremiumAiPrompt
             mode="invite"
+            trialsRemaining={2}
+            showTrialCount
+            onAccept={() => {}}
+            onDismiss={() => {}}
+          />
+          <PremiumAiPrompt
+            mode="boost"
             trialsRemaining={2}
             showTrialCount
             onAccept={() => {}}

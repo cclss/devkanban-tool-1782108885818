@@ -85,6 +85,20 @@ export interface FieldAnalysisStatus {
    * exactly when `visionStage === 'blocked'`.
    */
   upgradeRequired: boolean;
+  /**
+   * The base (heuristic) engine already handled this text PDF — the premium engine
+   * is **not** required — yet the account may *optionally* run it for higher
+   * accuracy (premium plan or free trials remaining). Drives the non-coercive
+   * accuracy-boost invite on text PDFs (design-spec `messaging/ai-copy.md` "정확도
+   * 부스터 권유", `vocabulary/premium-trial-states.md` `표준-처리됨`+부스트 가능).
+   *
+   * Only ever true on the text-PDF happy path (`visionStage === 'not-needed'`); a
+   * scanned document uses `visionStage`, and once premium has run the boost is
+   * gone. The base auto-placement stays **unlimited and unmetered** regardless of
+   * this flag — it never gates the standard engine, it only surfaces the optional
+   * upsell-free premium invite.
+   */
+  boostAvailable: boolean;
 }
 
 /**

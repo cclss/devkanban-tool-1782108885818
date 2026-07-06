@@ -103,12 +103,13 @@ export function FieldsStep() {
     dispatch({ type: 'CLEAR_AI_SUGGESTIONS' });
   }, [dispatch]);
 
-  // Premium prompt actions. Accept: on the invite, re-request the analysis with
-  // the premium engine (Story 2) and seed the fields it returns; on the upgrade
-  // prompt, open the value-first upgrade surface *over* the editor (a modal, no
-  // navigation) so the wizard's placed fields survive — billing is out of scope,
-  // so it only shows value + guidance. Dismiss: hide the prompt and let the
-  // sender place fields by hand.
+  // Premium prompt actions. Accept: on either invite — the scanned-doc invite
+  // (Story 2) or the text-PDF accuracy boost — re-request the analysis with the
+  // premium engine and seed the fields it returns (a trial is spent on consent,
+  // never by merely showing the invite); on the upgrade prompt, open the
+  // value-first upgrade surface *over* the editor (a modal, no navigation) so the
+  // wizard's placed fields survive — billing is out of scope, so it only shows
+  // value + guidance. Dismiss: hide the prompt and keep the current placement.
   const acceptPremium = React.useCallback(() => {
     if (resolvePremiumPrompt(analysisStatus) === 'upgrade') {
       setUpgradeOpen(true);
@@ -158,10 +159,10 @@ export function FieldsStep() {
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
   const aiFieldCount = fields.filter((f) => f.source === 'ai').length;
-  // Which premium surface (if any) to show: the scanned-doc invite or the
-  // trials-exhausted upgrade path. Hidden once the sender opts into manual
-  // placement, or once the premium engine has already run (its remaining-count
-  // note takes over instead).
+  // Which premium surface (if any) to show: the scanned-doc invite, the optional
+  // text-PDF accuracy boost, or the trials-exhausted upgrade path. Hidden once the
+  // sender dismisses it (keeping the base placement / placing by hand), or once the
+  // premium engine has already run (its remaining-count note takes over instead).
   const premiumPrompt = promptDismissed ? null : resolvePremiumPrompt(analysisStatus);
   // After a trial run on a metered account, state the calm remaining count
   // (Story 2 tail). The invite carries its own count, so only show it standalone.
@@ -177,11 +178,13 @@ export function FieldsStep() {
         </p>
       </div>
 
-      {/* Premium AI flow (grain-7). A scanned document offers the premium engine
-          (invite) or, once free trials are gone, the upgrade path — both as a
-          non-intrusive inline banner with an equal "place by hand" escape, so it
-          never blocks the editor. It supersedes the standard suggestion notice
-          while shown. */}
+      {/* Premium AI flow. A scanned document offers the premium engine (invite) or,
+          once free trials are gone, the upgrade path; a text PDF the base engine
+          already handled offers the premium engine as an *optional* accuracy boost
+          (boost) — the base placement stays unlimited. All are a non-intrusive
+          inline banner with an equal "keep it / place by hand" escape, so they
+          never block the editor. It supersedes the standard suggestion notice while
+          shown. */}
       {premiumPrompt ? (
         <PremiumAiPrompt
           mode={premiumPrompt}

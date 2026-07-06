@@ -61,6 +61,37 @@ describe('resolvePremiumPrompt', () => {
     // Neither consentable nor flagged for upgrade → fall back to manual placement.
     expect(resolvePremiumPrompt(status({ scannedDocument: true, trialsRemaining: 0 }))).toBeNull();
   });
+
+  it('offers the optional accuracy boost on a text PDF when a trial remains', () => {
+    // Base handled it (unlimited) — premium is a non-coercive accuracy booster.
+    expect(resolvePremiumPrompt(status({ boostAvailable: true, trialsRemaining: 2 }))).toBe('boost');
+  });
+
+  it('offers the accuracy boost on a text PDF for a premium account (trials do not apply)', () => {
+    expect(
+      resolvePremiumPrompt(status({ boostAvailable: true, premium: true, trialsRemaining: 0 })),
+    ).toBe('boost');
+  });
+
+  it('shows no boost on a text PDF once trials are gone (no upgrade wall — base stays unlimited)', () => {
+    // The key reframe: an exhausted non-premium account on a text PDF just gets the
+    // unlimited base placement, never an upgrade prompt.
+    expect(resolvePremiumPrompt(status({ boostAvailable: true, trialsRemaining: 0 }))).toBeNull();
+  });
+
+  it('prefers the scanned-doc invite over the boost when both flags are set', () => {
+    // Defensive: a scanned doc uses the invite path; boostAvailable is only ever
+    // true on a text PDF, so this just pins the ordering.
+    expect(
+      resolvePremiumPrompt(status({ scannedDocument: true, boostAvailable: true, trialsRemaining: 1 })),
+    ).toBe('invite');
+  });
+
+  it('shows no boost once the premium engine has already run', () => {
+    expect(
+      resolvePremiumPrompt(status({ boostAvailable: true, premiumUsed: true, trialsRemaining: 1 })),
+    ).toBeNull();
+  });
 });
 
 describe('showsTrialCount', () => {
@@ -79,6 +110,14 @@ describe('showsTrialCount', () => {
 
   it('does not show the count on a plain text PDF', () => {
     expect(showsTrialCount(status())).toBe(false);
+  });
+
+  it('shows the count on a metered text-PDF accuracy boost', () => {
+    expect(showsTrialCount(status({ boostAvailable: true, trialsRemaining: 2 }))).toBe(true);
+  });
+
+  it('never shows the count for a premium account on the boost', () => {
+    expect(showsTrialCount(status({ boostAvailable: true, premium: true }))).toBe(false);
   });
 });
 
@@ -106,6 +145,18 @@ describe('parseAnalysisStatus', () => {
     expect(s.premiumUsed).toBe(true);
     expect(resolvePremiumPrompt(s)).toBeNull();
     expect(showsTrialCount(s)).toBe(true);
+  });
+
+  it('reads a text PDF with the boost flag as the optional accuracy boost', () => {
+    const s = parseAnalysisStatus({
+      visionStage: 'not-needed',
+      isPremium: false,
+      trialsRemaining: 2,
+      boostAvailable: true,
+    });
+    expect(s.scannedDocument).toBe(false);
+    expect(s.boostAvailable).toBe(true);
+    expect(resolvePremiumPrompt(s)).toBe('boost');
   });
 
   it('coerces a missing / malformed status to neutral (dark pipeline safe)', () => {
