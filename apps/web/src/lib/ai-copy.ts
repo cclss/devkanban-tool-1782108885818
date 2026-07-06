@@ -18,6 +18,20 @@ export const AI_COPY = {
   /** Pill/label marking an element as an AI suggestion. */
   badge: 'AI 추천',
 
+  analysis: {
+    /**
+     * In-progress notice shown after a scanned document is detected and AI
+     * analysis starts (Story 1/2). Assistant framing, a calm "hold on" — never
+     * exposes which engine runs or that a scan/text distinction exists.
+     */
+    analyzing: 'AI가 문서를 살펴보며 서명란을 찾고 있어요. 잠시만 기다려 주세요.',
+    /**
+     * Analysis could not complete (service hiccup, timeout). Base voice: no
+     * blame, translates the failure into the next actions the user can take.
+     */
+    failed: 'AI 분석을 마치지 못했어요. 잠시 후 다시 시도하거나 원하는 위치에 직접 배치해 주세요.',
+  },
+
   suggestion: {
     /**
      * Post-analysis summary (Story 1). Count-aware; stays a calm statement of

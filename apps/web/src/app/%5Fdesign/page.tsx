@@ -124,7 +124,12 @@ export default function DesignSystemPage() {
             </span>
           </div>
         </div>
-        <p className="pt-2xs text-sm text-foreground-muted">{AI_COPY.suggestion.placed(3)}</p>
+        <div className="space-y-2xs pt-2xs text-sm">
+          <p className="text-foreground-muted">{AI_COPY.analysis.analyzing}</p>
+          <p className="text-foreground-muted">{AI_COPY.suggestion.placed(3)}</p>
+          <p className="text-foreground-subtle">{AI_COPY.suggestion.none}</p>
+          <p className="text-foreground-muted">{AI_COPY.analysis.failed}</p>
+        </div>
       </Section>
 
       <Section
