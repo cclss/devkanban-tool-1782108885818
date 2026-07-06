@@ -17,7 +17,6 @@
  */
 
 import * as React from 'react';
-import { useRouter } from 'next/navigation';
 import { cn } from '@repo/ui';
 import {
   FIELD_TYPE_META,
@@ -37,6 +36,7 @@ import {
 import { AI_COPY } from '@/lib/ai-copy';
 import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
 import { PremiumAiPrompt } from '@/components/ai/premium-ai-prompt';
+import { UpgradeDialog } from '@/components/upgrade-dialog';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
 
@@ -48,7 +48,6 @@ const BASE_FIT_WIDTH = 640;
 
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
-  const router = useRouter();
   const { state, dispatch } = useWizard();
   const { file, document, fields } = state;
 
@@ -66,6 +65,8 @@ export function FieldsStep() {
   const [promptBusy, setPromptBusy] = React.useState(false);
   /** The initial analysis request is in flight — surfaces the calm "분석 중" notice. */
   const [analyzing, setAnalyzing] = React.useState(false);
+  /** The value-first upgrade surface is open over the editor (wizard state preserved). */
+  const [upgradeOpen, setUpgradeOpen] = React.useState(false);
   const seededDocIdRef = React.useRef<string | null>(null);
 
   const setFields = React.useCallback(
@@ -104,11 +105,13 @@ export function FieldsStep() {
 
   // Premium prompt actions. Accept: on the invite, re-request the analysis with
   // the premium engine (Story 2) and seed the fields it returns; on the upgrade
-  // prompt, route the sender to the plan surface (billing is out of scope).
-  // Dismiss: hide the prompt and let the sender place fields by hand.
+  // prompt, open the value-first upgrade surface *over* the editor (a modal, no
+  // navigation) so the wizard's placed fields survive — billing is out of scope,
+  // so it only shows value + guidance. Dismiss: hide the prompt and let the
+  // sender place fields by hand.
   const acceptPremium = React.useCallback(() => {
     if (resolvePremiumPrompt(analysisStatus) === 'upgrade') {
-      router.push('/dashboard');
+      setUpgradeOpen(true);
       return;
     }
     if (!documentId) return;
@@ -119,7 +122,7 @@ export function FieldsStep() {
       setAnalysisStatus(status);
       setPromptBusy(false);
     });
-  }, [analysisStatus, documentId, dispatch, router]);
+  }, [analysisStatus, documentId, dispatch]);
 
   const placeManually = React.useCallback(() => {
     setSelectedId(null);
@@ -231,6 +234,19 @@ export function FieldsStep() {
           {AI_COPY.suggestion.none}
         </p>
       ) : null}
+
+      {/* Value-first upgrade surface. Opened by the depleted banner's [플랜 업그레이드]
+          as a modal *over* the editor — it never navigates away, so the fields the
+          sender already placed survive. Billing is out of scope, so it leads with the
+          premium-AI value and closes on a calm "coming soon". The equal "직접 배치하기"
+          escape on the banner keeps the workflow open. */}
+      <UpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        tone="ai"
+        title={AI_COPY.upgrade.dialogTitle}
+        description={AI_COPY.upgrade.dialogBody}
+      />
 
       {/* Calm "N free trials remaining" note after a trial run (Story 2 tail). */}
       {showRemainingNote ? (

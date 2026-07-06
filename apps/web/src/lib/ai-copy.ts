@@ -83,5 +83,17 @@ export const AI_COPY = {
      * reject label, consistent with "직접 배치" used across the product.
      */
     placeManually: '직접 배치하기',
+
+    /**
+     * Value-first upgrade surface (`upgrade-dialog`, ai tone). Reached from the
+     * depleted banner's [플랜 업그레이드] — opened as a modal *over* the editor so
+     * the wizard's placed fields survive (no navigation). Leads with the unlocked
+     * premium-AI value; billing is out of scope, so it closes on a calm "coming
+     * soon" rather than routing to a checkout.
+     */
+    dialogTitle: '프리미엄 AI로 제한 없이',
+    /** Body of the upgrade surface: names the value, then the calm "준비 중" guidance. */
+    dialogBody:
+      '프리미엄으로 업그레이드하면 스캔한 문서도 제한 없이 자동으로 분석해 드려요. 지금 요금제를 준비하고 있어요. 조금만 기다려 주세요.',
   },
 } as const;

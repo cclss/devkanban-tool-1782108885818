@@ -32,7 +32,41 @@ import {
 } from '@repo/ui';
 import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
 import { PremiumAiPrompt } from '@/components/ai/premium-ai-prompt';
+import { UpgradeDialog } from '@/components/upgrade-dialog';
 import { AI_COPY } from '@/lib/ai-copy';
+
+/**
+ * The workflow-preserving upgrade surface (`upgrade-dialog`). Shown here in both
+ * tones: the neutral plan guidance (dashboard) and the premium-AI value-first
+ * variant reached from the depleted banner's [플랜 업그레이드] — a modal, never a
+ * navigation, so the editor's placed fields survive.
+ */
+function UpgradeDialogShowcase() {
+  const [open, setOpen] = React.useState<'neutral' | 'ai' | null>(null);
+  return (
+    <div className="flex flex-wrap gap-xs pt-xs">
+      <Button variant="secondary" size="sm" onClick={() => setOpen('neutral')}>
+        업그레이드 안내 (기본)
+      </Button>
+      <Button variant="secondary" size="sm" onClick={() => setOpen('ai')}>
+        업그레이드 안내 (프리미엄 AI)
+      </Button>
+      <UpgradeDialog
+        open={open === 'neutral'}
+        onOpenChange={(o) => setOpen(o ? 'neutral' : null)}
+        title="곧 유료 플랜을 만나요"
+        description="더 넉넉한 발송 한도와 팀 기능을 준비하고 있어요. 조금만 기다려 주세요."
+      />
+      <UpgradeDialog
+        open={open === 'ai'}
+        onOpenChange={(o) => setOpen(o ? 'ai' : null)}
+        tone="ai"
+        title={AI_COPY.upgrade.dialogTitle}
+        description={AI_COPY.upgrade.dialogBody}
+      />
+    </div>
+  );
+}
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -146,6 +180,7 @@ export default function DesignSystemPage() {
           />
           <PremiumAiPrompt mode="upgrade" onAccept={() => {}} onDismiss={() => {}} />
         </div>
+        <UpgradeDialogShowcase />
       </Section>
 
       <Section title="Typography" hint="Pretendard 기반 타입 스케일">

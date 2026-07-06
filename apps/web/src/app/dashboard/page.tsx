@@ -3,20 +3,10 @@
 import * as React from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import {
-  Button,
-  Card,
-  Dialog,
-  DialogClose,
-  DialogContent,
-  DialogDescription,
-  DialogFooter,
-  DialogHeader,
-  DialogTitle,
-  Skeleton,
-} from '@repo/ui';
+import { Button, Card, Skeleton } from '@repo/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { CompletionDownload } from '@/components/completion-download';
+import { UpgradeDialog } from '@/components/upgrade-dialog';
 import { ApiError } from '@/lib/api';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
@@ -190,21 +180,12 @@ function PlanUsage({
 
       {isFree ? <QuotaBar quota={quota} /> : null}
 
-      <Dialog open={upgradeOpen} onOpenChange={setUpgradeOpen}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>곧 유료 플랜을 만나요</DialogTitle>
-            <DialogDescription>
-              더 넉넉한 발송 한도와 팀 기능을 준비하고 있어요. 조금만 기다려 주세요.
-            </DialogDescription>
-          </DialogHeader>
-          <DialogFooter>
-            <DialogClose asChild>
-              <Button variant="secondary">알겠어요</Button>
-            </DialogClose>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      <UpgradeDialog
+        open={upgradeOpen}
+        onOpenChange={setUpgradeOpen}
+        title="곧 유료 플랜을 만나요"
+        description="더 넉넉한 발송 한도와 팀 기능을 준비하고 있어요. 조금만 기다려 주세요."
+      />
     </Card>
   );
 }
