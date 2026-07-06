@@ -19,6 +19,7 @@ import { StorageService } from '../storage/storage.service';
 import { NotificationsService, type NotificationJob } from '../notifications/notifications.service';
 import { MESSAGES } from '../common/messages';
 import { SendQuotaService } from '../common/send-quota.service';
+import { FieldAnalysisService } from '../field-analysis/field-analysis.service';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
 import {
   artifactFilename,
@@ -38,6 +39,7 @@ export class DocumentsService {
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
+    private readonly fieldAnalysis: FieldAnalysisService,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -73,6 +75,10 @@ export class DocumentsService {
       metadata: { title, pageCount, storageKey },
     });
 
+    // Auto-trigger tiered field analysis in the background; the bytes are already
+    // in hand, so hand them straight to the orchestration (never blocks upload).
+    this.fieldAnalysis.analyzeInBackground(ownerId, document.id, async () => file.buffer);
+
     return this.toSummary(document, 0);
   }
 
@@ -105,6 +111,12 @@ export class DocumentsService {
       ip,
       metadata: { title: dto.title, pageCount, storageKey: dto.storageKey, via: 'presigned' },
     });
+
+    // Auto-trigger tiered field analysis in the background. The bytes live in
+    // storage for this path, so defer the read into the background task.
+    this.fieldAnalysis.analyzeInBackground(ownerId, document.id, () =>
+      this.storage.read(dto.storageKey),
+    );
 
     return this.toSummary(document, 0);
   }

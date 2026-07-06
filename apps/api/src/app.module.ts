@@ -13,6 +13,7 @@ import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
 import { FieldDetectionModule } from './field-detection/field-detection.module';
 import { VisionDetectionModule } from './vision-detection/vision-detection.module';
+import { FieldAnalysisModule } from './field-analysis/field-analysis.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { VisionDetectionModule } from './vision-detection/vision-detection.modul
     CompletionModule,
     FieldDetectionModule,
     VisionDetectionModule,
+    FieldAnalysisModule,
     HealthModule,
   ],
 })
