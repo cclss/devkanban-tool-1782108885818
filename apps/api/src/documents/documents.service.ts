@@ -21,6 +21,13 @@ import { MESSAGES } from '../common/messages';
 import { SendQuotaService } from '../common/send-quota.service';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
 import {
+  countPendingSigners,
+  deriveNextAction,
+  deriveUrgency,
+  type NextAction,
+  type Urgency,
+} from './document-todo';
+import {
   artifactFilename,
   type CompletionArtifact,
 } from '../completion/artifact';
@@ -73,7 +80,8 @@ export class DocumentsService {
       metadata: { title, pageCount, storageKey },
     });
 
-    return this.toSummary(document, 0);
+    // Fresh DRAFT: no recipients yet, so no pending signers.
+    return this.toSummary(document, 0, 0, new Date());
   }
 
   /** Presigned-upload path: client already PUT the bytes; just register it. */
@@ -106,7 +114,8 @@ export class DocumentsService {
       metadata: { title: dto.title, pageCount, storageKey: dto.storageKey, via: 'presigned' },
     });
 
-    return this.toSummary(document, 0);
+    // Fresh DRAFT: no recipients yet, so no pending signers.
+    return this.toSummary(document, 0, 0, new Date());
   }
 
   /** Replace the placed sign fields for a draft document. */
@@ -239,20 +248,44 @@ export class DocumentsService {
     }
     await this.notifications.enqueueMany(jobs);
 
-    return this.toSummary(result.updated, result.createdRequests.length);
+    // Just sent: every recipient's request was created PENDING, so all of them
+    // are still-pending signers.
+    return this.toSummary(
+      result.updated,
+      result.createdRequests.length,
+      result.createdRequests.length,
+      new Date(),
+    );
   }
 
   /** Dashboard list for the signed-in sender, newest first. */
   async list(ownerId: string): Promise<DocumentSummary[]> {
+    // Single `now` for the whole page so every row's urgency is derived against
+    // the same instant.
+    const now = new Date();
     const documents = await this.prisma.document.findMany({
       where: { ownerId },
       orderBy: { createdAt: 'desc' },
-      include: { _count: { select: { signRequests: true } } },
+      include: {
+        // Total recipient count (unchanged) …
+        _count: { select: { signRequests: true } },
+        // … plus each request's status so we can count the still-pending signers
+        // in JS via the pure `countPendingSigners` helper (no schema change).
+        signRequests: { select: { status: true } },
+      },
     });
-    return documents.map((d) => this.toSummary(d, d._count.signRequests));
+    return documents.map((d) =>
+      this.toSummary(
+        d,
+        d._count.signRequests,
+        countPendingSigners(d.signRequests.map((s) => s.status)),
+        now,
+      ),
+    );
   }
 
   async detail(ownerId: string, documentId: string): Promise<DocumentDetail> {
+    const now = new Date();
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -279,7 +312,12 @@ export class DocumentsService {
     if (document.ownerId !== ownerId) throw new ForbiddenException(MESSAGES.document.forbidden);
 
     return {
-      ...this.toSummary(document, document.signRequests.length),
+      ...this.toSummary(
+        document,
+        document.signRequests.length,
+        countPendingSigners(document.signRequests.map((s) => s.status)),
+        now,
+      ),
       recipients: document.signRequests,
       fields: document.signFields,
     };
@@ -376,7 +414,20 @@ export class DocumentsService {
     return base.length > 0 ? base.slice(0, 200) : '제목 없는 계약';
   }
 
-  private toSummary(document: Document, recipientCount: number): DocumentSummary {
+  /**
+   * Shape a persisted document into the API summary, filling the derived TO-DO
+   * signals (urgency, next action, pending signer count) via the pure grain-1
+   * helpers in `document-todo.ts`. `now` and `pendingSignerCount` are injected by
+   * the caller so this stays deterministic and works for every call site —
+   * `list()`/`detail()` compute the pending count from included sign-request
+   * statuses, while the create/send paths pass what they already know.
+   */
+  private toSummary(
+    document: Document,
+    recipientCount: number,
+    pendingSignerCount: number,
+    now: Date,
+  ): DocumentSummary {
     return {
       id: document.id,
       title: document.title,
@@ -393,6 +444,11 @@ export class DocumentsService {
         document.status === DocumentStatus.COMPLETED &&
         Boolean(document.signedStorageKey) &&
         Boolean(document.certificateStorageKey),
+      // Derived TO-DO signals (no schema change): computed at read time from the
+      // document's existing status/sentAt and its sign-request statuses.
+      urgency: deriveUrgency(document.status, document.sentAt, now),
+      nextAction: deriveNextAction(document.status),
+      pendingSignerCount,
     };
   }
 }
@@ -410,6 +466,19 @@ export interface DocumentSummary {
   completedAt: string | null;
   /** True when both completion artifacts are stored and downloadable. */
   downloadsReady: boolean;
+  /**
+   * How much attention this contract needs today, derived at read time from
+   * `status` + `sentAt` (grain-1 vocabulary). Always present.
+   */
+  urgency: Urgency;
+  /**
+   * The single next action for the owner, derived from `status`. `null` is the
+   * defined fallback for CANCELLED (no actionable next step) — this field is
+   * nullable.
+   */
+  nextAction: NextAction | null;
+  /** Signers still awaited (PENDING or VIEWED). 0 when none/not sent. */
+  pendingSignerCount: number;
 }
 
 export interface DocumentDetail extends DocumentSummary {
