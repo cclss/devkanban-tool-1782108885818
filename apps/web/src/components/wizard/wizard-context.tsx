@@ -29,8 +29,20 @@
 import * as React from 'react';
 import type { DocumentSummary } from '@/lib/documents';
 import { recipientsComplete } from '@/lib/recipients';
+import { withAiSuggestions, withoutAiSuggestions } from '@/lib/ai-suggestions';
 
 export type SignFieldType = 'SIGNATURE' | 'DATE' | 'TEXT';
+
+/**
+ * Where a field came from.
+ *   - `manual` — the sender dropped it from the tool palette.
+ *   - `ai`     — it was proposed by the auto-field-placement analysis. AI fields
+ *                render with the violet `ai` accent + a suggestion badge so they
+ *                read as distinct from manual work, and "제안 모두 지우기" removes
+ *                exactly this set. A field keeps its `ai` origin even after the
+ *                user nudges/resizes it — it is still a suggestion under review.
+ */
+export type FieldSource = 'manual' | 'ai';
 
 /** A placed sign field. Geometry is normalized 0–1 relative to its page. */
 export interface SignFieldDraft {
@@ -44,6 +56,8 @@ export interface SignFieldDraft {
   height: number;
   /** 0-based recipient index this field is assigned to. */
   recipientIndex?: number;
+  /** Origin of the field; drives the AI-suggestion visual treatment. */
+  source: FieldSource;
 }
 
 export interface RecipientDraft {
@@ -120,6 +134,8 @@ type WizardAction =
   | { type: 'GO_BACK' }
   | { type: 'GO_TO'; step: number }
   | { type: 'SET_FIELDS'; fields: SignFieldDraft[] }
+  | { type: 'SEED_AI_SUGGESTIONS'; fields: SignFieldDraft[] }
+  | { type: 'CLEAR_AI_SUGGESTIONS' }
   | { type: 'SET_RECIPIENTS'; recipients: RecipientDraft[] }
   | { type: 'SET_DELIVERY_METHOD'; method: DeliveryMethod };
 
@@ -169,6 +185,16 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     }
     case 'SET_FIELDS':
       return { ...state, fields: action.fields };
+    case 'SEED_AI_SUGGESTIONS':
+      // Drop AI suggestions onto the canvas. Any manual fields the sender already
+      // placed are kept; a prior batch of AI suggestions is replaced so re-seeding
+      // never duplicates.
+      return { ...state, fields: withAiSuggestions(state.fields, action.fields) };
+    case 'CLEAR_AI_SUGGESTIONS':
+      // "제안 모두 지우기" — discard every AI suggestion, leaving only the sender's
+      // own manual fields (blank slate at the start of a flow, since no manual
+      // field exists yet).
+      return { ...state, fields: withoutAiSuggestions(state.fields) };
     case 'SET_RECIPIENTS':
       return { ...state, recipients: action.recipients };
     case 'SET_DELIVERY_METHOD':

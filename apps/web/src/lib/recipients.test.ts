@@ -17,7 +17,7 @@ function r(id: string, email: string, name = ''): RecipientDraft {
 }
 
 function f(id: string, recipientIndex?: number): SignFieldDraft {
-  return { id, type: 'SIGNATURE', page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.05, recipientIndex };
+  return { id, type: 'SIGNATURE', page: 1, x: 0.1, y: 0.1, width: 0.2, height: 0.05, source: 'manual', recipientIndex };
 }
 
 describe('email validation', () => {

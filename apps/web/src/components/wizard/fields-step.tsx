@@ -24,6 +24,10 @@ import {
   clampNormRect,
   type SignFieldType,
 } from '@/lib/field-geometry';
+import { getToken } from '@/lib/auth';
+import { fetchAiFieldDrafts } from '@/lib/ai-suggestions';
+import { AI_COPY } from '@/lib/ai-copy';
+import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
 
@@ -42,11 +46,38 @@ export function FieldsStep() {
   const [zoom, setZoom] = React.useState(1);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
+  /** How many AI fields the analysis proposed for this document (null = not yet loaded). */
+  const [aiSeededCount, setAiSeededCount] = React.useState<number | null>(null);
+  const seededDocIdRef = React.useRef<string | null>(null);
 
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
     [dispatch],
   );
+
+  // On opening the editor for a document, pull its AI-proposed fields once and
+  // drop them onto the canvas as `source: 'ai'` suggestions. The seam degrades
+  // to an empty list on any error, so this never blocks manual placement.
+  const documentId = document?.id ?? null;
+  React.useEffect(() => {
+    if (!documentId) return;
+    if (seededDocIdRef.current === documentId) return;
+    seededDocIdRef.current = documentId;
+    let cancelled = false;
+    void fetchAiFieldDrafts(documentId, getToken() ?? undefined).then((drafts) => {
+      if (cancelled) return;
+      if (drafts.length > 0) dispatch({ type: 'SEED_AI_SUGGESTIONS', fields: drafts });
+      setAiSeededCount(drafts.length);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [documentId, dispatch]);
+
+  const clearSuggestions = React.useCallback(() => {
+    setSelectedId(null);
+    dispatch({ type: 'CLEAR_AI_SUGGESTIONS' });
+  }, [dispatch]);
 
   const addAtCenter = React.useCallback(
     (type: SignFieldType) => {
@@ -59,7 +90,7 @@ export function FieldsStep() {
         height: size.height,
       });
       const id = nextFieldId();
-      setFields([...fields, { id, type, page, ...norm }]);
+      setFields([...fields, { id, type, page, source: 'manual', ...norm }]);
       setSelectedId(id);
     },
     [fields, page, setFields],
@@ -76,6 +107,7 @@ export function FieldsStep() {
 
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
+  const aiFieldCount = fields.filter((f) => f.source === 'ai').length;
 
   return (
     <div className="flex flex-col gap-md">
@@ -85,6 +117,32 @@ export function FieldsStep() {
           받는 분이 서명할 위치에 필드를 끌어다 놓으세요. 클릭하면 가운데에 추가돼요.
         </p>
       </div>
+
+      {/* AI-suggestion notice. While suggestions are on the canvas, a calm banner
+          states what the AI proposed and offers a one-tap "clear all". If the
+          analysis found nothing, a subtle line hands control back to the sender.
+          Once the sender clears the batch themselves, neither shows (blank slate,
+          no nagging). */}
+      {aiFieldCount > 0 ? (
+        <div className="flex flex-wrap items-center gap-sm rounded-md border border-ai/30 bg-ai-subtle px-sm py-xs">
+          <AiSuggestionBadge />
+          <p className="text-sm font-medium text-ai-strong">
+            {AI_COPY.suggestion.placed(aiFieldCount)}
+          </p>
+          <button
+            type="button"
+            onClick={clearSuggestions}
+            className={cn(
+              'ml-auto rounded-sm text-xs font-semibold text-ai-strong underline-offset-2',
+              'hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-focus',
+            )}
+          >
+            {AI_COPY.suggestion.clearAll}
+          </button>
+        </div>
+      ) : aiSeededCount === 0 ? (
+        <p className="text-sm text-foreground-subtle">{AI_COPY.suggestion.none}</p>
+      ) : null}
 
       {/* Tool palette */}
       <div className="flex flex-wrap items-center gap-xs">

@@ -43,6 +43,9 @@ import {
   type ResizeHandle,
   type SnapLine,
 } from '@/lib/field-geometry';
+import { AiSuggestionBadge } from '@/components/ai/ai-suggestion-badge';
+import { AI_COPY } from '@/lib/ai-copy';
+import { nextFieldId } from '@/lib/field-id';
 import type { SignFieldDraft } from './wizard-context';
 
 const SNAP_THRESHOLD = 6; // px
@@ -50,6 +53,9 @@ const NUDGE_PX = 1;
 const NUDGE_PX_LARGE = 12;
 /** dataTransfer key carrying the field type during a palette → canvas drag. */
 export const FIELD_DND_TYPE = 'application/x-esign-field';
+
+/** Re-exported so existing importers (`fields-step`) keep their `./field-canvas` path. */
+export { nextFieldId };
 
 type RenderStatus = 'loading' | 'ready' | 'error';
 
@@ -67,13 +73,6 @@ interface FieldCanvasProps {
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
-}
-
-let fieldSeq = 0;
-/** Monotonic, collision-resistant id for a newly placed field. */
-export function nextFieldId(): string {
-  fieldSeq += 1;
-  return `field-${fieldSeq}-${Math.round(performance.now())}`;
 }
 
 /** Active pointer gesture transient state (px space, current page). */
@@ -210,7 +209,7 @@ export function FieldCanvas({
       const px = defaultPxRectAt(type, center, pageSize);
       const norm = clampNormRect(pxToNorm(px, pageSize));
       const id = nextFieldId();
-      onFieldsChange([...fields, { id, type, page, ...norm }]);
+      onFieldsChange([...fields, { id, type, page, source: 'manual', ...norm }]);
       onSelect(id);
     },
     [fields, onFieldsChange, onSelect, page, pageSize],
@@ -453,11 +452,12 @@ function FieldBox({
   onDelete,
 }: FieldBoxProps) {
   const meta = FIELD_TYPE_META[field.type];
+  const isAi = field.source === 'ai';
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`}
+      aria-label={`${isAi ? `${AI_COPY.badge} ` : ''}${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`}
       aria-pressed={selected}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
@@ -471,14 +471,18 @@ function FieldBox({
         'group absolute flex select-none items-center justify-center rounded-sm border-2 text-xs font-semibold',
         'outline-none transition-[box-shadow,background-color,border-color]',
         dragging ? 'cursor-grabbing duration-0' : 'cursor-grab duration-fast ease-standard',
-        selected
-          ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
-          : hovered
-            ? 'border-primary bg-primary-subtle/60 text-primary shadow-sm'
-            : 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90',
+        fieldBoxTone(isAi, selected, hovered),
       )}
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     >
+      {/* AI-suggestion marker — pinned top-left so it never collides with the
+          top-right delete affordance. The badge's sparkle glyph + label is the
+          non-colour signal that this box is an AI suggestion (matches the
+          "색만으로 의미 전달 금지" rule). */}
+      {isAi ? (
+        <AiSuggestionBadge className="pointer-events-none absolute -left-2 -top-3 shadow-sm" />
+      ) : null}
+
       <span className="pointer-events-none flex items-center gap-2xs truncate px-2xs">
         <FieldGlyph type={field.type} />
         {meta.label}
@@ -509,7 +513,8 @@ function FieldBox({
               key={h}
               onPointerDown={(e) => onPointerDownHandle(e, h)}
               className={cn(
-                'absolute h-2.5 w-2.5 rounded-full border border-primary bg-surface shadow-xs',
+                'absolute h-2.5 w-2.5 rounded-full border bg-surface shadow-xs',
+                isAi ? 'border-ai' : 'border-primary',
                 HANDLE_POSITION[h],
                 HANDLE_CURSOR[h],
               )}
@@ -518,6 +523,23 @@ function FieldBox({
         : null}
     </div>
   );
+}
+
+/**
+ * The field box's colour treatment by origin + interaction state. Manual fields
+ * carry the `primary` blue; AI suggestions carry the violet `ai` accent so the
+ * two read as visibly distinct on the page (see design-spec component
+ * `suggested-field-marker`). Both clear WCAG AA on their tint.
+ */
+function fieldBoxTone(isAi: boolean, selected: boolean, hovered: boolean): string {
+  if (isAi) {
+    if (selected) return 'border-ai bg-ai-subtle text-ai-strong shadow-md ring-2 ring-focus';
+    if (hovered) return 'border-ai bg-ai-subtle text-ai-strong shadow-sm';
+    return 'border-dashed border-ai/70 bg-ai-subtle/70 text-ai-strong';
+  }
+  if (selected) return 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus';
+  if (hovered) return 'border-primary bg-primary-subtle/60 text-primary shadow-sm';
+  return 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90';
 }
 
 const HANDLE_POSITION: Record<ResizeHandle, string> = {
