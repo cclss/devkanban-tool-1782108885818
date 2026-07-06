@@ -3,13 +3,15 @@ import { VisionTrialService } from './vision-trial.service';
 import { VISION_TRIAL_LIMIT } from '../common/messages';
 
 /**
- * Unit tests for the Vision/LLM free-trial meter + access policy.
+ * Unit tests for the Vision/LLM access policy.
  *
- * PrismaService is replaced by a tiny in-memory store. The key fidelity point is
- * `updateMany`: it applies the WHERE guard and increments *synchronously* (no
- * await between the read and the write), which is exactly how a Postgres guarded
- * `UPDATE ... WHERE visionTrialsUsed < limit` behaves under a row lock. That lets
- * the concurrency test below meaningfully exercise the over-charge protection.
+ * Premium auto-placement is **unlimited for every plan**: access is always
+ * granted, no trial is ever consumed, and nothing is blocked. These tests assert
+ * that a FREE account is allowed regardless of its (dormant) trial balance, that
+ * the `visionTrialsUsed` counter is never incremented, and that the dormant
+ * `getStatus` display still reports the stored balance.
+ *
+ * PrismaService is replaced by a tiny in-memory store.
  */
 
 type MockUser = { id: string; plan: string; visionTrialsUsed: number };
@@ -103,29 +105,29 @@ describe('VisionTrialService', () => {
     });
   });
 
-  describe('canUseVisionEngine (read-only decision)', () => {
-    it('allows a FREE account with trials left (reason: trial)', async () => {
+  describe('canUseVisionEngine (read-only decision) — unlimited', () => {
+    it('allows a FREE account with a full balance (reason: unlimited)', async () => {
       const { service } = makeService([FREE(1)]);
       expect(await service.canUseVisionEngine('u1')).toEqual({
         allowed: true,
         isPremium: false,
         remaining: 1,
-        reason: 'trial',
+        reason: 'unlimited',
       });
     });
 
-    it('blocks a FREE account with no trials left (reason: exhausted)', async () => {
+    it('still allows a FREE account with a zero dormant balance (never blocked)', async () => {
       const { service } = makeService([FREE(2)]);
       expect(await service.canUseVisionEngine('u1')).toEqual({
-        allowed: false,
+        allowed: true,
         isPremium: false,
         remaining: 0,
-        reason: 'exhausted',
+        reason: 'unlimited',
       });
     });
 
-    it('allows a premium account regardless of trial balance (reason: premium)', async () => {
-      const { service } = makeService([PRO(2)]); // trials fully "used", but premium
+    it('allows a premium account (reason: premium)', async () => {
+      const { service } = makeService([PRO(2)]);
       const decision = await service.canUseVisionEngine('u1');
       expect(decision.allowed).toBe(true);
       expect(decision.isPremium).toBe(true);
@@ -138,49 +140,16 @@ describe('VisionTrialService', () => {
       await service.canUseVisionEngine('u1');
       expect(store[0].visionTrialsUsed).toBe(0);
     });
-  });
-
-  describe('consumeTrial (atomic charge)', () => {
-    it('charges one trial and reports the new balance', async () => {
-      const { service, store } = makeService([FREE(0)]);
-      expect(await service.consumeTrial('u1')).toEqual({ consumed: true, remaining: 1 });
-      expect(store[0].visionTrialsUsed).toBe(1);
-      expect(await service.consumeTrial('u1')).toEqual({ consumed: true, remaining: 0 });
-      expect(store[0].visionTrialsUsed).toBe(2);
-    });
-
-    it('refuses to charge past the limit (no over-decrement)', async () => {
-      const { service, store } = makeService([FREE(2)]);
-      expect(await service.consumeTrial('u1')).toEqual({ consumed: false, remaining: 0 });
-      expect(store[0].visionTrialsUsed).toBe(2); // unchanged
-    });
-
-    it('never exceeds the limit under concurrent consume requests', async () => {
-      const { service, store, prisma } = makeService([FREE(0)]);
-
-      // Fire far more concurrent consumes than the allowance.
-      const attempts = 10;
-      const results = await Promise.all(
-        Array.from({ length: attempts }, () => service.consumeTrial('u1')),
-      );
-
-      const charged = results.filter((r) => r.consumed).length;
-      expect(charged).toBe(VISION_TRIAL_LIMIT); // exactly 2 succeeded
-      expect(store[0].visionTrialsUsed).toBe(VISION_TRIAL_LIMIT); // capped at 2, no over-decrement
-      // Every attempt reached the guarded update; only 2 passed the guard.
-      expect(prisma.user.updateMany).toHaveBeenCalledTimes(attempts);
-      results
-        .filter((r) => !r.consumed)
-        .forEach((r) => expect(r.remaining).toBe(0));
-    });
 
     it('rejects an unknown user', async () => {
       const { service } = makeService([]);
-      await expect(service.consumeTrial('missing')).rejects.toBeInstanceOf(NotFoundException);
+      await expect(service.canUseVisionEngine('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 
-  describe('acquireVisionUse (atomic access + charge)', () => {
+  describe('acquireVisionUse (access at run time) — unlimited, never charges', () => {
     it('allows premium without consuming a trial', async () => {
       const { service, store } = makeService([PRO(0)]);
       const res = await service.acquireVisionUse('u1');
@@ -191,46 +160,54 @@ describe('VisionTrialService', () => {
         reason: 'premium',
         consumedTrial: false,
       });
-      expect(store[0].visionTrialsUsed).toBe(0); // premium never charges
+      expect(store[0].visionTrialsUsed).toBe(0);
     });
 
-    it('charges a FREE account and allows while trials remain', async () => {
+    it('allows a FREE account without consuming a trial (unlimited)', async () => {
       const { service, store } = makeService([FREE(0)]);
       const first = await service.acquireVisionUse('u1');
       expect(first).toEqual({
         allowed: true,
         isPremium: false,
-        remaining: 1,
-        reason: 'trial',
-        consumedTrial: true,
+        remaining: 2,
+        reason: 'unlimited',
+        consumedTrial: false,
       });
+      // Repeated runs never charge and never block — the balance is untouched.
       const second = await service.acquireVisionUse('u1');
-      expect(second.consumedTrial).toBe(true);
-      expect(second.remaining).toBe(0);
-      expect(store[0].visionTrialsUsed).toBe(2);
+      expect(second.allowed).toBe(true);
+      expect(second.consumedTrial).toBe(false);
+      expect(second.remaining).toBe(2);
+      expect(store[0].visionTrialsUsed).toBe(0);
     });
 
-    it('blocks a FREE account once trials are exhausted, without charging', async () => {
+    it('allows a FREE account even with a zero dormant balance (never blocked)', async () => {
       const { service, store } = makeService([FREE(2)]);
       const res = await service.acquireVisionUse('u1');
       expect(res).toEqual({
-        allowed: false,
+        allowed: true,
         isPremium: false,
         remaining: 0,
-        reason: 'exhausted',
+        reason: 'unlimited',
         consumedTrial: false,
       });
-      expect(store[0].visionTrialsUsed).toBe(2); // unchanged
+      expect(store[0].visionTrialsUsed).toBe(2); // never touched
     });
 
-    it('allows at most the limit worth of trials across concurrent acquires', async () => {
+    it('allows every one of many runs without charging (unlimited)', async () => {
       const { service, store } = makeService([FREE(0)]);
       const results = await Promise.all(
         Array.from({ length: 8 }, () => service.acquireVisionUse('u1')),
       );
-      const allowed = results.filter((r) => r.allowed).length;
-      expect(allowed).toBe(VISION_TRIAL_LIMIT);
-      expect(store[0].visionTrialsUsed).toBe(VISION_TRIAL_LIMIT);
+      expect(results.every((r) => r.allowed && !r.consumedTrial)).toBe(true);
+      expect(store[0].visionTrialsUsed).toBe(0); // never incremented
+    });
+
+    it('rejects an unknown user', async () => {
+      const { service } = makeService([]);
+      await expect(service.acquireVisionUse('missing')).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
     });
   });
 });

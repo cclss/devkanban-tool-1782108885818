@@ -4,24 +4,23 @@ import { PrismaService } from '../prisma/prisma.service';
 import { MESSAGES, VISION_TRIAL_LIMIT } from '../common/messages';
 
 /**
- * Persistent free-trial meter + access policy for the premium Vision/LLM
- * auto-field placement engine.
+ * Access policy for the premium Vision/LLM auto-field placement engine.
  *
- * Two independent inputs decide whether an account may run the premium engine:
- *   1. Plan — PRO/ENTERPRISE are premium and unmetered (always allowed).
- *   2. Free-trial balance — a FREE-plan account gets VISION_TRIAL_LIMIT (2)
- *      trials, tracked by `User.visionTrialsUsed`.
+ * **Premium auto-placement is unlimited for every plan.** Access is always
+ * granted and never metered — a FREE account can run the premium engine an
+ * unlimited number of times: no trial is consumed, nothing is ever blocked, and
+ * no upgrade wall is raised. The former 2-trial cap and its guarded counter
+ * update have been retired (see design-spec
+ * `vocabulary/premium-trial-states.md` — "프리미엄 무제한" 결정).
  *
- * This service is the single backend entry point for that decision so the
- * heuristic→vision orchestration (grain-4) never re-implements the plan/trial
- * rules. It intentionally does NOT call the engine, touch billing, or render
- * UI — data + policy only.
+ * Plan still matters for one thing only: {@link isPremiumPlan} lets premium
+ * accounts identify themselves so the UI can hide the (now-dormant) free-trial
+ * note. The `User.visionTrialsUsed` column is left in place but is never
+ * incremented — it stays at its stored value forever.
  *
- * Concurrency: {@link consumeTrial} increments the counter with a guarded
- * `updateMany` (WHERE visionTrialsUsed < limit). Postgres takes a row lock per
- * UPDATE, so two concurrent consumes serialize and the second re-evaluates the
- * guard against the already-incremented value — the 2-trial cap can never be
- * exceeded, even under a burst of simultaneous requests.
+ * This service is the single backend entry point for the access decision so the
+ * heuristic→vision orchestration never re-implements the rule. It intentionally
+ * does NOT call the engine, touch billing, or render UI — data + policy only.
  */
 @Injectable()
 export class VisionTrialService {
@@ -53,9 +52,11 @@ export class VisionTrialService {
   }
 
   /**
-   * Detailed trial status for an account. `remaining`/`exhausted` describe the
-   * free-trial balance only; premium accounts report `isPremium: true` and are
-   * never blocked regardless of the balance.
+   * Detailed trial status for an account. **Dormant display only** — the premium
+   * engine is unlimited and never gated, so `remaining`/`exhausted` no longer
+   * decide access. They describe the (never-incremented) free-trial balance the
+   * UI may show as a note. Premium accounts report `isPremium: true`. Retained so
+   * the payload shape stays stable while the web copy is reframed elsewhere.
    */
   async getStatus(
     userId: string,
@@ -90,92 +91,64 @@ export class VisionTrialService {
 
   /**
    * Single entry point — may this account use the premium Vision engine right
-   * now? Read-only (does not consume a trial), for preflight checks and UI copy
-   * upstream. Allowed when the account is premium OR still has free trials.
+   * now? Read-only. **Always `allowed`**: premium auto-placement is unlimited for
+   * every plan, so this never blocks and never consumes a trial. `reason` is
+   * `premium` for a premium plan and `unlimited` for everyone else (both mean
+   * "allowed"). `remaining` reports the dormant balance for an optional UI note.
    */
   async canUseVisionEngine(
     userId: string,
     tx?: Prisma.TransactionClient,
   ): Promise<VisionAvailability> {
     const { plan, visionTrialsUsed } = await this.loadAccount(userId, tx);
-    const remaining = this.remainingFor(visionTrialsUsed);
-    if (this.isPremiumPlan(plan)) {
-      return { allowed: true, isPremium: true, remaining, reason: 'premium' };
-    }
-    if (remaining > 0) {
-      return { allowed: true, isPremium: false, remaining, reason: 'trial' };
-    }
-    return { allowed: false, isPremium: false, remaining: 0, reason: 'exhausted' };
+    const isPremium = this.isPremiumPlan(plan);
+    return {
+      allowed: true,
+      isPremium,
+      remaining: this.remainingFor(visionTrialsUsed),
+      reason: isPremium ? 'premium' : 'unlimited',
+    };
   }
 
   /**
-   * Atomically consume one free trial. Returns whether a trial was actually
-   * charged and the balance afterwards.
-   *
-   * The guarded `updateMany` only increments while `visionTrialsUsed <
-   * VISION_TRIAL_LIMIT`, so `count === 1` means this call won the slot and
-   * `count === 0` means the account was already at the cap. This is the atomic
-   * primitive that keeps concurrent requests from over-charging past 2.
-   *
-   * This touches the counter regardless of plan; premium accounts should be
-   * short-circuited before calling (see {@link acquireVisionUse}).
-   */
-  async consumeTrial(
-    userId: string,
-    tx?: Prisma.TransactionClient,
-  ): Promise<{ consumed: boolean; remaining: number }> {
-    const client = tx ?? this.prisma;
-    // Ensure the account exists (and 404 otherwise) before the guarded update.
-    await this.loadAccount(userId, tx);
-    const result = await client.user.updateMany({
-      where: { id: userId, visionTrialsUsed: { lt: VISION_TRIAL_LIMIT } },
-      data: { visionTrialsUsed: { increment: 1 } },
-    });
-    const remaining = await this.remaining(userId, tx);
-    return { consumed: result.count === 1, remaining };
-  }
-
-  /**
-   * Atomic access + charge in one call — the entry point grain-4 uses right
-   * before invoking the engine. Premium accounts are allowed without consuming
-   * a trial; FREE accounts consume one trial atomically and are allowed only if
-   * the consume succeeded. `consumedTrial` tells the caller whether a trial was
-   * spent (so it can surface the updated remaining count).
+   * Access decision at the moment of the consent-driven run — the entry point the
+   * orchestration uses right before invoking the engine. **Always `allowed` and
+   * never consumes** a trial (premium auto-placement is unlimited for every
+   * plan), so `consumedTrial` is always `false`. Kept as the single seam the
+   * run path calls so the "read the plan/balance, then run" shape is preserved.
    */
   async acquireVisionUse(
     userId: string,
     tx?: Prisma.TransactionClient,
   ): Promise<VisionAvailability & { consumedTrial: boolean }> {
     const { plan, visionTrialsUsed } = await this.loadAccount(userId, tx);
-    if (this.isPremiumPlan(plan)) {
-      return {
-        allowed: true,
-        isPremium: true,
-        remaining: this.remainingFor(visionTrialsUsed),
-        reason: 'premium',
-        consumedTrial: false,
-      };
-    }
-    const { consumed, remaining } = await this.consumeTrial(userId, tx);
-    if (consumed) {
-      return { allowed: true, isPremium: false, remaining, reason: 'trial', consumedTrial: true };
-    }
-    return { allowed: false, isPremium: false, remaining: 0, reason: 'exhausted', consumedTrial: false };
+    const isPremium = this.isPremiumPlan(plan);
+    return {
+      allowed: true,
+      isPremium,
+      remaining: this.remainingFor(visionTrialsUsed),
+      reason: isPremium ? 'premium' : 'unlimited',
+      consumedTrial: false,
+    };
   }
 }
 
-/** Why the Vision engine is (or isn't) available for an account. */
-export type VisionAccessReason = 'premium' | 'trial' | 'exhausted';
+/**
+ * Why the Vision engine is available for an account. Both values mean "allowed":
+ * `premium` (premium plan) and `unlimited` (every other plan — premium
+ * auto-placement is unlimited and no longer trial-metered).
+ */
+export type VisionAccessReason = 'premium' | 'unlimited';
 
-/** Read-only access decision for the premium Vision engine. */
+/** Read-only access decision for the premium Vision engine (always allowed). */
 export interface VisionAvailability {
-  /** Whether the account may run the Vision engine. */
+  /** Whether the account may run the Vision engine. Always `true` (unlimited). */
   allowed: boolean;
-  /** Premium (PRO/ENTERPRISE) accounts are unmetered. */
+  /** Premium (PRO/ENTERPRISE) accounts identify themselves to hide the trial note. */
   isPremium: boolean;
-  /** Remaining free trials (0 for premium-only allowance or exhausted). */
+  /** Dormant free-trial balance for an optional UI note (never gates access). */
   remaining: number;
-  /** Which rule drove the decision. */
+  /** Which rule drove the (always-allowed) decision. */
   reason: VisionAccessReason;
 }
 

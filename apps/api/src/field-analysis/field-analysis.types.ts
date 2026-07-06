@@ -6,21 +6,21 @@ import type {
 import type { VisionErrorReason } from '../vision-detection/vision-detection.types';
 
 /**
- * Data contract for the auto-field-placement **analysis orchestration** with the
- * free-trial policy folded in (grain-2).
+ * Data contract for the auto-field-placement **analysis orchestration**. Premium
+ * auto-placement is **unlimited for every plan** — the status carries no gate.
  *
  * On upload the orchestration runs the default heuristic engine first and
  * persists the result. For an image-only / low-confidence PDF it does **not**
- * auto-run the premium Vision engine; instead it records a "scan detected,
- * premium awaiting" state and leaves the actual Vision run to an explicit,
- * consent-driven call ({@link FieldAnalysisResult}) that atomically spends a free
- * trial. The status carries the plan / trial situation the review UI branches on.
+ * auto-run the premium Vision engine (the external call ships page pixels = PII);
+ * instead it records a "scan detected, premium awaiting consent" state and leaves
+ * the actual Vision run to an explicit, consent-driven call
+ * ({@link FieldAnalysisResult}). No trial is ever spent.
  *
  * These are **structured signals**, not user-facing copy: which engine ran, the
- * Vision stage outcome, whether the account is premium, how many free trials
- * remain, and whether an upgrade is required. The actual prompts shown to a user
- * are composed by the editor UI from this payload (see design-spec
- * `messaging/ai-copy.md`, `components/premium-ai-prompt`, and
+ * Vision stage outcome, whether the account is premium, and the dormant trial
+ * balance (for an optional UI note). `upgradeRequired` is always false. The
+ * actual prompts shown to a user are composed by the editor UI from this payload
+ * (see design-spec `messaging/ai-copy.md`, `components/premium-ai-prompt`, and
  * `vocabulary/premium-trial-states.md`).
  */
 
@@ -28,20 +28,21 @@ import type { VisionErrorReason } from '../vision-detection/vision-detection.typ
 export type AnalysisEngine = DetectionEngine;
 
 /**
- * What happened at the (optional) premium Vision stage. The two gating states
- * (`available` / `blocked`) are new in this grain: upload never auto-runs Vision
- * anymore, so an image-only PDF resolves to one of them until the user consents.
+ * What happened at the (optional) premium Vision stage. Upload never auto-runs
+ * Vision (the external call ships page pixels = PII), so a scanned PDF resolves to
+ * `available` until the user consents.
  *
  *  - `not-needed` — the heuristic engine was confident; Vision was never
  *                   considered. (Text PDF happy path.)
- *  - `available`  — the document read as scanned and the account MAY run the
- *                   premium engine (premium plan or free trials remaining), but it
- *                   has not run yet — the flow is waiting for the user to opt in.
- *                   No trial has been spent. (Persisted `AWAITING_CONSENT`.)
- *  - `blocked`    — the document read as scanned but the account may NOT run the
- *                   premium engine: every free trial is spent and the plan is not
- *                   premium. The upgrade path is offered instead
- *                   (`upgradeRequired`). (Persisted `BLOCKED`.)
+ *  - `available`  — the document read as scanned; the premium engine has not run
+ *                   yet and the flow is waiting for the user to opt in. Premium
+ *                   auto-placement is **unlimited**, so a scanned document ALWAYS
+ *                   lands here. No trial is spent. (Persisted `AWAITING_CONSENT`.)
+ *  - `blocked`    — **unreachable / legacy.** Formerly meant "scanned but the
+ *                   free trials are spent and the plan is not premium". Premium is
+ *                   now unlimited, so the orchestration never produces this state.
+ *                   The value is retained only so the wire enum stays valid
+ *                   (`BLOCKED` may still exist in historical persisted rows).
  *  - `succeeded`  — Vision ran (after consent) and produced candidates.
  *  - `failed`     — Vision ran but could not produce a result (not configured /
  *                   timeout / transport / bad response). No candidates are
@@ -80,9 +81,9 @@ export interface FieldAnalysisStatus {
    */
   trialsRemaining: number;
   /**
-   * The premium engine is needed but the account may not use it — every free
-   * trial is spent and the plan is not premium. Drives the upgrade surface. True
-   * exactly when `visionStage === 'blocked'`.
+   * **Always false.** Premium auto-placement is unlimited for every plan, so
+   * there is no upgrade wall. Retained in the payload shape (and for any
+   * historical `blocked`/`BLOCKED` row) but never true for a fresh analysis.
    */
   upgradeRequired: boolean;
   /**

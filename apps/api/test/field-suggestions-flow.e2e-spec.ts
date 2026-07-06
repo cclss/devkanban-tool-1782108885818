@@ -1,19 +1,22 @@
 /**
- * End-to-end for the auto-field-placement analysis endpoints (grain-3):
- *   GET  /documents/:id/field-suggestions   — stored candidates + analysis/trial status
- *   POST /documents/:id/premium-analysis     — Story 2 consent (spends one free trial)
+ * End-to-end for the auto-field-placement analysis endpoints:
+ *   GET  /documents/:id/field-suggestions   — stored candidates + analysis status
+ *   POST /documents/:id/premium-analysis     — Story 2 consent (unlimited, no charge)
  *
- * The three feature flows are exercised through the real orchestration, trial
- * meter, and grain-1 persistence — only the leaf engine seams (text extractor via
- * FieldDetectionService, the page renderer, and the Vision engine) are replaced
- * with deterministic fakes so a "text PDF" vs a "scanned PDF" can be driven
- * without a real PDF parser / external Vision service (the pipeline is otherwise
- * dark). A PDF's Title metadata carries the marker the fake detector branches on.
+ * Premium auto-placement is **unlimited for every plan** — consent never spends a
+ * trial and a scanned PDF is never blocked. The flows are exercised through the
+ * real orchestration and persistence — only the leaf engine seams (text extractor
+ * via FieldDetectionService, the page renderer, and the Vision engine) are
+ * replaced with deterministic fakes so a "text PDF" vs a "scanned PDF" can be
+ * driven without a real PDF parser / external Vision service (the pipeline is
+ * otherwise dark). A PDF's Title metadata carries the marker the fake detector
+ * branches on.
  *
  *   1. Text PDF     → suggestions returned immediately, no premium prompt.
  *   2. Scanned PDF  → invite (AWAITING_CONSENT); on consent the premium engine
- *                     runs, places fields, and one free trial is spent.
- *   3. Trials spent → a further scanned PDF resolves to the upgrade path.
+ *                     runs and places fields — no trial spent.
+ *   3. Repeat runs  → a FREE account keeps running premium, unlimited, never
+ *                     blocked and never upgrade-walled.
  *
  * Plus the ownership / DRAFT / auth guards on both endpoints.
  */
@@ -222,17 +225,17 @@ describe('Field-suggestions flow (e2e)', () => {
     expect(body.status.trialsRemaining).toBe(2);
   });
 
-  it('Story 2: a scanned PDF invites premium, and consent spends one trial + places fields', async () => {
+  it('Story 2: a scanned PDF invites premium, and consent runs + places fields with no charge', async () => {
     const id = await upload('SCAN');
 
-    // Upload records an invite (AWAITING_CONSENT) — no trial spent yet.
+    // Upload records an invite (AWAITING_CONSENT) — nothing spent.
     const invited = await waitFor(id, (b) => b.status.visionStage !== 'not-needed');
     expect(invited.status.visionStage).toBe('available');
     expect(invited.status.upgradeRequired).toBe(false);
     expect(invited.fields).toHaveLength(0);
     expect(invited.status.trialsRemaining).toBe(2);
 
-    // Consent: the premium engine runs, places fields, and spends one trial.
+    // Consent: the premium engine runs and places fields — unlimited, no charge.
     const consent = await request(app.getHttpServer())
       .post(`/api/documents/${id}/premium-analysis`)
       .set('Authorization', `Bearer ${token}`)
@@ -240,48 +243,45 @@ describe('Field-suggestions flow (e2e)', () => {
     const body = consent.body as AnalysisBody;
     expect(body.status.visionStage).toBe('succeeded');
     expect(body.fields).toHaveLength(2);
-    expect(body.status.trialsRemaining).toBe(1);
+    // No trial is consumed — the dormant balance is untouched.
+    expect(body.status.trialsRemaining).toBe(2);
     expect(body.status.upgradeRequired).toBe(false);
 
-    // The spend is persisted: a re-fetch shows the placed fields + updated count.
+    // The run is persisted: a re-fetch shows the placed fields, balance intact.
     const refetched = await getSuggestions(id);
     expect(refetched.status.visionStage).toBe('succeeded');
     expect(refetched.fields).toHaveLength(2);
-    expect(refetched.status.trialsRemaining).toBe(1);
+    expect(refetched.status.trialsRemaining).toBe(2);
 
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    expect(user?.visionTrialsUsed).toBe(1);
+    expect(user?.visionTrialsUsed).toBe(0);
   });
 
-  it('Story 4: after the 2 free trials are spent, a scanned PDF offers the upgrade path', async () => {
-    // Spend the second (last) trial on another scanned document.
-    const second = await upload('SCAN');
-    await waitFor(second, (b) => b.status.visionStage === 'available');
-    const secondConsent = await request(app.getHttpServer())
-      .post(`/api/documents/${second}/premium-analysis`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    expect((secondConsent.body as AnalysisBody).status.trialsRemaining).toBe(0);
+  it('Unlimited: a FREE account runs premium on many scanned PDFs, never blocked or charged', async () => {
+    // Run the premium engine several more times — well past the old 2-trial cap.
+    for (let run = 0; run < 3; run += 1) {
+      const doc = await upload('SCAN');
+      const invited = await waitFor(doc, (b) => b.status.visionStage !== 'not-needed');
+      // Every scanned PDF resolves to `available` (awaiting consent) — never blocked.
+      expect(invited.status.visionStage).toBe('available');
+      expect(invited.status.upgradeRequired).toBe(false);
+      expect(invited.status.trialsRemaining).toBe(2);
 
-    // A fresh scanned PDF now has no trials left → blocked / upgradeRequired.
-    const third = await upload('SCAN');
-    const blocked = await waitFor(third, (b) => b.status.visionStage !== 'not-needed');
-    expect(blocked.status.visionStage).toBe('blocked');
-    expect(blocked.status.upgradeRequired).toBe(true);
-    expect(blocked.status.trialsRemaining).toBe(0);
+      const consent = await request(app.getHttpServer())
+        .post(`/api/documents/${doc}/premium-analysis`)
+        .set('Authorization', `Bearer ${token}`)
+        .expect(200);
+      const body = consent.body as AnalysisBody;
+      expect(body.status.visionStage).toBe('succeeded');
+      expect(body.status.upgradeRequired).toBe(false);
+      expect(body.fields).toHaveLength(2);
+      // Never charged, never blocked, no matter how many runs.
+      expect(body.status.trialsRemaining).toBe(2);
+    }
 
-    // Consent while exhausted spends nothing and keeps offering the upgrade.
-    const denied = await request(app.getHttpServer())
-      .post(`/api/documents/${third}/premium-analysis`)
-      .set('Authorization', `Bearer ${token}`)
-      .expect(200);
-    const body = denied.body as AnalysisBody;
-    expect(body.status.upgradeRequired).toBe(true);
-    expect(body.fields).toHaveLength(0);
-    expect(body.status.trialsRemaining).toBe(0);
-
+    // The counter was never incremented across all the runs.
     const user = await prisma.user.findUnique({ where: { id: userId } });
-    expect(user?.visionTrialsUsed).toBe(2);
+    expect(user?.visionTrialsUsed).toBe(0);
   });
 
   it('enforces the ownership guard on both endpoints', async () => {

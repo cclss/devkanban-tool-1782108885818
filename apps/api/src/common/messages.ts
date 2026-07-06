@@ -128,8 +128,12 @@ export const SHARE_LINK_MAX_EXPIRY_DAYS = 365;
 export const FREE_PLAN_MONTHLY_LIMIT = 5;
 
 /**
- * Free-trial allowance for the premium Vision/LLM auto-field placement engine,
- * per user account. After this many trials a non-premium user must upgrade to
- * keep using the engine. Premium plans (PRO/ENTERPRISE) are unmetered.
+ * Legacy free-trial allowance for the premium Vision/LLM auto-field placement
+ * engine. **No longer a gate** — premium auto-placement is unlimited for every
+ * plan: no trial is consumed, nothing is blocked, and there is no upgrade wall.
+ * This constant is retained only as a dormant display cap over the (never
+ * incremented) `User.visionTrialsUsed` counter, so the optional "무료 체험 N번
+ * 남음" note still has a ceiling to render. See design-spec
+ * `vocabulary/premium-trial-states.md` ("프리미엄 무제한" 결정).
  */
 export const VISION_TRIAL_LIMIT = 2;

@@ -17,33 +17,32 @@ import type {
   AnalysisEngine,
   FieldAnalysisResult,
   FieldAnalysisStatus,
-  VisionStage,
 } from './field-analysis.types';
 
 /**
- * Auto-field-placement **analysis orchestration with the free-trial policy folded
- * in** (grain-2).
+ * Auto-field-placement **analysis orchestration**. Premium auto-placement is
+ * **unlimited for every plan** — nothing here meters a trial or raises an upgrade
+ * wall.
  *
  * On upload {@link analyze} runs the default heuristic engine, persists the
  * result, and — crucially — does **not** auto-run the premium Vision engine on an
- * image-only / low-confidence PDF. Instead it records whether the account may run
- * premium later:
+ * image-only / low-confidence PDF (the external call ships page pixels = PII, so
+ * it waits for consent). It records:
  *
  *   1. Confident text PDF → `not-needed`, heuristic candidates persisted.
- *   2. Scanned / low-confidence PDF, account may use premium (premium plan or free
- *      trials remaining) → `available` (persisted `AWAITING_CONSENT`). No trial is
- *      spent; the flow waits for the user to opt in.
- *   3. Scanned / low-confidence PDF, no trials left and not premium → `blocked`
- *      (`upgradeRequired`), the upgrade path is offered.
+ *   2. Scanned / low-confidence PDF → **always** `available` (persisted
+ *      `AWAITING_CONSENT`). No trial is spent; the flow waits for the user to opt
+ *      in. There is no `blocked` state anymore — premium is unlimited.
  *
- * {@link runPremiumAnalysis} is the consent-driven step: it atomically spends one
- * free trial via {@link VisionTrialService.acquireVisionUse} (premium accounts do
- * not spend), then renders the pages and runs Vision, persisting the outcome
- * (`succeeded` / `failed`). An exhausted account short-circuits to `blocked`.
+ * {@link runPremiumAnalysis} is the consent-driven step: premium is unlimited, so
+ * it never consumes and never blocks — it reads the plan/balance via
+ * {@link VisionTrialService.acquireVisionUse} (for the status payload only), then
+ * renders the pages and runs Vision, persisting the outcome (`succeeded` /
+ * `failed`).
  *
- * Scope boundary: this service *selects* an engine, *renders* pages, *meters* the
- * trial through the existing atomic primitive, and *persists* the snapshot — it
- * never re-implements an engine's internals, touches billing, or renders UI.
+ * Scope boundary: this service *selects* an engine, *renders* pages, and
+ * *persists* the snapshot — it never re-implements an engine's internals, touches
+ * billing, or renders UI.
  */
 @Injectable()
 export class FieldAnalysisService {
@@ -60,9 +59,11 @@ export class FieldAnalysisService {
 
   /**
    * Upload-time analysis: run the heuristic engine, persist the candidates + the
-   * (possibly gating) status, and return the payload the frontend consumes. A
-   * scanned / low-confidence PDF is recorded as `available` or `blocked` — Vision
-   * is **not** run here (consent is spent later in {@link runPremiumAnalysis}).
+   * status, and return the payload the frontend consumes. A scanned /
+   * low-confidence PDF is **always** recorded as `available` (awaiting consent) —
+   * Vision is **not** run here (consent happens later in
+   * {@link runPremiumAnalysis}). Premium is unlimited, so there is no `blocked`
+   * outcome and `upgradeRequired` is always false.
    */
   async analyze(
     documentId: string,
@@ -90,18 +91,20 @@ export class FieldAnalysisService {
       });
     }
 
-    // Scanned / low-confidence: do NOT run Vision now. Record whether the account
-    // may run premium (`available`) or must upgrade (`blocked`). The engine stays
-    // heuristic and the candidates are its (usually empty) output.
+    // Scanned / low-confidence: do NOT run Vision now (the external call ships
+    // page pixels = PII, so it needs consent). Premium is unlimited, so this
+    // ALWAYS resolves to `available` (awaiting consent) — never `blocked`, and
+    // `upgradeRequired` is always false. No trial is spent. `canUseVisionEngine`
+    // is read only to surface the plan (premium hides the trial note) and the
+    // dormant balance.
     const access = await this.trials.canUseVisionEngine(userId);
-    const visionStage: VisionStage = access.allowed ? 'available' : 'blocked';
     return this.persistAndReturn(documentId, heuristic.fields, {
       engine: heuristic.engine,
       signal: heuristic.signal,
-      visionStage,
+      visionStage: 'available',
       isPremium: access.isPremium,
       trialsRemaining: access.remaining,
-      upgradeRequired: !access.allowed,
+      upgradeRequired: false,
       // Scanned document: the premium path runs through `visionStage`, not the
       // text-PDF accuracy boost.
       boostAvailable: false,
@@ -110,32 +113,19 @@ export class FieldAnalysisService {
 
   /**
    * Consent-driven premium run (invoked from the editor once the user opts in).
-   * Atomically spends one free trial (premium accounts do not spend), then renders
-   * the document and runs the Vision engine, persisting the outcome.
-   *
-   * Ordering follows the trial policy: the trial is consumed via the atomic
-   * {@link VisionTrialService.acquireVisionUse} primitive first. If the account is
-   * exhausted (no trials, not premium) nothing is rendered and the result is
-   * `blocked` / `upgradeRequired`.
+   * Premium auto-placement is unlimited: this **never consumes** a trial and
+   * **never blocks**. It reads the plan/balance via
+   * {@link VisionTrialService.acquireVisionUse} (for the status payload only),
+   * then renders the document and runs the Vision engine, persisting the outcome
+   * (`succeeded` / `failed`).
    */
   async runPremiumAnalysis(
     documentId: string,
     userId: string,
   ): Promise<FieldAnalysisResult> {
+    // Unlimited access: allowed without consuming a trial. Read only to surface
+    // the plan / dormant balance in the returned status.
     const access = await this.trials.acquireVisionUse(userId);
-
-    // Exhausted, not premium: offer the upgrade path, render nothing.
-    if (!access.allowed) {
-      return this.persistAndReturn(documentId, [], {
-        engine: 'heuristic',
-        signal: 'no-text',
-        visionStage: 'blocked',
-        isPremium: access.isPremium,
-        trialsRemaining: access.remaining,
-        upgradeRequired: true,
-        boostAvailable: false,
-      });
-    }
 
     const pdf = await this.pdfSource.load(documentId);
     const vision: VisionEngineResult = pdf

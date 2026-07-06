@@ -469,7 +469,9 @@ export class DocumentsService {
       visionStage,
       isPremium: trial.isPremium,
       trialsRemaining: trial.remaining,
-      upgradeRequired: visionStage === 'blocked',
+      // Premium auto-placement is unlimited for every plan — there is no upgrade
+      // wall, even for a historical `blocked`/`BLOCKED` row.
+      upgradeRequired: false,
       // Text PDF the base engine handled → offer the optional premium accuracy
       // boost while the account can still run it (premium or trials remaining).
       // Base placement stays unlimited; there is no upsell wall here.

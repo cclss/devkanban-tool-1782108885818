@@ -19,19 +19,19 @@ import type {
 } from '../vision-detection/vision-detection.types';
 
 /**
- * Unit tests for the analysis orchestration with the free-trial policy folded in
- * (grain-2).
+ * Unit tests for the analysis orchestration. Premium auto-placement is
+ * **unlimited for every plan** — no trial is consumed and nothing is blocked.
  *
- * Every collaborator (both engines, the page renderer, the trial meter, the
+ * Every collaborator (both engines, the page renderer, the trial policy, the
  * persistence store, and the PDF source) is replaced with a hand-authored fake so
  * the branch logic runs with no Nest app or database. The behaviours asserted are
  * the ones the grain's Done criteria call out:
  *   • upload persists the heuristic result;
- *   • a scanned PDF is stored awaiting consent WITHOUT running Vision;
- *   • the status payload carries isPremium / trialsRemaining / upgradeRequired and
- *     the extended visionStage (`available` / `blocked`);
- *   • runPremiumAnalysis spends a trial atomically then runs + persists Vision,
- *     and an exhausted account short-circuits to blocked / upgradeRequired.
+ *   • a scanned PDF is stored awaiting consent WITHOUT running Vision, and ALWAYS
+ *     resolves to `available` (never `blocked`), with `upgradeRequired: false`;
+ *   • the status payload carries isPremium / trialsRemaining / upgradeRequired;
+ *   • runPremiumAnalysis never consumes a trial and never blocks — it runs +
+ *     persists Vision for a FREE account an unlimited number of times.
  */
 
 const PDF = Buffer.from('%PDF-1.7 fake');
@@ -126,13 +126,13 @@ function makeService(overrides: Partial<Fakes> = {}) {
       remaining: 2,
       exhausted: false,
     } as TrialStatus,
-    access: { allowed: true, isPremium: false, remaining: 2, reason: 'trial' },
+    access: { allowed: true, isPremium: false, remaining: 2, reason: 'unlimited' },
     acquire: {
       allowed: true,
       isPremium: false,
-      remaining: 1,
-      reason: 'trial',
-      consumedTrial: true,
+      remaining: 2,
+      reason: 'unlimited',
+      consumedTrial: false,
     },
     pdf: PDF,
     ...overrides,
@@ -276,10 +276,10 @@ describe('FieldAnalysisService', () => {
   });
 
   describe('analyze — scanned / low-confidence PDF (no auto Vision)', () => {
-    it('records "available" awaiting consent and does NOT run Vision (trials remaining)', async () => {
+    it('records "available" awaiting consent and does NOT run Vision', async () => {
       const { service, visionDetection, renderer, trials, saved } = makeService({
         detection: heuristicNoText(),
-        access: { allowed: true, isPremium: false, remaining: 2, reason: 'trial' },
+        access: { allowed: true, isPremium: false, remaining: 2, reason: 'unlimited' },
       });
 
       const { fields, status } = await service.analyze(DOC, USER, PDF);
@@ -316,43 +316,45 @@ describe('FieldAnalysisService', () => {
       expect(status.isPremium).toBe(true);
     });
 
-    it('records "blocked" + upgradeRequired when trials are exhausted and not premium', async () => {
+    it('still resolves to "available" (never blocked) for a FREE account with a zero dormant balance', async () => {
       const { service, saved } = makeService({
         detection: heuristicNoText(),
-        access: { allowed: false, isPremium: false, remaining: 0, reason: 'exhausted' },
+        // Formerly "exhausted"; premium is now unlimited so access is always allowed.
+        access: { allowed: true, isPremium: false, remaining: 0, reason: 'unlimited' },
       });
 
       const { status } = await service.analyze(DOC, USER, PDF);
 
-      expect(status.visionStage).toBe('blocked');
-      expect(status.upgradeRequired).toBe(true);
+      expect(status.visionStage).toBe('available');
+      expect(status.upgradeRequired).toBe(false);
       expect(status.trialsRemaining).toBe(0);
-      expect(saved[0].snapshot.visionStage).toBe('blocked');
+      expect(saved[0].snapshot.visionStage).toBe('available');
     });
   });
 
   describe('runPremiumAnalysis — consent-driven premium run', () => {
-    it('spends a trial atomically, runs Vision, and persists succeeded', async () => {
+    it('runs Vision and persists succeeded for a FREE account without consuming a trial', async () => {
       const { service, trials, visionDetection, renderer, saved } = makeService({
         acquire: {
           allowed: true,
           isPremium: false,
-          remaining: 1,
-          reason: 'trial',
-          consumedTrial: true,
+          remaining: 2,
+          reason: 'unlimited',
+          consumedTrial: false,
         },
       });
 
       const { fields, status } = await service.runPremiumAnalysis(DOC, USER);
 
-      // Trial consumed through the atomic primitive, before running Vision.
+      // Access read through the seam (never consumes), then Vision runs.
       expect(trials.acquireVisionUse).toHaveBeenCalledWith(USER);
       expect(renderer.render).toHaveBeenCalledTimes(1);
       expect(visionDetection.analyze).toHaveBeenCalledTimes(1);
 
       expect(status.engine).toBe('vision');
       expect(status.visionStage).toBe('succeeded');
-      expect(status.trialsRemaining).toBe(1);
+      // Dormant balance is untouched — no trial spent.
+      expect(status.trialsRemaining).toBe(2);
       expect(status.upgradeRequired).toBe(false);
       expect(fields).toHaveLength(2);
 
@@ -381,28 +383,29 @@ describe('FieldAnalysisService', () => {
       expect(status.isPremium).toBe(true);
     });
 
-    it('short-circuits to blocked / upgradeRequired when exhausted (no render, no Vision)', async () => {
+    it('still runs Vision (never blocks) for a FREE account with a zero dormant balance', async () => {
       const { service, renderer, visionDetection, pdfSource, saved } = makeService({
+        // Formerly "exhausted"; premium is unlimited so it runs anyway.
         acquire: {
-          allowed: false,
+          allowed: true,
           isPremium: false,
           remaining: 0,
-          reason: 'exhausted',
+          reason: 'unlimited',
           consumedTrial: false,
         },
       });
 
       const { fields, status } = await service.runPremiumAnalysis(DOC, USER);
 
-      expect(pdfSource.load).not.toHaveBeenCalled();
-      expect(renderer.render).not.toHaveBeenCalled();
-      expect(visionDetection.analyze).not.toHaveBeenCalled();
+      expect(pdfSource.load).toHaveBeenCalledTimes(1);
+      expect(renderer.render).toHaveBeenCalledTimes(1);
+      expect(visionDetection.analyze).toHaveBeenCalledTimes(1);
 
-      expect(status.visionStage).toBe('blocked');
-      expect(status.upgradeRequired).toBe(true);
+      expect(status.visionStage).toBe('succeeded');
+      expect(status.upgradeRequired).toBe(false);
       expect(status.trialsRemaining).toBe(0);
-      expect(fields).toEqual([]);
-      expect(saved[0].snapshot.visionStage).toBe('blocked');
+      expect(fields).toHaveLength(2);
+      expect(saved[0].snapshot.visionStage).toBe('succeeded');
     });
 
     it('persists failed + structured reason when Vision fails', async () => {
