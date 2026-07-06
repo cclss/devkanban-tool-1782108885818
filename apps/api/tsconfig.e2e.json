@@ -1,0 +1,8 @@
+{
+  "extends": "@repo/tsconfig/nestjs.json",
+  "compilerOptions": {
+    "baseUrl": "./",
+    "types": ["node", "jest", "multer", "express"]
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"]
+}
