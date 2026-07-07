@@ -31,6 +31,35 @@ services:
       timeout: 5s
       retries: 5
 
+  # API server. Built from apps/api/Dockerfile, which bundles LibreOffice
+  # headless (`soffice`) so uploaded DOCX contracts can be converted to PDF.
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: esign_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    environment:
+      NODE_ENV: production
+      API_PORT: 3001
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/esign?schema=public
+      REDIS_URL: redis://redis:6379
+      WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:3000}
+      JWT_SECRET: ${JWT_SECRET:-dev-local-secret-change-me}
+      JWT_EXPIRES_IN: ${JWT_EXPIRES_IN:-7d}
+      SHARE_JWT_SECRET: ${SHARE_JWT_SECRET:-dev-local-share-secret-change-me}
+      SHARE_LINK_ENCRYPTION_KEY: ${SHARE_LINK_ENCRYPTION_KEY:-dev-local-share-link-key-change-me}
+      STORAGE_DIR: .storage
+      # LibreOffice headless binary used to convert uploaded DOCX → PDF.
+      LIBREOFFICE_BIN: /usr/bin/soffice
+    ports:
+      - '3001:3001'
+
 volumes:
   postgres_data:
   redis_data:
