@@ -125,9 +125,7 @@ function ClauseCard({
   return (
     <Card className={cn('flex flex-col gap-xs p-lg', tone.surfaceClassName, tone.borderClassName)}>
       <div className="flex flex-wrap items-center gap-2xs">
-        <span className="inline-flex items-center rounded-full bg-surface-muted px-xs py-2xs text-2xs font-semibold text-foreground-subtle">
-          {clause.category}
-        </span>
+        <CategoryPill category={clause.category} />
         {tone.caution ? <CautionMark /> : null}
       </div>
 
@@ -192,11 +190,26 @@ function ArrowIcon() {
 }
 
 /**
+ * The neutral category pill at the top of a clause card — a grouping label, not
+ * a status, so it stays neutral (no emphasis hue; the category is a classifying
+ * tag, not the clause's content). Exported so the completion recap renders the
+ * exact same pill and both surfaces read as one clause-card visual family.
+ */
+export function CategoryPill({ category }: { category: string }) {
+  return (
+    <span className="inline-flex items-center rounded-full bg-surface-muted px-xs py-2xs text-2xs font-semibold text-foreground-subtle">
+      {category}
+    </span>
+  );
+}
+
+/**
  * Render a sentence with its key numbers in bold, keeping the sentence flowing.
  * Emphasis is weight-only — the text stays `foreground`, no hue (avoids
- * color-alone signaling and tinted-background AA issues).
+ * color-alone signaling and tinted-background AA issues). Exported so the
+ * completion recap emphasizes key numbers with the same weight-only treatment.
  */
-function HighlightedText({ text }: { text: string }) {
+export function HighlightedText({ text }: { text: string }) {
   const segments = splitKeyNumbers(text);
   return (
     <>
@@ -216,9 +229,10 @@ function HighlightedText({ text }: { text: string }) {
 /**
  * The caution signal on a `caution` clause: a shape-different warning icon (hue
  * carried here, not on the text) + the "주의" label, so the signal never rides on
- * color alone (mirrors UrgencyBadge's icon-carries-the-hue rule).
+ * color alone (mirrors UrgencyBadge's icon-carries-the-hue rule). Exported so the
+ * completion recap flags caution clauses with the identical mark + "주의" label.
  */
-function CautionMark() {
+export function CautionMark() {
   return (
     <span className="inline-flex items-center gap-2xs text-2xs font-semibold text-foreground-muted">
       <svg

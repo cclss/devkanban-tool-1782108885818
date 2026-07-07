@@ -105,6 +105,12 @@ export interface DoneCopy {
   title: string;
   body: string;
   documentLabel: string;
+  /**
+   * Heading for the contract-summary recap on the completion card (the key-clause
+   * recap shown when `clauseSummary` is present). Omit-safe: the recap only
+   * renders when a summary exists (graceful degradation).
+   */
+  summaryHeading: string;
   /** Next-step note when the whole document is now complete. */
   nextAllDone: string;
   /** Next-step note when other participants are still pending. */

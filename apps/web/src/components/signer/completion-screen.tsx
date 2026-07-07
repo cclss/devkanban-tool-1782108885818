@@ -24,13 +24,17 @@
 
 import * as React from 'react';
 import { createPortal } from 'react-dom';
-import { Confetti, SuccessCheck } from '@repo/ui';
+import { Card, Confetti, SuccessCheck, cn } from '@repo/ui';
 import { brandStyle } from '@/lib/branding';
 import { CompletionDownload } from '@/components/completion-download';
+import { CLAUSE_CARD_COPY } from '@/lib/clause-card-copy';
+import { clauseTone } from '@/lib/clause-summary';
+import { CategoryPill, CautionMark, HighlightedText } from './clause-summary-section';
 import { useFill } from './fill-context';
 
 export function CompletionScreen() {
-  const { brandColor, documentTitle, payload, documentCompleted, copy, download } = useFill();
+  const { brandColor, documentTitle, payload, clauseSummary, documentCompleted, copy, download } =
+    useFill();
   const done = copy.done;
 
   // Portals need the DOM; gate on mount so SSR/first paint stays clean.
@@ -52,7 +56,7 @@ export function CompletionScreen() {
         paddingTop: 'max(env(safe-area-inset-top), 24px)',
         paddingBottom: 'max(env(safe-area-inset-bottom), 24px)',
       }}
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl bg-background px-lg text-center"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl overflow-y-auto bg-background px-lg text-center"
     >
       <div className="relative flex items-center justify-center">
         <Confetti className="z-0" />
@@ -68,6 +72,10 @@ export function CompletionScreen() {
           <p className="mt-2xs truncate text-sm font-semibold text-foreground">{title}</p>
         </div>
 
+        {clauseSummary ? (
+          <ContractSummaryRecap summary={clauseSummary} heading={done.summaryHeading} />
+        ) : null}
+
         <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
 
         {download && documentCompleted ? (
@@ -81,5 +89,68 @@ export function CompletionScreen() {
       </div>
     </div>,
     window.document.body,
+  );
+}
+
+/**
+ * A light key-clause recap on the completion card: the one-liner plus each key
+ * clause's headline, in the same clause-card visual family as the reading screen
+ * (`clauseTone` surface/border, the shared `CategoryPill`, weight-only key-number
+ * emphasis via `HighlightedText`, and the caution mark for `caution` clauses).
+ *
+ * Deliberately NOT the heavy `ClauseSummarySection`: no "원문에서 보기" anchors (no
+ * viewer here), no pageCount, no AI disclaimer block. The AI framing is signaled
+ * once via the shared `AI 요약` mark (mirrors the reading screen's "signal AI once"
+ * rule); the details/detail lines are dropped to keep the recap concise. Only
+ * mounted when `clauseSummary` is present — a `null` summary leaves the existing
+ * completion card untouched (graceful degradation).
+ */
+function ContractSummaryRecap({
+  summary,
+  heading,
+}: {
+  summary: NonNullable<ReturnType<typeof useFill>['clauseSummary']>;
+  heading: string;
+}) {
+  return (
+    <section aria-label={heading} className="mt-xs w-full text-left">
+      <div className="flex items-center gap-2xs">
+        <h2 className="text-2xs font-bold uppercase tracking-wide text-foreground-subtle">
+          {heading}
+        </h2>
+        <span className="text-2xs font-bold uppercase tracking-wide text-ai-accent-strong">
+          {CLAUSE_CARD_COPY.aiMarkLabel}
+        </span>
+      </div>
+
+      <p className="mt-2xs text-sm font-semibold leading-snug text-foreground">
+        <HighlightedText text={summary.oneLiner} />
+      </p>
+
+      <ul className="mt-sm flex flex-col gap-2xs">
+        {summary.clauses.map((clause, index) => {
+          const tone = clauseTone(clause.emphasis);
+          return (
+            <li key={index}>
+              <Card
+                className={cn(
+                  'flex flex-col gap-2xs p-md',
+                  tone.surfaceClassName,
+                  tone.borderClassName,
+                )}
+              >
+                <div className="flex flex-wrap items-center gap-2xs">
+                  <CategoryPill category={clause.category} />
+                  {tone.caution ? <CautionMark /> : null}
+                </div>
+                <p className="text-sm font-semibold leading-snug text-foreground">
+                  <HighlightedText text={clause.headline} />
+                </p>
+              </Card>
+            </li>
+          );
+        })}
+      </ul>
+    </section>
   );
 }

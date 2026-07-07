@@ -287,6 +287,7 @@ const SHARE_FILL_COPY: FillCopy = {
     title: SHARE_RECIPIENT_COPY.done.title,
     body: SHARE_RECIPIENT_COPY.done.body,
     documentLabel: SHARE_RECIPIENT_COPY.done.documentLabel,
+    summaryHeading: SHARE_RECIPIENT_COPY.done.summaryHeading,
     // A share submission shows one next-step line regardless of other participants.
     nextAllDone: SHARE_RECIPIENT_COPY.done.next,
     nextWaiting: SHARE_RECIPIENT_COPY.done.next,

@@ -140,6 +140,8 @@ export const SIGNER_COPY = {
     body: '작성하신 서명이 안전하게 전달됐어요.',
     /** Calm post-summary: which document was signed. */
     documentLabel: '서명한 문서',
+    /** Heading for the key-clause recap on the completion card (summary present). */
+    summaryHeading: '핵심 요약',
     /** What happens next, by whether the whole document is now complete. */
     nextAllDone: '모든 서명이 끝났어요. 완료된 계약서를 메일로 보내 드릴게요.',
     nextWaiting: '다른 분들의 서명이 끝나면 완료된 계약서를 메일로 보내 드릴게요.',

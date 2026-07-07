@@ -231,6 +231,8 @@ export const SHARE_RECIPIENT_COPY = {
     title: '제출이 완료되었습니다!',
     body: '작성하신 내용이 안전하게 전달됐어요.',
     documentLabel: '제출한 문서',
+    /** Heading for the key-clause recap on the completion card (summary present). */
+    summaryHeading: '핵심 요약',
     next: '보낸 분이 확인할 수 있도록 전달했어요. 이제 창을 닫으셔도 돼요.',
   },
 } as const;
