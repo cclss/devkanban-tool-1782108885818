@@ -78,6 +78,15 @@ const config: Config = {
           foreground: 'var(--color-warning-foreground)',
           subtle: 'var(--color-warning-subtle)',
         },
+        // AI-accent halo (fixed violet; independent of the sender brand hook).
+        // Marks AI-generated/assisted surfaces so they read apart from
+        // human-authored contract content.
+        'ai-accent': {
+          DEFAULT: 'var(--color-ai-accent)',
+          strong: 'var(--color-ai-accent-strong)',
+          foreground: 'var(--color-ai-accent-foreground)',
+          subtle: 'var(--color-ai-accent-subtle)',
+        },
         grey: {
           50: 'var(--grey-50)',
           100: 'var(--grey-100)',

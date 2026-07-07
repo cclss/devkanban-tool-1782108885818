@@ -1,0 +1,162 @@
+'use client';
+
+/**
+ * ClauseSummarySection — the "핵심을 먼저, 원문은 필요할 때" reading surface that
+ * sits *above* the original document viewer on the sign/share entry screens.
+ *
+ * It assembles three pieces (see design-spec/components/clause-summary-section):
+ *   1. a one-liner banner (the whole contract in one sentence + the AI mark),
+ *   2. a stack of clause cards (the 3–5 key clauses, most-important first), and
+ *   3. an AI disclaimer at the bottom (the boundary into the original).
+ *
+ * The AI framing lives in the section chrome (banner + disclaimer) — the clause
+ * cards themselves stay content-toned (neutral / warning), so the AI mark is not
+ * repeated on every card (avoids visual noise and a caution↔AI tone clash).
+ *
+ * Fallback: this component is only mounted when a summary exists. `DocumentViewer`
+ * renders it solely when `useFill().clauseSummary` is non-null; a `null` summary
+ * means the section never appears and the plain original viewer shows on its own
+ * (design-spec/vocabulary/clause-summary.md — graceful degradation). It never
+ * fabricates an empty state.
+ *
+ * Both flows (OTP `/sign/[token]`, link-share `/share/[token]`) reuse this one
+ * section verbatim through the `useFill` adapter.
+ */
+
+import * as React from 'react';
+import type { ClauseSummary, ClauseSummaryClause } from '@repo/db';
+import { Card, cn } from '@repo/ui';
+import { CLAUSE_CARD_COPY } from '@/lib/clause-card-copy';
+import { splitKeyNumbers, clauseTone } from '@/lib/clause-summary';
+
+export interface ClauseSummarySectionProps {
+  /** The AI key-clause summary to render (callers pass this only when non-null). */
+  summary: ClauseSummary;
+}
+
+/** The summary-first section: one-liner banner → clause cards → disclaimer. */
+export function ClauseSummarySection({ summary }: ClauseSummarySectionProps) {
+  return (
+    <section aria-label="핵심 조항 요약" className="mt-lg flex flex-col gap-md">
+      <OneLinerBanner oneLiner={summary.oneLiner} />
+
+      <ul className="flex flex-col gap-sm">
+        {summary.clauses.map((clause, index) => (
+          <li key={index}>
+            <ClauseCard clause={clause} />
+          </li>
+        ))}
+      </ul>
+
+      {/* The disclaimer is UI chrome (not summary data): calm, bottom-placed at
+          the boundary into the original document. */}
+      <p className="px-2xs text-xs leading-relaxed text-foreground-subtle">
+        {CLAUSE_CARD_COPY.disclaimer}
+      </p>
+    </section>
+  );
+}
+
+/**
+ * The '한 줄 요지' banner — the whole contract in one line, and the one place the
+ * AI framing is signaled for the section (ai-accent subtle tint + sparkle + label).
+ */
+function OneLinerBanner({ oneLiner }: { oneLiner: string }) {
+  return (
+    <div className="flex w-full items-start gap-xs rounded-md bg-ai-accent-subtle px-md py-sm">
+      <SparkleIcon />
+      <div className="min-w-0">
+        <p className="text-2xs font-bold uppercase tracking-wide text-ai-accent-strong">
+          {CLAUSE_CARD_COPY.aiMarkLabel}
+        </p>
+        <p className="mt-2xs text-md font-semibold leading-snug text-foreground">{oneLiner}</p>
+      </div>
+    </div>
+  );
+}
+
+/** One key clause rendered signer-height: category pill, headline, detail. */
+function ClauseCard({ clause }: { clause: ClauseSummaryClause }) {
+  const tone = clauseTone(clause.emphasis);
+  return (
+    <Card className={cn('flex flex-col gap-xs p-lg', tone.surfaceClassName, tone.borderClassName)}>
+      <div className="flex flex-wrap items-center gap-2xs">
+        <span className="inline-flex items-center rounded-full bg-surface-muted px-xs py-2xs text-2xs font-semibold text-foreground-subtle">
+          {clause.category}
+        </span>
+        {tone.caution ? <CautionMark /> : null}
+      </div>
+
+      <h3 className="text-md font-semibold leading-snug text-foreground">
+        <HighlightedText text={clause.headline} />
+      </h3>
+      <p className="text-sm leading-relaxed text-foreground-muted">
+        <HighlightedText text={clause.detail} />
+      </p>
+    </Card>
+  );
+}
+
+/**
+ * Render a sentence with its key numbers in bold, keeping the sentence flowing.
+ * Emphasis is weight-only — the text stays `foreground`, no hue (avoids
+ * color-alone signaling and tinted-background AA issues).
+ */
+function HighlightedText({ text }: { text: string }) {
+  const segments = splitKeyNumbers(text);
+  return (
+    <>
+      {segments.map((segment, index) =>
+        segment.highlight ? (
+          <strong key={index} className="font-bold text-foreground">
+            {segment.text}
+          </strong>
+        ) : (
+          <React.Fragment key={index}>{segment.text}</React.Fragment>
+        ),
+      )}
+    </>
+  );
+}
+
+/**
+ * The caution signal on a `caution` clause: a shape-different warning icon (hue
+ * carried here, not on the text) + the "주의" label, so the signal never rides on
+ * color alone (mirrors UrgencyBadge's icon-carries-the-hue rule).
+ */
+function CautionMark() {
+  return (
+    <span className="inline-flex items-center gap-2xs text-2xs font-semibold text-foreground-muted">
+      <svg
+        className="h-3 w-3 text-warning"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+      >
+        <path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0Z" />
+        <line x1="12" y1="9" x2="12" y2="13" />
+        <line x1="12" y1="17" x2="12.01" y2="17" />
+      </svg>
+      {CLAUSE_CARD_COPY.cautionLabel}
+    </span>
+  );
+}
+
+/** Sparkle glyph marking the summary as AI-assisted (decorative; `aria-hidden`). */
+function SparkleIcon() {
+  return (
+    <svg
+      className="mt-2xs h-4 w-4 shrink-0 text-ai-accent-strong"
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M12 2l1.9 5.6L19.5 9.5 13.9 11.4 12 17l-1.9-5.6L4.5 9.5l5.6-1.9L12 2z" />
+      <path d="M19 14l.8 2.4 2.4.8-2.4.8-.8 2.4-.8-2.4-2.4-.8 2.4-.8L19 14z" opacity="0.7" />
+    </svg>
+  );
+}

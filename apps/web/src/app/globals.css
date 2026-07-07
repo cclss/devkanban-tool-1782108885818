@@ -70,6 +70,17 @@
     --color-warning-foreground: #ffffff;
     --color-warning-subtle: #fff4e6;
 
+    /* — AI accent — a fixed violet halo marking AI-generated/assisted surfaces
+       (key-clause summary, AI-suggested fields). It does NOT follow the sender
+       brand hook (`--brand-*`): it points at *our* product's AI, so it stays put
+       across a brand re-skin. Never color-alone — always paired with a sparkle
+       glyph / label. AA: white on `ai-accent` ≈ 5.7:1; `ai-accent-strong` on
+       `ai-accent-subtle` ≈ 6.3:1. */
+    --color-ai-accent: #7c3aed;
+    --color-ai-accent-strong: #6d28d9;
+    --color-ai-accent-foreground: #ffffff;
+    --color-ai-accent-subtle: #f3efff;
+
     /* — Interaction — */
     --color-ring: var(--brand-primary);
     --color-overlay: rgba(13, 16, 21, 0.55);

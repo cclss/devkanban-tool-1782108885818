@@ -34,6 +34,7 @@ import {
 import { normToPx, type PageSize } from '@/lib/field-geometry';
 import { useFill, type FillField, type FillFieldValue } from './fill-context';
 import { BrandingHeader } from './branding-header';
+import { ClauseSummarySection } from './clause-summary-section';
 import { SignatureInputSheet } from './signature-sheet';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
@@ -66,6 +67,7 @@ export function DocumentViewer() {
     brandColor,
     documentTitle,
     payload,
+    clauseSummary,
     fieldValues,
     pdfUrl,
     loadSession,
@@ -211,6 +213,11 @@ export function DocumentViewer() {
         </h1>
         <p className="mt-2xs text-sm text-foreground-subtle">{progress}</p>
       </div>
+
+      {/* Summary-first: the AI key-clause summary sits above the original pages.
+          Rendered only when a summary exists; a `null` summary falls back to the
+          plain original viewer (design-spec/components/clause-summary-section). */}
+      {clauseSummary ? <ClauseSummarySection summary={clauseSummary} /> : null}
 
       <div
         ref={pagesRef}
