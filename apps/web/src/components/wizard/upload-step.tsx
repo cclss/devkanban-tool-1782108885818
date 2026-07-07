@@ -1,37 +1,54 @@
 'use client';
 
 /**
- * Wizard step 1 — upload the contract PDF.
+ * Wizard step 1 — upload the contract document (PDF or DOCX).
  *
- * Drag-and-drop or file-pick a PDF, with client-side guards (type / size /
- * empty) that mirror the server's Korean copy (apps/api/src/common/messages.ts)
- * so the user gets the same wording instantly, before any round-trip. On a valid
- * pick the file uploads with a live progress bar; the resulting DRAFT document +
- * the local File land in wizard state, and the first page renders as a preview.
+ * Drag-and-drop or file-pick a PDF or DOCX, with client-side guards (type /
+ * size / empty) that mirror the server's Korean copy
+ * (apps/api/src/common/messages.ts) so the user gets the same wording instantly,
+ * before any round-trip. On a valid pick the file uploads with a live progress
+ * bar; the resulting DRAFT document lands in wizard state and its first page
+ * renders as a preview.
+ *
+ * The canonical PDF is always what preview + field placement run on. A native
+ * PDF upload renders straight from the local File. A DOCX is converted to PDF
+ * server-side (the converted PDF is the source of truth), and its local File
+ * can't be rendered by pdf.js — so we pull the converted PDF back from the draft
+ * (GET /documents/:id/file) and put *that* in wizard state.
  */
 
 import * as React from 'react';
 import { Button, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { getToken } from '@/lib/auth';
+import { fetchDocumentPdf } from '@/lib/documents';
 import { uploadPdf, type UploadProgress } from '@/lib/upload';
 import { useWizard } from './wizard-context';
 import { PdfPreview } from './pdf-preview';
 
 const MAX_BYTES = 20 * 1024 * 1024;
 
+/** MIME type browsers report for a `.docx` (OOXML WordprocessingML) file. */
+const DOCX_MIME =
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
 /** Client-side guard copy — kept in lockstep with the server messages. */
 const GUARD = {
-  invalidType: 'PDF 파일만 업로드할 수 있어요.',
-  tooLarge: '파일이 너무 커요. 20MB 이하의 PDF로 올려 주세요.',
-  empty: '파일이 비어 있어요. 다른 PDF로 다시 시도해 주세요.',
+  invalidType: 'PDF 또는 DOCX 파일만 업로드할 수 있어요.',
+  tooLarge: '파일이 너무 커요. 20MB 이하로 올려 주세요.',
+  empty: '파일이 비어 있어요. 다른 파일로 다시 시도해 주세요.',
 } as const;
 
-/** Validate a picked file; returns a Korean guard message, or null if OK. */
-function validatePdf(file: File): string | null {
+/** Whether a picked file is a DOCX (by MIME or `.docx` extension). */
+function isDocx(file: File): boolean {
+  return file.type === DOCX_MIME || file.name.toLowerCase().endsWith('.docx');
+}
+
+/** Validate a picked file (PDF or DOCX); returns a Korean guard message, or null if OK. */
+function validateUpload(file: File): string | null {
   const isPdf =
     file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-  if (!isPdf) return GUARD.invalidType;
+  if (!isPdf && !isDocx(file)) return GUARD.invalidType;
   if (file.size === 0) return GUARD.empty;
   if (file.size > MAX_BYTES) return GUARD.tooLarge;
   return null;
@@ -64,7 +81,7 @@ export function UploadStep() {
 
   const startUpload = React.useCallback(
     async (file: File) => {
-      const guard = validatePdf(file);
+      const guard = validateUpload(file);
       if (guard) {
         setError(guard);
         return;
@@ -76,12 +93,21 @@ export function UploadStep() {
       const controller = new AbortController();
       abortRef.current = controller;
       try {
+        // A DOCX is converted to PDF server-side (its Korean conversion-failure
+        // copy surfaces via the ApiError below); a corrupt PDF is rejected here
+        // too. On success we get the DRAFT document back.
         const document = await uploadPdf(file, {
           token: getToken() ?? undefined,
           signal: controller.signal,
           onProgress: setProgress,
         });
-        dispatch({ type: 'SET_DOCUMENT', document, file });
+        // PDF renders from the local File; a DOCX has no locally-renderable PDF,
+        // so fetch the server's converted canonical PDF and render/place fields
+        // on that instead.
+        const renderFile = isDocx(file)
+          ? await fetchDocumentPdf(document.id, `${document.title}.pdf`)
+          : file;
+        dispatch({ type: 'SET_DOCUMENT', document, file: renderFile });
       } catch (err) {
         if (err instanceof DOMException && err.name === 'AbortError') return;
         setError(err instanceof ApiError ? err.message : '문제가 생겼어요. 잠시 후 다시 시도해 주세요.');
@@ -122,9 +148,9 @@ export function UploadStep() {
   return (
     <div className="flex flex-col gap-md">
       <div className="flex flex-col gap-2xs">
-        <h2 className="text-xl font-bold text-foreground">계약 PDF를 올려 주세요</h2>
+        <h2 className="text-xl font-bold text-foreground">계약 PDF·DOCX를 올려 주세요</h2>
         <p className="text-sm text-foreground-subtle">
-          서명을 받을 PDF 문서를 끌어다 놓거나 직접 선택하세요. 최대 20MB까지 올릴 수 있어요.
+          서명을 받을 PDF·DOCX 문서를 끌어다 놓거나 직접 선택하세요. 최대 20MB까지 올릴 수 있어요.
         </p>
       </div>
 
@@ -204,7 +230,7 @@ function DropZone({
       <input
         ref={inputRef}
         type="file"
-        accept="application/pdf,.pdf"
+        accept="application/pdf,.pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.docx"
         className="sr-only"
         onChange={onChange}
       />
@@ -218,7 +244,7 @@ function DropZone({
       </span>
       <div className="flex flex-col gap-2xs">
         <span className="text-base font-bold text-foreground">
-          {dragActive ? '여기에 놓으면 업로드돼요' : 'PDF를 끌어다 놓으세요'}
+          {dragActive ? '여기에 놓으면 업로드돼요' : 'PDF·DOCX를 끌어다 놓으세요'}
         </span>
         <span className="text-sm text-foreground-subtle">또는 클릭해서 파일을 선택하세요</span>
       </div>

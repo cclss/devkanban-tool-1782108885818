@@ -129,6 +129,21 @@ export async function downloadOwnerArtifact(
   saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
 }
 
+/**
+ * Fetch a DRAFT document's canonical PDF bytes as a File so the wizard can
+ * preview it and place fields on it. The canonical is the native PDF upload or
+ * the DOCX→PDF conversion result (the source of truth) served by
+ * `GET /documents/:id/file`. Used for DOCX uploads, whose local `.docx` File
+ * can't be rendered by pdf.js. Rejects with the server's Toss-tone copy on
+ * failure (via {@link apiDownload}).
+ */
+export async function fetchDocumentPdf(documentId: string, filename: string): Promise<File> {
+  const { blob } = await apiDownload(`/documents/${encodeURIComponent(documentId)}/file`, {
+    token: getToken() ?? undefined,
+  });
+  return new File([blob], filename, { type: 'application/pdf' });
+}
+
 // --- optimistic "just sent" hand-off ---------------------------------------
 
 const SENT_SIGNAL_KEY = 'esign.sentContract';
