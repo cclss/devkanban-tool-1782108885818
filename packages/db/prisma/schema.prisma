@@ -55,6 +55,12 @@ model Document {
   signedStorageKey      String?   @map("signed_storage_key")
   certificateStorageKey String?   @map("certificate_storage_key")
   completedAt           DateTime? @map("completed_at")
+  // AI-generated "key clause" summary shown on the signer/share reading screen.
+  // Null when no summary exists yet or generation failed (graceful fallback to
+  // the plain original-document viewer). Shape follows the `ClauseSummary` TS
+  // type exported from `@repo/db`: { oneLiner, clauses[]{ headline, detail,
+  // category, emphasis: 'normal' | 'caution', sourcePage? } }.
+  clauseSummary         Json?     @map("clause_summary")
   createdAt DateTime       @default(now()) @map("created_at")
   updatedAt DateTime       @updatedAt @map("updated_at")
 
