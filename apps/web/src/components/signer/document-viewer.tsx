@@ -55,7 +55,7 @@ function fieldDomId(id: string): string {
 /**
  * Stable per-page anchor id in its own namespace (never collides with
  * {@link fieldDomId}), so `expandAndScrollToPage` and a clause card's
- * "원문에서 보기" (a later grain) can jump to a specific original page.
+ * "원문에서 보기" can jump to a specific original page.
  */
 function pageAnchorId(pageNumber: number): string {
   return `pdf-page-${pageNumber}`;
@@ -199,10 +199,10 @@ export function DocumentViewer() {
   }, []);
 
   /**
-   * Imperative handle exposed to the clause summary section (a later grain wires
-   * the card's "원문에서 보기" link to it): open the collapsed original and scroll
-   * to a source page. The scroll is deferred via `pendingScroll` until the pages
-   * have mounted/measured after the expand.
+   * Imperative handle exposed to the clause summary section (a clause card's
+   * "원문에서 보기" link calls it): open the collapsed original and scroll to a
+   * source page. The scroll is deferred via `pendingScroll` until the pages have
+   * mounted/measured after the expand.
    */
   const expandAndScrollToPage = React.useCallback((page: number) => {
     setOriginalExpanded(true);
@@ -296,9 +296,14 @@ export function DocumentViewer() {
           Rendered only when a summary exists; a `null` summary falls back to the
           plain original viewer (design-spec/components/clause-summary-section).
           `onViewSource` exposes the imperative expand-and-scroll handle for the
-          clause card "원문에서 보기" link (wired in a later grain). */}
+          clause card "원문에서 보기" link; `pageCount` gates that link to a real page
+          (out-of-range/unknown → the card renders no anchor). */}
       {clauseSummary ? (
-        <ClauseSummarySection summary={clauseSummary} onViewSource={expandAndScrollToPage} />
+        <ClauseSummarySection
+          summary={clauseSummary}
+          onViewSource={expandAndScrollToPage}
+          pageCount={pageCount}
+        />
       ) : null}
 
       {/* The collapsible "원문" toggle sits at the summary→original boundary

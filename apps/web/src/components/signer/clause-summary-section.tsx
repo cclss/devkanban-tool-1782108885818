@@ -34,14 +34,25 @@ export interface ClauseSummarySectionProps {
   summary: ClauseSummary;
   /**
    * Opens the collapsed original and scrolls to a clause's `sourcePage`. Passed
-   * down by `DocumentViewer`; the clause card "원문에서 보기" affordance that calls
-   * it is wired in a later grain, so this prop is accepted but not yet consumed.
+   * down by `DocumentViewer`; a clause card's "원문에서 보기" anchor calls it. When
+   * omitted (or a clause has no in-range `sourcePage`) the anchor is not rendered.
    */
   onViewSource?: (page: number) => void;
+  /**
+   * Page count of the loaded original. Used to gate the "원문에서 보기" anchor to a
+   * real page: a clause's `sourcePage` must be within `[1, pageCount]` or the
+   * anchor is not rendered (a link to a non-existent page would be a dead jump).
+   * `0` while the PDF is still loading, so anchors appear once the range is known.
+   */
+  pageCount?: number;
 }
 
 /** The summary-first section: one-liner banner → clause cards → disclaimer. */
-export function ClauseSummarySection({ summary }: ClauseSummarySectionProps) {
+export function ClauseSummarySection({
+  summary,
+  onViewSource,
+  pageCount = 0,
+}: ClauseSummarySectionProps) {
   return (
     <section aria-label="핵심 조항 요약" className="mt-lg flex flex-col gap-md">
       <OneLinerBanner oneLiner={summary.oneLiner} />
@@ -49,7 +60,7 @@ export function ClauseSummarySection({ summary }: ClauseSummarySectionProps) {
       <ul className="flex flex-col gap-sm">
         {summary.clauses.map((clause, index) => (
           <li key={index}>
-            <ClauseCard clause={clause} />
+            <ClauseCard clause={clause} pageCount={pageCount} onViewSource={onViewSource} />
           </li>
         ))}
       </ul>
@@ -82,8 +93,27 @@ function OneLinerBanner({ oneLiner }: { oneLiner: string }) {
 }
 
 /** One key clause rendered signer-height: category pill, headline, detail. */
-function ClauseCard({ clause }: { clause: ClauseSummaryClause }) {
+function ClauseCard({
+  clause,
+  pageCount,
+  onViewSource,
+}: {
+  clause: ClauseSummaryClause;
+  pageCount: number;
+  onViewSource?: (page: number) => void;
+}) {
   const tone = clauseTone(clause.emphasis);
+  // Only offer "원문에서 보기" for a clause that points at a real page: require the
+  // handle to be wired and `sourcePage` to fall within the loaded original's range
+  // ([1, pageCount]). Missing or out-of-range → no anchor (never a dead jump).
+  const { sourcePage } = clause;
+  const canViewSource =
+    onViewSource != null &&
+    sourcePage != null &&
+    Number.isInteger(sourcePage) &&
+    sourcePage >= 1 &&
+    sourcePage <= pageCount;
+
   return (
     <Card className={cn('flex flex-col gap-xs p-lg', tone.surfaceClassName, tone.borderClassName)}>
       <div className="flex flex-wrap items-center gap-2xs">
@@ -99,7 +129,57 @@ function ClauseCard({ clause }: { clause: ClauseSummaryClause }) {
       <p className="text-sm leading-relaxed text-foreground-muted">
         <HighlightedText text={clause.detail} />
       </p>
+
+      {onViewSource && canViewSource ? (
+        <SourceAnchor page={sourcePage} onClick={() => onViewSource(sourcePage)} />
+      ) : null}
     </Card>
+  );
+}
+
+/**
+ * The "원문에서 보기" anchor: a quiet, actionable link at the bottom of a clause card
+ * that opens the collapsed original and scrolls to the clause's source page. Styled
+ * in the established "actionable = primary" link language (primary + underline), kept
+ * calm inside the card's content tone (self-start, not a loud button). The visible
+ * label carries the action and the underline is a non-color affordance; the accessible
+ * label names the page so the jump's destination is spoken (color is never the sole
+ * signal — clause-card Base "색 단독 아님").
+ */
+function SourceAnchor({ page, onClick }: { page: number; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={CLAUSE_CARD_COPY.viewSourceLabel(page)}
+      className={cn(
+        'mt-2xs inline-flex items-center gap-2xs self-start rounded-sm text-sm font-semibold text-primary',
+        'underline underline-offset-2 transition-colors duration-fast ease-standard hover:text-primary-hover',
+        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
+      )}
+    >
+      {CLAUSE_CARD_COPY.viewSource}
+      <ArrowIcon />
+    </button>
+  );
+}
+
+/** Small forward arrow marking the jump into the original (decorative; `aria-hidden`). */
+function ArrowIcon() {
+  return (
+    <svg
+      className="h-3.5 w-3.5 shrink-0"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <line x1="5" y1="12" x2="19" y2="12" />
+      <polyline points="12 5 19 12 12 19" />
+    </svg>
   );
 }
 

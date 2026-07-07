@@ -33,6 +33,15 @@ export const CLAUSE_CARD_COPY = {
    */
   cautionLabel: '주의',
   /**
+   * The "view in original" anchor on a clause card (`clause-card` Source anchor),
+   * rendered only when the clause carries an in-range `sourcePage`. The visible
+   * label states the signer's next action; the accessible label appends the page
+   * so a screen reader hears where the jump lands. Action-oriented 해요체 chrome —
+   * clicking opens the collapsed original and scrolls to that page.
+   */
+  viewSource: '원문에서 보기',
+  viewSourceLabel: (page: number): string => `원문 ${page}페이지에서 보기`,
+  /**
    * The full-width toggle at the summary→original boundary (below the clause
    * cards, above the CTA). Collapsed: invites opening the full original and
    * names its page count once known; expanded: folds it back. Action-oriented
