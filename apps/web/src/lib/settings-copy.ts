@@ -37,12 +37,34 @@ export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
 /** The default settings sub-section landed on when entering `/settings`. */
 export const SETTINGS_DEFAULT_ROUTE = '/settings/branding';
 
-/** Intro copy for the 브랜딩 sub-section (the form controls arrive later). */
+/** Intro copy for the 브랜딩 sub-section (heading + one-line description). */
 export const BRANDING_COPY = {
   title: '브랜딩',
   description: '로고, 파비콘, 대표 색상을 설정해 서비스 전반에 우리 브랜드를 입혀요.',
-  /** Placeholder shown while the branding form is being prepared. */
-  placeholder: '브랜딩 설정을 준비하고 있어요. 곧 이곳에서 로고와 색상을 바꿀 수 있어요.',
+} as const;
+
+/**
+ * Copy for the branding form that assembles the two image uploaders (로고 ·
+ * 파비콘) and the 대표 색상 picker with a save/cancel action bar. Field labels
+ * are short nouns; the save affordance stays honest about scope — the values are
+ * held locally and a calm status line tells the user that service-wide reflection
+ * is still on the way (no backend brand-update path exists yet). Tone follows the
+ * project base voice: plain 해요체, calm, {what happened} + {what's next}.
+ */
+export const BRANDING_FORM_COPY = {
+  /** Label for the logo image uploader field. */
+  logoLabel: '로고',
+  /** Label for the favicon image uploader field. */
+  faviconLabel: '파비콘',
+  /** Primary action — commits the current inputs (held locally for now). */
+  save: '저장',
+  /** Secondary action — reverts the fields to the last saved values. */
+  cancel: '취소',
+  /**
+   * Shown after a successful save. Honest about scope: the settings are kept,
+   * and applying them across the service is coming (not yet wired to a backend).
+   */
+  savedNotice: '브랜딩 설정을 저장했어요. 서비스 전반 반영은 곧 제공돼요.',
 } as const;
 
 /**
