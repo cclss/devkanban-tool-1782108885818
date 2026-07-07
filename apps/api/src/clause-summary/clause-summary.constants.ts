@@ -8,6 +8,24 @@ import type { ClauseSummary, ClauseSummaryClause, ClauseEmphasis } from '@repo/d
 export const DEFAULT_CLAUSE_SUMMARY_MODEL = 'claude-opus-4-8';
 
 /**
+ * BullMQ queue name for background clause-summary generation. Mirrors the
+ * completion pipeline's queue/worker convention (`completion.constants.ts`):
+ * when the send flow triggers a summary, a `clause-summary` job is enqueued
+ * and a co-located worker runs `ClauseSummaryService.generate`. When REDIS_URL
+ * is unset the queue degrades to an inline run so sending still works locally.
+ */
+export const CLAUSE_SUMMARY_QUEUE = 'clause-summary';
+
+/** Job name within the clause-summary queue. */
+export const CLAUSE_SUMMARY_JOB = 'generate-clause-summary';
+
+/** Payload carried by a clause-summary generation job. */
+export interface ClauseSummaryJobData {
+  /** The document whose original PDF should be summarized. */
+  documentId: string;
+}
+
+/**
  * Upper bound on how much extracted PDF text we feed the model. Contracts can
  * be long; this caps token cost/latency. Implementation setting — not a design
  * token. When the source exceeds this, the tail is dropped and the model is
