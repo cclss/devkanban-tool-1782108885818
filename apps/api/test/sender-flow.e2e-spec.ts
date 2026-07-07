@@ -124,7 +124,7 @@ describe('Sender flow (e2e)', () => {
         contentType: 'text/plain',
       })
       .expect(400);
-    expect(res.body.message).toBe('PDF 파일만 업로드할 수 있어요.');
+    expect(res.body.message).toBe('PDF 또는 DOCX 파일만 업로드할 수 있어요.');
   });
 
   it('supports the presign → local upload → create path', async () => {

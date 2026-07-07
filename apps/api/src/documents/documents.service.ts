@@ -32,8 +32,15 @@ import {
   type CompletionArtifact,
 } from '../completion/artifact';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
+import { DocumentConversionService } from './document-conversion.service';
 
-const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024; // 20MB
+
+/** MIME type reported by browsers for a `.docx` (OOXML WordprocessingML) file. */
+const DOCX_MIME = 'application/vnd.openxmlformats-officedocument.wordprocessingml.document';
+
+/** Accepted multipart upload formats. The canonical stored bytes are always PDF. */
+type UploadKind = 'pdf' | 'docx';
 
 @Injectable()
 export class DocumentsService {
@@ -45,9 +52,18 @@ export class DocumentsService {
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
+    private readonly conversion: DocumentConversionService,
   ) {}
 
-  /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
+  /**
+   * Multipart upload path: accept a PDF or a DOCX, persist bytes, create a DRAFT.
+   *
+   * A DOCX is converted to PDF up front (grain-1 service) and, from that point
+   * on, the converted PDF is the source of truth: page count, stored bytes, the
+   * DRAFT row, and the audit log all describe the PDF, so every downstream step
+   * (fields → send → completion) sees the exact same contract as a native PDF
+   * upload. The original DOCX is not retained.
+   */
   async uploadAndCreate(
     ownerId: string,
     file: { originalname: string; mimetype: string; buffer: Buffer; size: number },
@@ -56,16 +72,24 @@ export class DocumentsService {
     if (!file || !file.buffer || file.size === 0) {
       throw new BadRequestException(MESSAGES.document.emptyFile);
     }
-    if (file.size > MAX_PDF_BYTES) {
+    if (file.size > MAX_UPLOAD_BYTES) {
       throw new BadRequestException(MESSAGES.document.fileTooLarge);
     }
-    if (!this.looksLikePdf(file)) {
+    const kind = this.detectUploadKind(file);
+    if (!kind) {
       throw new BadRequestException(MESSAGES.document.invalidFileType);
     }
 
-    const pageCount = await this.countPdfPages(file.buffer);
-    const storageKey = this.storage.buildKey(ownerId, file.originalname);
-    await this.storage.save(storageKey, file.buffer);
+    // Normalize to PDF bytes + a `.pdf` filename before the shared PDF pipeline.
+    // A corrupt/unsupported DOCX throws grain-1's `document.conversionFailed`.
+    const pdfBuffer =
+      kind === 'docx' ? await this.conversion.docxToPdf(file.buffer) : file.buffer;
+    const storageName =
+      kind === 'docx' ? toPdfFilename(file.originalname) : file.originalname;
+
+    const pageCount = await this.countPdfPages(pdfBuffer);
+    const storageKey = this.storage.buildKey(ownerId, storageName);
+    await this.storage.save(storageKey, pdfBuffer);
 
     const title = this.deriveTitle(file.originalname);
     const document = await this.prisma.document.create({
@@ -391,10 +415,34 @@ export class DocumentsService {
     });
   }
 
+  /**
+   * Classify a multipart upload as a PDF or a DOCX, or `null` if it is neither.
+   * Both checks pair a declared type (MIME or extension) with a content magic
+   * signature so a mislabeled or truncated file can't slip through.
+   */
+  private detectUploadKind(file: {
+    mimetype: string;
+    originalname: string;
+    buffer: Buffer;
+  }): UploadKind | null {
+    if (this.looksLikePdf(file)) return 'pdf';
+    if (this.looksLikeDocx(file)) return 'docx';
+    return null;
+  }
+
   private looksLikePdf(file: { mimetype: string; originalname: string; buffer: Buffer }): boolean {
     const byMime = file.mimetype === 'application/pdf';
     const byExt = file.originalname.toLowerCase().endsWith('.pdf');
     const byMagic = file.buffer.subarray(0, 5).toString('latin1') === '%PDF-';
+    return (byMime || byExt) && byMagic;
+  }
+
+  private looksLikeDocx(file: { mimetype: string; originalname: string; buffer: Buffer }): boolean {
+    const byMime = file.mimetype === DOCX_MIME;
+    const byExt = file.originalname.toLowerCase().endsWith('.docx');
+    // A .docx is a ZIP container, so its bytes begin with the `PK` local-file
+    // signature. (Grain-1's converter does the real structural validation.)
+    const byMagic = file.buffer.subarray(0, 2).toString('latin1') === 'PK';
     return (byMime || byExt) && byMagic;
   }
 
@@ -410,7 +458,8 @@ export class DocumentsService {
   }
 
   private deriveTitle(originalName: string): string {
-    const base = originalName.replace(/\.pdf$/i, '').trim();
+    // Strip the uploaded extension (PDF or the pre-conversion DOCX) for the title.
+    const base = originalName.replace(/\.(pdf|docx)$/i, '').trim();
     return base.length > 0 ? base.slice(0, 200) : '제목 없는 계약';
   }
 
@@ -451,6 +500,15 @@ export class DocumentsService {
       pendingSignerCount,
     };
   }
+}
+
+/**
+ * Derive the `.pdf` storage filename for a converted DOCX upload so the stored
+ * key matches its actual (PDF) contents. Drops a trailing `.docx` if present,
+ * otherwise just appends `.pdf`.
+ */
+function toPdfFilename(originalName: string): string {
+  return `${originalName.replace(/\.docx$/i, '')}.pdf`;
 }
 
 export interface DocumentSummary {

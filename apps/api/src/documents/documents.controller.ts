@@ -32,7 +32,7 @@ import {
   SendContractDto,
 } from './dto/documents.dto';
 
-const MAX_PDF_BYTES = 20 * 1024 * 1024;
+const MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 @Controller('documents')
 @UseGuards(JwtAuthGuard)
@@ -42,10 +42,14 @@ export class DocumentsController {
     private readonly storage: StorageService,
   ) {}
 
-  /** Primary upload path: multipart PDF → DRAFT document. */
+  /**
+   * Primary upload path: multipart PDF or DOCX → DRAFT document.
+   * A DOCX is converted to PDF server-side; the converted PDF is the source of
+   * truth. Format detection + conversion live in `uploadAndCreate`.
+   */
   @Post('upload')
   @UseInterceptors(
-    FileInterceptor('file', { limits: { fileSize: MAX_PDF_BYTES } }),
+    FileInterceptor('file', { limits: { fileSize: MAX_UPLOAD_BYTES } }),
   )
   upload(
     @CurrentUser() user: AuthUser,
@@ -74,7 +78,7 @@ export class DocumentsController {
     @Req() req: Request,
   ) {
     if (!key) throw new BadRequestException(MESSAGES.document.emptyFile);
-    const buffer = await collectRawBody(req, MAX_PDF_BYTES);
+    const buffer = await collectRawBody(req, MAX_UPLOAD_BYTES);
     if (buffer.length === 0) throw new BadRequestException(MESSAGES.document.emptyFile);
     await this.storage.save(key, buffer);
     return { storageKey: key, size: buffer.length };
