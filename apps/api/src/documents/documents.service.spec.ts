@@ -12,6 +12,14 @@ import { DocumentsService } from './documents.service';
  * decode path a browser upload would hit. The assertions pin the user-facing
  * title output rules recorded in `design-spec/vocabulary/document-title.md`:
  * non-ASCII originals are preserved, and plain ASCII names are untouched.
+ *
+ * The four cases below map 1:1 onto that spec's 결정 1 판정표 (conditional
+ * re-decode), so every branch of the normalization — including the two that
+ * must be left ALONE to avoid double-encoding — is pinned against regression:
+ *   1. mojibake, valid UTF-8 round-trip  → re-decoded  (Korean, emoji)
+ *   2. pure ASCII                        → untouched   (standard_contract)
+ *   3. already real Unicode (cp > 0xFF)  → untouched   (no double-encode)
+ *   4. genuine latin1 (high byte, not valid UTF-8) → untouched (café)
  */
 
 /** Reproduce how Multer surfaces a UTF-8 file name: its bytes read as latin1. */
@@ -126,5 +134,37 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
 
     expect(result.title).toBe('standard_contract');
     expect(storage.buildKey).toHaveBeenCalledWith('owner-1', 'standard_contract.pdf');
+  });
+
+  it('does NOT double-encode an already-correct Unicode filename → title "계약서"', async () => {
+    // Some clients deliver the name already decoded as real UTF-8 (code points
+    // > 0xFF). Re-encoding that would corrupt it, so normalization must leave it
+    // untouched. Passing the clean name directly (no `simulateMulterName`)
+    // models that path.
+    const name = '계약서.pdf';
+    // Guard the premise: this holds real Unicode, not latin1 mojibake.
+    expect(name.codePointAt(0)).toBeGreaterThan(0xff);
+
+    const result = await service.uploadAndCreate('owner-1', fileWith(name));
+
+    expect(result.title).toBe('계약서');
+    expect(storage.buildKey).toHaveBeenCalledWith('owner-1', '계약서.pdf');
+    expect(prisma.document.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ title: '계약서' }) }),
+    );
+  });
+
+  it('preserves a genuine latin1 filename whose bytes are not valid UTF-8 → title "café"', async () => {
+    // `é` here is a single latin1 code point (U+00E9), i.e. what a real latin1
+    // name looks like after Multer's decode. Its byte (0xE9) is not a valid
+    // standalone UTF-8 sequence, so the round-trip check fails and the original
+    // name is kept — re-decoding only happens when it provably restores mojibake.
+    const name = 'café.pdf';
+    expect(name.charCodeAt(3)).toBe(0xe9); // premise: high byte, ≤ 0xFF
+
+    const result = await service.uploadAndCreate('owner-1', fileWith(name));
+
+    expect(result.title).toBe('café');
+    expect(storage.buildKey).toHaveBeenCalledWith('owner-1', 'café.pdf');
   });
 });
