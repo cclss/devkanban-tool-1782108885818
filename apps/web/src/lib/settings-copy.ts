@@ -60,25 +60,31 @@ export const BRANDING_COPY = {
 /**
  * Copy for the branding form that assembles the two image uploaders (로고 ·
  * 파비콘) and the 대표 색상 picker with a save/cancel action bar. Field labels
- * are short nouns; the save affordance stays honest about scope — the values are
- * held locally and a calm status line tells the user that service-wide reflection
- * is still on the way (no backend brand-update path exists yet). Tone follows the
- * project base voice: plain 해요체, calm, {what happened} + {what's next}.
+ * are short nouns. Saving now really persists and reflects service-wide, so the
+ * status line is honest about that: it confirms the change already took effect
+ * for everyone (no more "coming soon" framing). The "already set" hints tell the
+ * admin a stored logo/favicon exists and that a new upload replaces it. Tone
+ * follows the project base voice: plain 해요체, calm, {what happened} +
+ * {what's next / result}.
  */
 export const BRANDING_FORM_COPY = {
   /** Label for the logo image uploader field. */
   logoLabel: '로고',
   /** Label for the favicon image uploader field. */
   faviconLabel: '파비콘',
-  /** Primary action — commits the current inputs (held locally for now). */
+  /** Hint shown on the logo uploader when a logo is already stored. */
+  logoSetHint: '지금 설정된 로고가 있어요. 새 SVG 또는 PNG(최대 1MB)를 올리면 바뀌어요.',
+  /** Hint shown on the favicon uploader when a favicon is already stored. */
+  faviconSetHint: '지금 설정된 파비콘이 있어요. 새 SVG 또는 PNG(최대 1MB)를 올리면 바뀌어요.',
+  /** Primary action — persists the current inputs and reflects them service-wide. */
   save: '저장',
   /** Secondary action — reverts the fields to the last saved values. */
   cancel: '취소',
   /**
-   * Shown after a successful save. Honest about scope: the settings are kept,
-   * and applying them across the service is coming (not yet wired to a backend).
+   * Shown after a successful save. Honest: the settings are saved and already in
+   * force across the service (header logo · browser-tab favicon · brand color).
    */
-  savedNotice: '브랜딩 설정을 저장했어요. 서비스 전반 반영은 곧 제공돼요.',
+  savedNotice: '브랜딩 설정을 저장했어요. 서비스 전반에 바로 반영했어요.',
 } as const;
 
 /**

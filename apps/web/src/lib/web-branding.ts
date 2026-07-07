@@ -12,7 +12,7 @@
  * refresh) and {@link fetchBrandingServer} for SSR (no-flash initial paint).
  */
 
-import { API_ORIGIN, apiFetch } from './api';
+import { API_ORIGIN, ApiError, GENERIC_ERROR, apiFetch } from './api';
 
 /** Public branding payload — mirrors the API's `BrandingResponse`. */
 export interface Branding {
@@ -71,4 +71,58 @@ export async function fetchBrandingServer(): Promise<Branding> {
   } catch {
     return EMPTY_BRANDING;
   }
+}
+
+/** Which branding asset an upload targets — matches the API's serving kinds. */
+export type BrandingAssetKind = 'logo' | 'favicon';
+
+/** Pull a single human message out of a Nest error body (string | string[]). */
+function messageFromBody(body: unknown): string | null {
+  if (!body || typeof body !== 'object') return null;
+  const message = (body as { message?: unknown }).message;
+  if (typeof message === 'string' && message.trim()) return message;
+  if (Array.isArray(message) && typeof message[0] === 'string') return message[0];
+  return null;
+}
+
+/**
+ * Upload a branding asset (logo/favicon) as multipart to `POST /branding/{kind}`
+ * (field name `file`; the file is re-validated server-side — SVG/PNG, ≤1MB).
+ * `apiFetch` only speaks JSON, so — like `lib/upload.ts` — this uses `fetch`
+ * directly to send `FormData` while keeping the same error contract: the
+ * server's Toss-tone copy surfaces verbatim as an {@link ApiError}, with the
+ * neutral generic line as the transport-failure fallback.
+ */
+export async function uploadBrandingAsset(
+  kind: BrandingAssetKind,
+  file: File,
+  token?: string,
+): Promise<void> {
+  const form = new FormData();
+  form.append('file', file);
+
+  let res: Response;
+  try {
+    res = await fetch(`${API_ORIGIN}/api/branding/${kind}`, {
+      method: 'POST',
+      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+      body: form,
+    });
+  } catch {
+    throw new ApiError(GENERIC_ERROR, 0);
+  }
+
+  if (!res.ok) {
+    const body = await res.json().catch(() => null);
+    throw new ApiError(messageFromBody(body) ?? GENERIC_ERROR, res.status);
+  }
+}
+
+/**
+ * Persist the primary brand color via `PATCH /branding` (hex re-validated
+ * server-side). Reuses {@link apiFetch} (JSON + bearer), so a rejected color
+ * surfaces the server's copy as an {@link ApiError}.
+ */
+export async function updateBrandColor(brandColor: string, token?: string): Promise<void> {
+  await apiFetch<unknown>('/branding', { method: 'PATCH', json: { brandColor }, token });
 }
