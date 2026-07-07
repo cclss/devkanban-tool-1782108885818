@@ -12,6 +12,7 @@ import { SharingModule } from './sharing/sharing.module';
 import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
 import { BrandingModule } from './branding/branding.module';
+import { ClauseSummaryModule } from './clause-summary/clause-summary.module';
 
 @Module({
   imports: [
@@ -27,6 +28,7 @@ import { BrandingModule } from './branding/branding.module';
     PdfModule,
     CompletionModule,
     BrandingModule,
+    ClauseSummaryModule,
     HealthModule,
   ],
 })
