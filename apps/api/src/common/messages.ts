@@ -39,6 +39,24 @@ export const MESSAGES = {
   field: {
     outOfRange: '서명 필드 위치가 올바르지 않아요. 문서 안에 배치해 주세요.',
   },
+  // 서비스 전역 브랜딩(로고·파비콘·대표 색상) 관리 카피.
+  // 형식·크기 위반 문구는 클라이언트 가드(`apps/web/src/lib/image-validation.ts`의
+  // `IMAGE_VALIDATION_COPY`)와 **글자까지 동일**하게 맞춰, 웹·API 어느 경로로 걸리든
+  // 사용자가 같은 안내를 본다(비난 없이 무슨 일 + 다음 행동).
+  branding: {
+    // 허용 형식(SVG/PNG) 위반 — mimetype·확장자·매직바이트 재검증 실패.
+    invalidType: 'SVG 또는 PNG 파일만 올릴 수 있어요. 다른 파일로 다시 시도해 주세요.',
+    // 빈(0바이트) 파일.
+    emptyFile: '파일이 비어 있어요. 다른 파일로 다시 시도해 주세요.',
+    // 1MB 초과.
+    fileTooLarge: '파일이 너무 커요. 1MB 이하의 SVG 또는 PNG 파일로 올려 주세요.',
+    // 업로드 자체가 실패(형식·크기 외 예기치 못한 업로드 오류) — 내부 사정 비노출.
+    uploadFailed: '이미지를 올리지 못했어요. 다른 파일로 다시 시도해 주세요.',
+    // 대표 색상 HEX 형식 위반 — 컬러 피커 가드(`BRAND_COLOR_COPY`)와 동일 톤.
+    invalidColor: '색상 코드를 확인해 주세요. #163AF2처럼 3자리 또는 6자리로 입력해요.',
+    // 아직 설정되지 않은/찾을 수 없는 브랜딩 이미지 서빙 요청.
+    assetNotFound: '요청한 브랜딩 이미지를 찾을 수 없어요.',
+  },
   send: {
     noRecipients: '받는 분을 한 명 이상 추가해 주세요.',
     alreadySent: '이미 발송된 계약이에요.',
