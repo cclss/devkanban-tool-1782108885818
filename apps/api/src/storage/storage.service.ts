@@ -55,8 +55,25 @@ export class StorageService {
     return `documents/${ownerId}/${randomUUID()}-${safe}`;
   }
 
-  /** Persist raw bytes (used by the multipart upload path). */
-  async save(key: string, data: Buffer): Promise<void> {
+  /**
+   * Build a storage key for a service-wide branding asset (logo/favicon).
+   * Branding is global (not per-user), so keys are namespaced by asset kind
+   * rather than owner. A fresh UUID per upload avoids cache/overwrite races
+   * when the admin replaces an asset.
+   */
+  buildBrandingKey(asset: 'logo' | 'favicon', originalName: string): string {
+    const safe = originalName.replace(/[^a-zA-Z0-9._-]/g, '_').slice(-80);
+    return `branding/${asset}/${randomUUID()}-${safe}`;
+  }
+
+  /**
+   * Persist raw bytes (used by the multipart upload path).
+   *
+   * `contentType` defaults to `application/pdf` to preserve the original
+   * document-upload behaviour; branding callers pass the image MIME (e.g.
+   * `image/svg+xml`, `image/png`) so the object is stored/served correctly.
+   */
+  async save(key: string, data: Buffer, contentType = 'application/pdf'): Promise<void> {
     if (this.usesS3) {
       const { S3Client, PutObjectCommand } = await import('@aws-sdk/client-s3');
       const client = new S3Client({ region: this.region });
@@ -65,7 +82,7 @@ export class StorageService {
           Bucket: this.bucket,
           Key: key,
           Body: data,
-          ContentType: 'application/pdf',
+          ContentType: contentType,
         }),
       );
       return;
@@ -114,7 +131,11 @@ export class StorageService {
    * - S3: a presigned PUT URL.
    * - Local: a relative API path the client PUTs to (handled by the controller).
    */
-  async createPresignedUpload(ownerId: string, originalName: string): Promise<PresignedUpload> {
+  async createPresignedUpload(
+    ownerId: string,
+    originalName: string,
+    contentType = 'application/pdf',
+  ): Promise<PresignedUpload> {
     const storageKey = this.buildKey(ownerId, originalName);
 
     if (this.usesS3) {
@@ -126,7 +147,7 @@ export class StorageService {
         new PutObjectCommand({
           Bucket: this.bucket,
           Key: storageKey,
-          ContentType: 'application/pdf',
+          ContentType: contentType,
         }),
         { expiresIn: 60 * 5 },
       );
