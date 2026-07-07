@@ -4,8 +4,9 @@ import { BRANDING_COPY } from '@/lib/settings-copy';
 /**
  * Settings → 브랜딩. Heading + intro, then the branding form that assembles the
  * logo · favicon uploaders and the 대표 색상 picker with a save/cancel action
- * bar. Persistence and service-wide application land with a later feature; the
- * form holds its values locally and says so on save.
+ * bar. The form loads the current branding on mount and, on save, persists the
+ * changes and re-applies them service-wide immediately (header logo · browser-tab
+ * favicon · brand color) for every end user.
  */
 export default function BrandingSettingsPage() {
   return (
