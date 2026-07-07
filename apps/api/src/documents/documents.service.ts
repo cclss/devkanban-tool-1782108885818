@@ -59,15 +59,22 @@ export class DocumentsService {
     if (file.size > MAX_PDF_BYTES) {
       throw new BadRequestException(MESSAGES.document.fileTooLarge);
     }
-    if (!this.looksLikePdf(file)) {
+
+    // Multer decodes multipart field values (incl. the file name) as latin1, so
+    // a UTF-8 name (한글·이모지 등) arrives as mojibake. Normalize it once up
+    // front and feed the corrected name to every downstream step — type check,
+    // storage key, and title — so they all agree on the same value.
+    const originalname = this.normalizeUploadFilename(file.originalname);
+
+    if (!this.looksLikePdf({ ...file, originalname })) {
       throw new BadRequestException(MESSAGES.document.invalidFileType);
     }
 
     const pageCount = await this.countPdfPages(file.buffer);
-    const storageKey = this.storage.buildKey(ownerId, file.originalname);
+    const storageKey = this.storage.buildKey(ownerId, originalname);
     await this.storage.save(storageKey, file.buffer);
 
-    const title = this.deriveTitle(file.originalname);
+    const title = this.deriveTitle(originalname);
     const document = await this.prisma.document.create({
       data: { ownerId, title, storageKey, pageCount },
     });
@@ -407,6 +414,45 @@ export class DocumentsService {
       this.logger.warn(`PDF 페이지 수 계산 실패: ${String(err)}`);
       throw new BadRequestException(MESSAGES.document.corruptPdf);
     }
+  }
+
+  /**
+   * Repair a file name that Multer may have mis-decoded before it is used.
+   *
+   * Multipart field values (the file name included) are decoded as latin1, so a
+   * UTF-8 name — 한글, 이모지, 그 밖의 비ASCII — surfaces as mojibake: every
+   * original UTF-8 byte became one latin1 code point. We re-encode those code
+   * points back to bytes and read them as UTF-8, but ONLY when that is provably
+   * safe, so already-valid names are never double-encoded:
+   *   - pure ASCII names have nothing to fix and are returned untouched;
+   *   - names that already hold real Unicode (code point > 0xFF, e.g. a
+   *     correctly decoded `계약서.pdf`) were decoded fine — re-encoding would
+   *     corrupt them, so they are returned untouched;
+   *   - otherwise the latin1 bytes are re-read as UTF-8 and adopted only if they
+   *     form a valid UTF-8 sequence that round-trips exactly. That rules out
+   *     genuine latin1 names (e.g. a lone accent in `café.pdf`) whose bytes are
+   *     not valid UTF-8, and guarantees we never decode twice.
+   */
+  private normalizeUploadFilename(originalName: string): string {
+    if (!originalName) return originalName;
+
+    let hasHighByte = false;
+    for (let i = 0; i < originalName.length; i++) {
+      const code = originalName.charCodeAt(i);
+      // A code point beyond latin1 means the name is already real Unicode.
+      if (code > 0xff) return originalName;
+      if (code >= 0x80) hasHighByte = true;
+    }
+    // Pure ASCII: no mojibake is possible, so keep it exactly as-is.
+    if (!hasHighByte) return originalName;
+
+    const decoded = Buffer.from(originalName, 'latin1').toString('utf8');
+    // Adopt the re-decoded value only when the latin1 bytes were a valid UTF-8
+    // sequence: re-encoding must reproduce the exact original bytes. Invalid
+    // sequences fail this check and keep the original name unchanged.
+    const roundTrips =
+      Buffer.from(decoded, 'utf8').toString('latin1') === originalName;
+    return roundTrips ? decoded : originalName;
   }
 
   private deriveTitle(originalName: string): string {
