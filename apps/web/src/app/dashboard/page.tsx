@@ -15,6 +15,7 @@ import {
   Skeleton,
 } from '@repo/ui';
 import { ContractCard } from '@/components/contract-card';
+import { DashboardHeader } from '@/components/dashboard-header';
 import {
   DashboardSummary,
   SUMMARY_FILTERS,
@@ -253,24 +254,6 @@ export default function DashboardPage() {
         </section>
       </main>
     </div>
-  );
-}
-
-function DashboardHeader({ user, onLogout }: { user: SessionUser | null; onLogout: () => void }) {
-  return (
-    <header className="sticky top-0 z-30 border-b border-border bg-surface">
-      <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-md py-sm">
-        <span className="text-base font-bold tracking-tight text-primary">전자계약</span>
-        <div className="flex items-center gap-xs">
-          {user?.email ? (
-            <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
-          ) : null}
-          <Button variant="ghost" size="sm" onClick={onLogout}>
-            로그아웃
-          </Button>
-        </div>
-      </div>
-    </header>
   );
 }
 
