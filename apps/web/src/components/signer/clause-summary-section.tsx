@@ -65,10 +65,18 @@ export function ClauseSummarySection({
         ))}
       </ul>
 
-      {/* The disclaimer is UI chrome (not summary data): calm, bottom-placed at
-          the boundary into the original document. */}
-      <p className="px-2xs text-xs leading-relaxed text-foreground-subtle">
-        {CLAUSE_CARD_COPY.disclaimer}
+      {/* The disclaimer is UI chrome (not summary data): a calm, bottom-placed
+          notice at the summary→original boundary. A hairline top rule seals the
+          summary block and sets this as its closing line before the original
+          toggle ("요약은 AI, 원문이 정본"). Reads clearly at that boundary —
+          `foreground-muted` on the page ground clears WCAG AA (≈6.5:1, vs the
+          old `foreground-subtle` ≈4.2:1 which failed), and an info glyph gives a
+          non-color shape signal (the notice never rides on color alone). Kept
+          calm (normal weight, no tint) so it doesn't compete with the ai-accent
+          banner above or the clause cards' own tone. */}
+      <p className="flex items-start gap-2xs border-t border-border px-2xs pt-sm text-sm leading-relaxed text-foreground-muted">
+        <InfoIcon />
+        <span>{CLAUSE_CARD_COPY.disclaimer}</span>
       </p>
     </section>
   );
@@ -229,6 +237,32 @@ function CautionMark() {
       </svg>
       {CLAUSE_CARD_COPY.cautionLabel}
     </span>
+  );
+}
+
+/**
+ * Info glyph on the boundary disclaimer — a shape-based non-color signal that
+ * marks the line as a notice. Kept in the same `foreground-muted` tone as the
+ * text (a shape cue, not a color cue) and `aria-hidden`; the disclaimer text
+ * carries the meaning. Deliberately not the AI sparkle — the AI framing is
+ * signaled once on the banner above and must not repeat here.
+ */
+function InfoIcon() {
+  return (
+    <svg
+      className="mt-0.5 h-4 w-4 shrink-0 text-foreground-muted"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <circle cx="12" cy="12" r="10" />
+      <line x1="12" y1="11" x2="12" y2="16" />
+      <line x1="12" y1="8" x2="12.01" y2="8" />
+    </svg>
   );
 }
 
