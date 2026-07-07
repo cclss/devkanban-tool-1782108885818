@@ -13,6 +13,7 @@ import {
   Prisma,
   SignRequestAccessMode,
   SignRequestStatus,
+  type ClauseSummary,
 } from '@repo/db';
 import { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
@@ -416,7 +417,7 @@ export class SharingService {
       where: { id: signRequestId },
       select: {
         status: true,
-        document: { select: { title: true, pageCount: true, status: true } },
+        document: { select: { title: true, pageCount: true, status: true, clauseSummary: true } },
         signFields: {
           orderBy: [{ page: 'asc' }, { y: 'asc' }],
           select: {
@@ -446,6 +447,7 @@ export class SharingService {
       documentTitle: link.document.title,
       pageCount: link.document.pageCount,
       pdfPath: `/api/share/${accessToken}/pdf`,
+      clauseSummary: toClauseSummary(link.document.clauseSummary),
       fields: link.signFields.map((f) => ({
         id: f.id,
         type: f.type,
@@ -604,6 +606,19 @@ export class SharingService {
   }
 }
 
+// --- pure helpers ----------------------------------------------------------
+
+/**
+ * Map the document's raw `Json?` clause-summary column to the shared
+ * {@link ClauseSummary} shape, treating any nullish value as the "no summary"
+ * fallback (`null`). No runtime schema validation — the summary is produced by
+ * a trusted generation job against the fixed `ClauseSummary` contract, so a
+ * minimal cast is sufficient here.
+ */
+function toClauseSummary(value: Prisma.JsonValue | null): ClauseSummary | null {
+  return value == null ? null : (value as unknown as ClauseSummary);
+}
+
 // --- shapes ----------------------------------------------------------------
 
 /** The subset of a LINK SignRequest row needed to build a {@link ShareLinkView}. */
@@ -672,6 +687,8 @@ export interface SharePayload {
   documentTitle: string;
   pageCount: number;
   pdfPath: string;
+  /** AI key-clause summary for the summary-first screen; `null` = no summary. */
+  clauseSummary: ClauseSummary | null;
   fields: SharePayloadField[];
 }
 

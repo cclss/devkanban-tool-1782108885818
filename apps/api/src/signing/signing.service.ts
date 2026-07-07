@@ -12,6 +12,7 @@ import {
   Prisma,
   SignFieldType,
   SignRequestStatus,
+  type ClauseSummary,
 } from '@repo/db';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
@@ -156,7 +157,9 @@ export class SigningService {
     const signRequest = await this.prisma.signRequest.findUnique({
       where: { id: signRequestId },
       include: {
-        document: { select: { id: true, title: true, pageCount: true, status: true } },
+        document: {
+          select: { id: true, title: true, pageCount: true, status: true, clauseSummary: true },
+        },
         signFields: {
           orderBy: [{ page: 'asc' }, { y: 'asc' }],
           select: {
@@ -186,6 +189,7 @@ export class SigningService {
       documentTitle: signRequest.document.title,
       pageCount: signRequest.document.pageCount,
       pdfPath: `/api/signing/${signRequest.accessToken}/pdf`,
+      clauseSummary: toClauseSummary(signRequest.document.clauseSummary),
       fields: signRequest.signFields.map((f) => ({
         id: f.id,
         type: f.type,
@@ -487,6 +491,17 @@ function normalizeFieldValue(type: SignFieldType, value: string): string {
   return type === SignFieldType.SIGNATURE ? value : value.trim();
 }
 
+/**
+ * Map the document's raw `Json?` clause-summary column to the shared
+ * {@link ClauseSummary} shape, treating any nullish value as the "no summary"
+ * fallback (`null`). No runtime schema validation — the summary is produced by
+ * a trusted generation job against the fixed `ClauseSummary` contract, so a
+ * minimal cast is sufficient here.
+ */
+function toClauseSummary(value: Prisma.JsonValue | null): ClauseSummary | null {
+  return value == null ? null : (value as unknown as ClauseSummary);
+}
+
 // --- response shapes -------------------------------------------------------
 
 export interface SigningMeta {
@@ -524,6 +539,8 @@ export interface SigningPayload {
   documentTitle: string;
   pageCount: number;
   pdfPath: string;
+  /** AI key-clause summary for the summary-first screen; `null` = no summary. */
+  clauseSummary: ClauseSummary | null;
   fields: SigningPayloadField[];
 }
 
