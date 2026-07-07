@@ -16,6 +16,20 @@ export interface SettingsNavItem {
   label: string;
 }
 
+/**
+ * App header brand mark copy. The shared header (`DashboardHeader`) shows the
+ * uploaded branding logo as an image when one is set, otherwise the 전자계약
+ * wordmark. Centralized here — the same module that owns the settings entry
+ * point, which lives in that header — so the service name and the logo's alt
+ * text stay consistent and auditable. Tone follows the project base voice.
+ */
+export const HEADER_BRAND_COPY = {
+  /** Wordmark shown in the header when no branding logo is set. */
+  wordmark: '전자계약',
+  /** Alt text for the branding logo image (a11y: names the service mark). */
+  logoAlt: '전자계약 로고',
+} as const;
+
 /** Label for the header entry point that opens the settings section. */
 export const SETTINGS_ENTRY_LABEL = '설정';
 

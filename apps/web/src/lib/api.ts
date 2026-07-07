@@ -10,7 +10,13 @@
  * Toss-tone Korean line when the network itself fails or the body is unreadable.
  */
 
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+/**
+ * Server origin for the NestJS API. Exported so callers that build an *absolute*
+ * asset URL — e.g. the branding logo/favicon served by `GET /branding/asset/*`,
+ * whose paths already carry the `/api` prefix — can prefix the origin without
+ * double-appending `/api` (which {@link apiUrl} would do).
+ */
+export const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
 const API_BASE = `${API_ORIGIN}/api`;
 
 /** Neutral fallback when we can't read a server-provided message. */

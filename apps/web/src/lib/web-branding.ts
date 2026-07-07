@@ -1,0 +1,74 @@
+/**
+ * Global service branding — the web client for `GET /branding` and the shape the
+ * app-wide runtime applies (header logo, browser-tab favicon, brand color).
+ *
+ * The API (`apps/api/src/branding/branding.controller.ts`) returns asset URLs
+ * that are already prefixed with `/api` and versioned (`?v=…`) for cache-busting;
+ * they point at the API origin. We resolve them to *absolute* URLs against that
+ * origin so they can be used directly as an `<img src>` / `<link rel="icon">`
+ * href (fetched by the browser, not through `apiFetch`).
+ *
+ * Two entry points: {@link fetchBranding} for the browser (client provider live
+ * refresh) and {@link fetchBrandingServer} for SSR (no-flash initial paint).
+ */
+
+import { API_ORIGIN, apiFetch } from './api';
+
+/** Public branding payload — mirrors the API's `BrandingResponse`. */
+export interface Branding {
+  /** Absolute URL of the service logo, or null when unset (→ wordmark). */
+  logoUrl: string | null;
+  /** Absolute URL of the favicon, or null when unset (→ default icon). */
+  faviconUrl: string | null;
+  /** Primary brand color as `#rgb`/`#rrggbb`, or null when unset (→ defaults). */
+  brandColor: string | null;
+}
+
+/** No branding set — defaults hold (wordmark + default icon + default tokens). */
+export const EMPTY_BRANDING: Branding = {
+  logoUrl: null,
+  faviconUrl: null,
+  brandColor: null,
+};
+
+/**
+ * Resolve an API-relative asset path (already carrying the `/api` prefix) to an
+ * absolute URL against the API origin. Pass-through for null or already-absolute.
+ */
+export function resolveAssetUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `${API_ORIGIN}${url}`;
+}
+
+function normalize(raw: Branding): Branding {
+  return {
+    logoUrl: resolveAssetUrl(raw.logoUrl),
+    faviconUrl: resolveAssetUrl(raw.faviconUrl),
+    brandColor: raw.brandColor ?? null,
+  };
+}
+
+/**
+ * Fetch current branding from the browser. Used by the client provider's
+ * `refresh()` so a just-saved logo/favicon/color re-applies immediately.
+ */
+export async function fetchBranding(): Promise<Branding> {
+  const raw = await apiFetch<Branding>('/branding');
+  return normalize(raw);
+}
+
+/**
+ * Fetch current branding on the server for the initial paint (no flash). Never
+ * throws — a transient API failure falls back to {@link EMPTY_BRANDING} so the
+ * app renders with defaults rather than erroring the whole tree.
+ */
+export async function fetchBrandingServer(): Promise<Branding> {
+  try {
+    const res = await fetch(`${API_ORIGIN}/api/branding`, { cache: 'no-store' });
+    if (!res.ok) return EMPTY_BRANDING;
+    return normalize((await res.json()) as Branding);
+  } catch {
+    return EMPTY_BRANDING;
+  }
+}
