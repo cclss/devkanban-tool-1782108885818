@@ -115,6 +115,24 @@ describe('Sender flow (e2e)', () => {
     documentId = res.body.id;
   });
 
+  it('streams the DRAFT canonical PDF back to its owner as application/pdf', async () => {
+    const res = await request(app.getHttpServer())
+      .get(`/api/documents/${documentId}/file`)
+      .set('Authorization', `Bearer ${token}`)
+      .buffer(true)
+      .parse((stream, cb) => {
+        const chunks: Buffer[] = [];
+        stream.on('data', (c: Buffer) => chunks.push(c));
+        stream.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+
+    expect(res.headers['content-type']).toContain('application/pdf');
+    // The streamed bytes are the stored source of truth: a valid, 2-page PDF.
+    const reloaded = await PDFDocument.load(res.body as Buffer);
+    expect(reloaded.getPageCount()).toBe(2);
+  });
+
   it('rejects a non-PDF upload with a Korean message', async () => {
     const res = await request(app.getHttpServer())
       .post('/api/documents/upload')

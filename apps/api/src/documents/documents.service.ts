@@ -381,6 +381,28 @@ export class DocumentsService {
     return { stream, filename: artifactFilename(document.title, kind) };
   }
 
+  /**
+   * Open the document's stored canonical PDF bytes for its owner — the native
+   * PDF upload or the DOCX→PDF conversion result that became the source of truth
+   * (`uploadAndCreate`). The frontend renders this for the DRAFT preview and
+   * field placement.
+   *
+   * Owner-only, and deliberately separate from `openArtifact`: that path serves
+   * the COMPLETED signed/certificate artifacts, whereas this returns the draft
+   * canonical (`storageKey`) that exists from upload onward. Returns a byte
+   * stream the controller pipes as `application/pdf`.
+   */
+  async openDocumentFile(ownerId: string, documentId: string): Promise<Readable> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { ownerId: true, storageKey: true },
+    });
+    if (!document) throw new NotFoundException(MESSAGES.document.notFound);
+    if (document.ownerId !== ownerId) throw new ForbiddenException(MESSAGES.document.forbidden);
+
+    return this.storage.openStream(document.storageKey);
+  }
+
   /** Remaining Free-plan sends this calendar month. */
   quota(ownerId: string): Promise<{ used: number; limit: number; remaining: number }> {
     return this.sendQuota.quota(ownerId);

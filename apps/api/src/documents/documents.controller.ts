@@ -134,6 +134,28 @@ export class DocumentsController {
     stream.pipe(res);
   }
 
+  /**
+   * Stream a document's stored canonical PDF for its owner (owner only).
+   * This is the native PDF upload or the DOCX→PDF conversion result — the DRAFT
+   * source of truth the frontend renders for preview + field placement. Distinct
+   * from `download/:artifact`, which serves COMPLETED signed/certificate outputs.
+   */
+  @Get(':id/file')
+  async file(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const stream = await this.documents.openDocumentFile(user.id, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Cache-Control', 'no-store');
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(HttpStatus.NOT_FOUND);
+      res.end();
+    });
+    stream.pipe(res);
+  }
+
   /** Replace placed sign fields on a draft. */
   @Put(':id/fields')
   saveFields(
