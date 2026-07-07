@@ -261,6 +261,7 @@ export function SignerProvider({
             fields: state.payload.fields,
           }
         : null,
+      clauseSummary: state.payload?.clauseSummary ?? null,
       fieldValues: state.fieldValues,
       activeFieldId: state.activeFieldId,
       documentCompleted: state.documentCompleted,

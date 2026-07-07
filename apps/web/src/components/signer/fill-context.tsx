@@ -19,6 +19,7 @@
  */
 
 import * as React from 'react';
+import type { ClauseSummary } from '@repo/db';
 import type { SignFieldType } from '@/lib/signing';
 import type { CompletionArtifact } from '@/lib/completion-download';
 import type { SignerSender } from '@/lib/signing';
@@ -128,6 +129,13 @@ export interface FillContextValue {
   documentTitle: string;
   /** The recipient's working set; null until the access gate is cleared. */
   payload: FillPayload | null;
+  /**
+   * AI key-clause summary for the summary-first reading screen, or `null` when
+   * the document has no summary (both flows fall back to the plain original
+   * viewer). Sourced from each flow's payload; the UI wiring lands in a later
+   * grain.
+   */
+  clauseSummary: ClauseSummary | null;
   /** Captured values per field id; the viewer reflects these inline. */
   fieldValues: Record<string, FillFieldValue>;
   /** The field whose capture sheet is open (drives the BottomSheet target). */

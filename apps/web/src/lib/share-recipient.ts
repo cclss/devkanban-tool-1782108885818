@@ -21,6 +21,7 @@
  * only ever returns `requiresPassword` (a boolean).
  */
 
+import type { ClauseSummary } from '@repo/db';
 import { ApiError, apiFetch, apiUrl } from './api';
 import { SHARE_PASSWORD_MIN_LENGTH } from './sharing';
 import type { SignFieldType, SignerSender, SignRequestStatus } from './signing';
@@ -59,6 +60,8 @@ export interface SharePayload {
   documentTitle: string;
   pageCount: number;
   pdfPath: string;
+  /** AI key-clause summary for the summary-first screen; `null` = no summary. */
+  clauseSummary: ClauseSummary | null;
   fields: SharePayloadField[];
 }
 

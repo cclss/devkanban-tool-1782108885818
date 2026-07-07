@@ -17,6 +17,7 @@
  * and intentionally mirror the server's signing catalog so the voice stays one.
  */
 
+import type { ClauseSummary } from '@repo/db';
 import { ApiError, apiDownload, apiFetch, apiUrl } from './api';
 import {
   COMPLETION_DOWNLOAD_COPY,
@@ -75,6 +76,8 @@ export interface SigningPayload {
   documentTitle: string;
   pageCount: number;
   pdfPath: string;
+  /** AI key-clause summary for the summary-first screen; `null` = no summary. */
+  clauseSummary: ClauseSummary | null;
   fields: SigningPayloadField[];
 }
 
