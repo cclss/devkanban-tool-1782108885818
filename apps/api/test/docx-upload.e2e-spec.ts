@@ -3,13 +3,19 @@
  *   register/login → upload a `.docx` → server converts it to PDF → the
  *   converted PDF becomes the DRAFT's source of truth.
  *
- * Covers the two feature scenarios:
+ * Covers the feature scenarios:
  *   1) Success — a valid Korean `.docx` is accepted, converted, and stored as a
  *      DRAFT whose canonical bytes stream back as a real PDF (pageCount +
- *      `GET /documents/:id/file` 정본 조회 asserted).
- *   2) Failure — a corrupt/unsupported `.docx` fails conversion and the API
- *      returns the exact Korean copy `document.conversionFailed`
- *      (grain-1 확정, recorded in `design-spec/messaging/recording.md`).
+ *      `GET /documents/:id/file` 정본 조회 asserted), and that converted-PDF
+ *      DRAFT then traverses the same 후속 필드 저장 → 발송 pipeline as a native
+ *      PDF upload (fields saved → send → 진행 중 / PENDING sign request).
+ *   2a) Failure — a corrupt `.docx` fails conversion and the API returns the
+ *       exact Korean copy `document.conversionFailed`.
+ *   2b) Failure — an unsupported file type (neither PDF nor DOCX) is refused
+ *       before conversion with the exact Korean copy `document.invalidFileType`.
+ *   Both failure copies are the strings grain-1/grain-2 confirmed and recorded
+ *   in `design-spec/messaging/recording.md`; this grain only asserts them (no
+ *   new copy is defined here).
  *
  * Environment assumption (documented per grain boundary): the success scenario
  * performs a *real* DOCX→PDF conversion via LibreOffice headless, so it requires
@@ -56,6 +62,18 @@ const DOCX_MIME =
  */
 const CONVERSION_FAILED_COPY =
   '문서를 변환하지 못했어요. 파일이 손상되었거나 지원하지 않는 형식일 수 있어요. 다른 파일로 다시 시도해 주세요.';
+
+/**
+ * The exact user-facing "unsupported format" copy, quoted verbatim from the
+ * Design Spec messaging record (`design-spec/messaging/recording.md` →
+ * "업로드 수용 형식 확장 — 기존 오류 카피 갱신 (2026-07-07)" → `document.invalidFileType`).
+ * When multipart upload started accepting DOCX (converted to PDF server-side)
+ * alongside PDF, this copy was widened from "PDF 파일만…" to "PDF 또는 DOCX…".
+ * A non-PDF/non-DOCX upload must surface this string byte-for-byte — as with the
+ * conversion copy above, the `toBe` reference check below proves code
+ * (`common/messages.ts`) and spec agree; this grain defines no new copy.
+ */
+const INVALID_FILE_TYPE_COPY = 'PDF 또는 DOCX 파일만 업로드할 수 있어요.';
 
 /** Committed valid Korean `.docx` fixture (see test/fixtures/README.md). */
 const KOREAN_DOCX = readFileSync(join(__dirname, 'fixtures', 'korean-contract.docx'));
@@ -150,6 +168,14 @@ describe('DOCX upload (e2e)', () => {
     expect(MESSAGES.document.conversionFailed).toBe(CONVERSION_FAILED_COPY);
   });
 
+  it('keeps the code copy in sync with the recorded invalidFileType message', () => {
+    // Reference check: the string asserted below must equal the copy grain-2
+    // widened (PDF → "PDF 또는 DOCX") and recorded in
+    // design-spec/messaging/recording.md, and the shipped code
+    // (common/messages.ts) must serve exactly that copy.
+    expect(MESSAGES.document.invalidFileType).toBe(INVALID_FILE_TYPE_COPY);
+  });
+
   // --- Scenario 1: successful DOCX upload (requires real soffice) ----------
   itIfSoffice(
     'accepts a valid Korean .docx, converts it to PDF, and stores it as a DRAFT',
@@ -196,6 +222,49 @@ describe('DOCX upload (e2e)', () => {
       expect(stored?.status).toBe('DRAFT');
       expect(stored?.ownerId).toBe(userId);
       expect(stored?.pageCount).toBe(upload.body.pageCount);
+
+      // --- 후속 필드 저장 → 발송 파이프라인 통과 ------------------------------
+      // The converted-PDF DRAFT must flow through the exact same pipeline as a
+      // native PDF upload (see sender-flow.e2e-spec.ts): place a sign field on
+      // the converted PDF, then send. It ends 진행 중 (IN_PROGRESS) with a
+      // PENDING sign request that owns the placed field — proving the converted
+      // PDF is a first-class source of truth for every downstream step.
+      const savedFields = await request(app.getHttpServer())
+        .put(`/api/documents/${documentId}/fields`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          fields: [
+            {
+              type: 'SIGNATURE',
+              page: 1,
+              x: 0.1,
+              y: 0.2,
+              width: 0.3,
+              height: 0.08,
+              recipientIndex: 0,
+            },
+          ],
+        })
+        .expect(200);
+      expect(savedFields.body.count).toBe(1);
+
+      const sent = await request(app.getHttpServer())
+        .post(`/api/documents/${documentId}/send`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ recipients: [{ email: 'signer@example.com', name: '서명자' }] })
+        .expect(200);
+      expect(sent.body.status).toBe('IN_PROGRESS');
+      expect(sent.body.statusLabel).toBe('진행 중');
+      expect(sent.body.recipientCount).toBe(1);
+      expect(sent.body.sentAt).toBeTruthy();
+
+      // A single PENDING sign request was created and the placed field bound to it.
+      const signRequests = await prisma.signRequest.findMany({ where: { documentId } });
+      expect(signRequests).toHaveLength(1);
+      expect(signRequests[0].status).toBe('PENDING');
+      const boundFields = await prisma.signField.findMany({ where: { documentId } });
+      expect(boundFields).toHaveLength(1);
+      expect(boundFields.every((f) => f.signRequestId === signRequests[0].id)).toBe(true);
     },
   );
 
@@ -225,6 +294,31 @@ describe('DOCX upload (e2e)', () => {
 
     // A failed conversion must not persist a document (conversion happens before
     // the DRAFT row is created).
+    const after = await prisma.document.count({ where: { ownerId: userId } });
+    expect(after).toBe(before);
+  });
+
+  // --- Scenario 2b: unsupported file type ----------------------------------
+  it('rejects an unsupported file type with the recorded Korean invalidFileType copy', async () => {
+    // A plain-text file is neither a PDF (`%PDF-`) nor a DOCX (`PK` OOXML zip),
+    // so format detection classifies it as neither and the upload is refused up
+    // front — before any conversion is attempted (distinct from a corrupt DOCX,
+    // which reaches the converter and fails with `conversionFailed`).
+    const before = await prisma.document.count({ where: { ownerId: userId } });
+
+    const res = await request(app.getHttpServer())
+      .post('/api/documents/upload')
+      .set('Authorization', `Bearer ${token}`)
+      .attach('file', Buffer.from('이것은 계약서가 아닌 일반 텍스트예요.'), {
+        filename: 'note.txt',
+        contentType: 'text/plain',
+      })
+      .expect(400);
+
+    // Exact match against the copy recorded in the Design Spec messaging record.
+    expect(res.body.message).toBe(INVALID_FILE_TYPE_COPY);
+
+    // A rejected upload must not persist a document.
     const after = await prisma.document.count({ where: { ownerId: userId } });
     expect(after).toBe(before);
   });
