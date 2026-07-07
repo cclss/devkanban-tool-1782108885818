@@ -32,4 +32,14 @@ export const CLAUSE_CARD_COPY = {
    * calm nudge, not an alarm (base voice: no manufactured anxiety).
    */
   cautionLabel: '주의',
+  /**
+   * The full-width toggle at the summary→original boundary (below the clause
+   * cards, above the CTA). Collapsed: invites opening the full original and
+   * names its page count once known; expanded: folds it back. Action-oriented
+   * 해요체 chrome around the summary — not clause content. The original is
+   * collapsed by default so the summary reads first ("핵심을 먼저, 원문은 필요할 때").
+   */
+  originalToggleExpand: (pageCount: number): string =>
+    pageCount > 0 ? `전체 원문 보기 ${pageCount}페이지` : '전체 원문 보기',
+  originalToggleCollapse: '원문 접기',
 } as const;

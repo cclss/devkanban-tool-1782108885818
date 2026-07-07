@@ -36,6 +36,7 @@ import { useFill, type FillField, type FillFieldValue } from './fill-context';
 import { BrandingHeader } from './branding-header';
 import { ClauseSummarySection } from './clause-summary-section';
 import { SignatureInputSheet } from './signature-sheet';
+import { CLAUSE_CARD_COPY } from '@/lib/clause-card-copy';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
@@ -50,6 +51,18 @@ const TYPE_LABEL: Record<SignFieldType, string> = {
 function fieldDomId(id: string): string {
   return `fill-field-${id}`;
 }
+
+/**
+ * Stable per-page anchor id in its own namespace (never collides with
+ * {@link fieldDomId}), so `expandAndScrollToPage` and a clause card's
+ * "원문에서 보기" (a later grain) can jump to a specific original page.
+ */
+function pageAnchorId(pageNumber: number): string {
+  return `pdf-page-${pageNumber}`;
+}
+
+/** The pages region the toggle shows/hides (`aria-controls` target). */
+const ORIGINAL_PAGES_ID = 'original-pages';
 
 /** A field is done when a value was captured, or the server already has one. */
 function isFilled(field: FillField, values: Record<string, FillFieldValue>): boolean {
@@ -80,6 +93,18 @@ export function DocumentViewer() {
   // value in place (the context never clears them), so the recipient just retries.
   const [completing, setCompleting] = React.useState(false);
   const [completeError, setCompleteError] = React.useState<string | null>(null);
+
+  // Collapsible "원문" (original) section. Summary-first: when a clause summary
+  // exists the original is collapsed by default (read the key clauses first, open
+  // the full document only when needed); with no summary (fallback) it stays
+  // expanded so the plain viewer behaves exactly as before.
+  const hasSummary = clauseSummary != null;
+  const [originalExpanded, setOriginalExpanded] = React.useState(() => !hasSummary);
+  // A scroll deferred until the pages mount/measure after an expand (opening the
+  // original then jumping to a page/field within it).
+  const [pendingScroll, setPendingScroll] = React.useState<
+    { kind: 'page'; page: number } | { kind: 'field'; id: string } | null
+  >(null);
 
   const session = React.useMemo(() => loadSession(), [loadSession]);
   const fields = React.useMemo(() => payload?.fields ?? [], [payload]);
@@ -136,6 +161,11 @@ export function DocumentViewer() {
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+  // Re-measure the moment the original expands: it goes from `hidden`
+  // (display:none, width 0) to laid out, so pages can rasterize fit-to-width.
+  React.useLayoutEffect(() => {
+    if (originalExpanded && pagesRef.current) setPageWidth(pagesRef.current.clientWidth);
+  }, [originalExpanded]);
 
   // Measure the fixed CTA so the last page can clear it when scrolled to bottom.
   const ctaRef = React.useRef<HTMLDivElement>(null);
@@ -164,6 +194,33 @@ export function DocumentViewer() {
     document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
+  const scrollToPage = React.useCallback((page: number) => {
+    document.getElementById(pageAnchorId(page))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
+  /**
+   * Imperative handle exposed to the clause summary section (a later grain wires
+   * the card's "원문에서 보기" link to it): open the collapsed original and scroll
+   * to a source page. The scroll is deferred via `pendingScroll` until the pages
+   * have mounted/measured after the expand.
+   */
+  const expandAndScrollToPage = React.useCallback((page: number) => {
+    setOriginalExpanded(true);
+    setPendingScroll({ kind: 'page', page });
+  }, []);
+
+  // Honor a deferred scroll once the original is expanded and measured (pageWidth
+  // > 0 means the page anchors have mounted). Best-effort and one-shot.
+  React.useEffect(() => {
+    if (!originalExpanded || !pendingScroll || pageWidth === 0) return;
+    const raf = requestAnimationFrame(() => {
+      if (pendingScroll.kind === 'page') scrollToPage(pendingScroll.page);
+      else scrollToField(pendingScroll.id);
+      setPendingScroll(null);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [originalExpanded, pendingScroll, pageWidth, scrollToPage, scrollToField]);
+
   const onFieldTap = React.useCallback(
     (field: FillField) => {
       scrollToField(field.id);
@@ -175,7 +232,14 @@ export function DocumentViewer() {
   const onCta = React.useCallback(async () => {
     const next = orderedUnfilled[0];
     if (next) {
-      scrollToField(next.id);
+      // Fields live inside the original; if it's collapsed, open it first and
+      // defer the scroll until the target page has mounted.
+      if (originalExpanded) {
+        scrollToField(next.id);
+      } else {
+        setOriginalExpanded(true);
+        setPendingScroll({ kind: 'field', id: next.id });
+      }
       openField(next.id);
       return;
     }
@@ -191,7 +255,15 @@ export function DocumentViewer() {
       setCompleteError(err instanceof ApiError ? err.message : copy.completeError);
       setCompleting(false);
     }
-  }, [orderedUnfilled, scrollToField, openField, complete, completing, copy.completeError]);
+  }, [
+    orderedUnfilled,
+    scrollToField,
+    openField,
+    complete,
+    completing,
+    copy.completeError,
+    originalExpanded,
+  ]);
 
   const progress =
     total === 0
@@ -202,7 +274,13 @@ export function DocumentViewer() {
 
   return (
     <main
-      style={brandStyle(brandColor)}
+      style={{
+        ...brandStyle(brandColor),
+        // Clear the fixed CTA in every state (collapsed or expanded) so no
+        // content is hidden behind it (layout clearance, not a design value —
+        // derived from the bar's measured height).
+        paddingBottom: ctaHeight ? ctaHeight + 24 : undefined,
+      }}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
       <BrandingHeader sender={sender} />
@@ -216,15 +294,51 @@ export function DocumentViewer() {
 
       {/* Summary-first: the AI key-clause summary sits above the original pages.
           Rendered only when a summary exists; a `null` summary falls back to the
-          plain original viewer (design-spec/components/clause-summary-section). */}
-      {clauseSummary ? <ClauseSummarySection summary={clauseSummary} /> : null}
+          plain original viewer (design-spec/components/clause-summary-section).
+          `onViewSource` exposes the imperative expand-and-scroll handle for the
+          clause card "원문에서 보기" link (wired in a later grain). */}
+      {clauseSummary ? (
+        <ClauseSummarySection summary={clauseSummary} onViewSource={expandAndScrollToPage} />
+      ) : null}
 
+      {/* The collapsible "원문" toggle sits at the summary→original boundary
+          (below the cards, above the CTA). Only shown when there's a summary to
+          collapse under — the fallback viewer has nothing above it to fold. */}
+      {hasSummary ? (
+        <button
+          type="button"
+          onClick={() => setOriginalExpanded((v) => !v)}
+          aria-expanded={originalExpanded}
+          aria-controls={ORIGINAL_PAGES_ID}
+          className={cn(
+            'mt-md flex w-full items-center justify-between gap-xs rounded-md',
+            'border border-border bg-surface px-md py-sm text-sm font-semibold text-foreground',
+            'transition-colors duration-fast ease-standard hover:bg-surface-muted',
+            'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
+          )}
+        >
+          <span>
+            {originalExpanded
+              ? CLAUSE_CARD_COPY.originalToggleCollapse
+              : CLAUSE_CARD_COPY.originalToggleExpand(pageCount)}
+          </span>
+          <ChevronIcon expanded={originalExpanded} />
+        </button>
+      ) : null}
+
+      {/* Collapsed = `hidden` (display:none) rather than the `hidden` attribute,
+          which the `flex` utility would override. Kept mounted so the ref/width
+          measurement and page anchors survive a collapse; pages only rasterize
+          once width is measured (on expand). */}
       <div
+        id={ORIGINAL_PAGES_ID}
         ref={pagesRef}
-        className="mt-lg flex flex-col gap-lg"
-        // Clear the fixed CTA at the end of the scroll (layout clearance, not a
-        // design value — derived from the bar's measured height).
-        style={{ paddingBottom: ctaHeight ? ctaHeight + 24 : undefined }}
+        aria-label="계약 원문"
+        aria-hidden={!originalExpanded}
+        className={cn(
+          originalExpanded ? 'flex flex-col gap-lg' : 'hidden',
+          hasSummary ? 'mt-sm' : 'mt-lg',
+        )}
       >
         {status === 'error' ? (
           <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-xs rounded-md border border-border bg-surface-muted px-md text-center">
@@ -273,6 +387,27 @@ export function DocumentViewer() {
       {/* The capture BottomSheet targets the field opened via the fill context. */}
       <SignatureInputSheet />
     </main>
+  );
+}
+
+/** Disclosure chevron for the original toggle: points down collapsed, up when open. */
+function ChevronIcon({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      className={cn(
+        'h-4 w-4 shrink-0 text-foreground-subtle transition-transform duration-fast ease-standard',
+        expanded && 'rotate-180',
+      )}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
+      <polyline points="6 9 12 15 18 9" />
+    </svg>
   );
 }
 
@@ -326,7 +461,7 @@ function PdfPageView({
   const ready = status === 'ready' && pageSize !== null;
 
   return (
-    <div className="relative w-full">
+    <div id={pageAnchorId(pageNumber)} className="relative w-full scroll-mt-md">
       {ready ? null : status === 'error' ? (
         <div className="flex aspect-[1/1.414] w-full items-center justify-center rounded-sm border border-border bg-surface-muted px-md text-center">
           <p className="text-sm text-foreground-muted">{pageError(pageNumber)}</p>

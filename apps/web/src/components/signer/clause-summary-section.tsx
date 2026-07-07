@@ -32,6 +32,12 @@ import { splitKeyNumbers, clauseTone } from '@/lib/clause-summary';
 export interface ClauseSummarySectionProps {
   /** The AI key-clause summary to render (callers pass this only when non-null). */
   summary: ClauseSummary;
+  /**
+   * Opens the collapsed original and scrolls to a clause's `sourcePage`. Passed
+   * down by `DocumentViewer`; the clause card "원문에서 보기" affordance that calls
+   * it is wired in a later grain, so this prop is accepted but not yet consumed.
+   */
+  onViewSource?: (page: number) => void;
 }
 
 /** The summary-first section: one-liner banner → clause cards → disclaimer. */
