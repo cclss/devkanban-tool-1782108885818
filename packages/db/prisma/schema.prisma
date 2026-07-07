@@ -166,6 +166,29 @@ model AuditLog {
   @@map("audit_logs")
 }
 
+/// Service-wide branding applied to every end-user surface (header logo,
+/// browser-tab favicon, primary brand color). This is a singleton: exactly one
+/// row is ever expected, pinned to a fixed primary key (`GLOBAL`) so callers can
+/// upsert/read without carrying an id around. Distinct from `User.brand*`, which
+/// is per-sender contract branding — this row governs the whole service shell.
+model BrandingSettings {
+  // Fixed identifier for the single global row. Callers reference this constant
+  // rather than discovering an id, guaranteeing there is only one settings row.
+  id                  String   @id @default("GLOBAL")
+  // Object storage key of the uploaded logo, plus the MIME type it was stored
+  // with so responses can serve it with the correct Content-Type (SVG vs PNG).
+  logoStorageKey      String?  @map("logo_storage_key")
+  logoContentType     String?  @map("logo_content_type")
+  // Object storage key + MIME type of the uploaded favicon.
+  faviconStorageKey   String?  @map("favicon_storage_key")
+  faviconContentType  String?  @map("favicon_content_type")
+  // Primary brand color (hex) applied to key UI accents.
+  brandColor          String?  @map("brand_color")
+  updatedAt           DateTime @updatedAt @map("updated_at")
+
+  @@map("branding_settings")
+}
+
 enum Plan {
   FREE
   PRO
