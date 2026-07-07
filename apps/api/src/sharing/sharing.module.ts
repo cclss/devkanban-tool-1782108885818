@@ -8,6 +8,7 @@ import { ShareSessionGuard } from './share-session.guard';
 import { LinkPasswordCipher } from './link-password-cipher';
 import { SigningModule } from '../signing/signing.module';
 import { SendQuotaModule } from '../common/send-quota.module';
+import { ClauseSummaryModule } from '../clause-summary/clause-summary.module';
 
 /**
  * Link-sharing flow (sender mints a self-serve open/fill link; an anonymous
@@ -20,7 +21,7 @@ import { SendQuotaModule } from '../common/send-quota.module';
  * share one implementation, only the access gate differs.
  */
 @Module({
-  imports: [JwtModule.register({}), SigningModule, SendQuotaModule],
+  imports: [JwtModule.register({}), SigningModule, SendQuotaModule, ClauseSummaryModule],
   controllers: [SharingController, SharePublicController],
   providers: [SharingService, ShareSessionService, ShareSessionGuard, LinkPasswordCipher],
 })

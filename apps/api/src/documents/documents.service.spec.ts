@@ -87,6 +87,7 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
       notifications as never,
       config as never,
       sendQuota as never,
+      { enqueue: jest.fn(async () => undefined) } as never,
     );
   });
 

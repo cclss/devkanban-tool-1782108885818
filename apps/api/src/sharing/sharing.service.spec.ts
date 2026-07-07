@@ -200,6 +200,7 @@ interface Harness {
   sharing: SharingService;
   prisma: ReturnType<typeof makePrisma>;
   completionEnqueue: jest.Mock;
+  clauseSummaryEnqueue: jest.Mock;
   shareSessions: ShareSessionService;
   linkPassword: LinkPasswordCipher;
   ownerId: string;
@@ -221,6 +222,8 @@ function setup(): Harness {
 
   const sendQuota = new SendQuotaService(prisma as never);
   const linkPassword = new LinkPasswordCipher(config);
+  const clauseSummaryEnqueue = jest.fn().mockResolvedValue(undefined);
+  const clauseSummaryQueue = { enqueue: clauseSummaryEnqueue } as never;
   const sharing = new SharingService(
     prisma as never,
     config,
@@ -228,6 +231,7 @@ function setup(): Harness {
     signing,
     sendQuota,
     linkPassword,
+    clauseSummaryQueue,
   );
 
   // Seed an owner + a DRAFT document with two unassigned fields.
@@ -251,6 +255,7 @@ function setup(): Harness {
     sharing,
     prisma,
     completionEnqueue,
+    clauseSummaryEnqueue,
     shareSessions,
     linkPassword,
     ownerId: owner.id,
@@ -284,6 +289,35 @@ describe('SharingService — link creation', () => {
     expect(h.linkPassword.isCipherText(stored)).toBe(true);
     expect(stored).not.toContain('secret12');
     expect(h.linkPassword.decrypt(stored)).toBe('secret12');
+  });
+
+  it('triggers clause-summary generation once on the first (dispatch) link only', async () => {
+    const h = setup();
+
+    // First link dispatches the DRAFT (→ 진행 중): summary job is triggered.
+    await h.sharing.createLink(h.ownerId, h.documentId, {});
+    expect(h.clauseSummaryEnqueue).toHaveBeenCalledTimes(1);
+    expect(h.clauseSummaryEnqueue).toHaveBeenCalledWith(h.documentId);
+
+    // A second link on the already-dispatched doc doesn't re-dispatch, so it
+    // doesn't re-trigger generation (any duplicate would be jobId-deduped anyway).
+    await h.sharing.createLink(h.ownerId, h.documentId, {});
+    expect(h.clauseSummaryEnqueue).toHaveBeenCalledTimes(1);
+  });
+
+  it('still dispatches the link when the summary enqueue fails (fire-and-forget)', async () => {
+    const h = setup();
+    // Even though enqueue is contractually no-throw, prove a rejection can't break
+    // the dispatch response or the DRAFT → 진행 중 transition — the call site
+    // swallows it defensively.
+    h.clauseSummaryEnqueue.mockRejectedValueOnce(new Error('queue down'));
+
+    const view = await h.sharing.createLink(h.ownerId, h.documentId, {});
+
+    // The link was minted and the document dispatched despite the failed trigger.
+    expect(view.status).toBe('active');
+    expect(h.prisma._documents.get(h.documentId)!.status).toBe('IN_PROGRESS');
+    expect(h.clauseSummaryEnqueue).toHaveBeenCalledWith(h.documentId);
   });
 
   it('encrypts distinct ciphertext for identical passwords (fresh IV per record)', async () => {

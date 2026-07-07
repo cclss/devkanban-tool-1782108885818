@@ -32,6 +32,7 @@ import {
 import { ShareSessionService } from './share-session.service';
 import { LinkPasswordCipher } from './link-password-cipher';
 import { SendQuotaService } from '../common/send-quota.service';
+import { ClauseSummaryQueue } from '../clause-summary/clause-summary.queue';
 import type { SaveFieldValuesDto } from '../signing/dto/signing.dto';
 import type { CreateShareLinkDto, UpdateShareLinkPasswordDto } from './dto/sharing.dto';
 
@@ -73,6 +74,7 @@ export class SharingService {
     private readonly signing: SigningService,
     private readonly sendQuota: SendQuotaService,
     private readonly linkPassword: LinkPasswordCipher,
+    private readonly clauseSummary: ClauseSummaryQueue,
   ) {}
 
   // --- sender (JWT) --------------------------------------------------------
@@ -164,6 +166,23 @@ export class SharingService {
 
       return created;
     });
+
+    // The first link is this contract's actual dispatch (DRAFT → 진행 중). Mirror
+    // the email send path and kick off background PDF-text-extraction + AI
+    // clause-summary generation for the AI 핵심 조항 카드 feature, AFTER the
+    // transaction commits. Fire-and-forget: `enqueue` is contractually no-throw
+    // (queue hiccup → inline fallback, whose failures are swallowed/logged), and
+    // the extra `.catch` makes doubly sure a failed/absent summary can't roll back
+    // the dispatch or turn it into an error response. Additional links on an
+    // already-dispatched doc don't re-dispatch; any duplicate trigger is de-duped
+    // by the queue's documentId jobId anyway.
+    if (isFirstDispatch) {
+      await this.clauseSummary.enqueue(documentId).catch((err) => {
+        this.logger.error(
+          `클로즈 요약 트리거 실패(발송에는 영향 없음): docId=${documentId}: ${String(err)}`,
+        );
+      });
+    }
 
     return this.toView(link);
   }

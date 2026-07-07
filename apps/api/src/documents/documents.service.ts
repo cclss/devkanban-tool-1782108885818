@@ -19,6 +19,7 @@ import { StorageService } from '../storage/storage.service';
 import { NotificationsService, type NotificationJob } from '../notifications/notifications.service';
 import { MESSAGES } from '../common/messages';
 import { SendQuotaService } from '../common/send-quota.service';
+import { ClauseSummaryQueue } from '../clause-summary/clause-summary.queue';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
 import {
   countPendingSigners,
@@ -45,6 +46,7 @@ export class DocumentsService {
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
+    private readonly clauseSummary: ClauseSummaryQueue,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -254,6 +256,19 @@ export class DocumentsService {
       jobs.push({ channel: 'email', to: r.email, toName: r.name, template: 'sign_request', data });
     }
     await this.notifications.enqueueMany(jobs);
+
+    // Kick off background PDF-text-extraction + AI clause-summary generation for
+    // the AI 핵심 조항 카드 feature, AFTER the send transaction commits. Like the
+    // notifications above this is fire-and-forget: `enqueue` is contractually
+    // no-throw (a queue hiccup falls back to inline generation, whose own failures
+    // are swallowed and logged), and the extra `.catch` makes doubly sure a
+    // failed/absent summary can never roll back the send or turn it into an error
+    // response — the reader just falls back to the plain viewer.
+    await this.clauseSummary.enqueue(documentId).catch((err) => {
+      this.logger.error(
+        `클로즈 요약 트리거 실패(발송에는 영향 없음): docId=${documentId}: ${String(err)}`,
+      );
+    });
 
     // Just sent: every recipient's request was created PENDING, so all of them
     // are still-pending signers.
