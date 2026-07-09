@@ -26,6 +26,7 @@
     "@nestjs/platform-express": "^10.4.15",
     "@pdf-lib/fontkit": "^1.1.1",
     "@repo/db": "workspace:*",
+    "@repo/field-geometry": "workspace:*",
     "bcryptjs": "^2.4.3",
     "bullmq": "^5.34.5",
     "class-transformer": "^0.5.1",

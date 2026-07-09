@@ -22,25 +22,17 @@
  *
  * Everything here is dependency-free and pure, so the transforms are unit-tested
  * in isolation (`field-geometry.spec.ts`).
+ *
+ * The normalized-space contract itself (`NormRect`, `PageSize`, bottom-left
+ * origin, 0..1) is imported from `@repo/field-geometry`, the single source of
+ * truth shared with the web placement canvas — this module only adds the
+ * PDF-render (rotation / media-box) transforms on top of that shared shape, and
+ * re-exports the types so existing `./field-geometry` importers are unaffected.
  */
 
-/** A field rect in normalized PDF space (bottom-left origin, 0..1 of the page). */
-export interface NormRect {
-  /** Lower-left corner X, 0..1 of the visible page width. */
-  x: number;
-  /** Lower-left corner Y, 0..1 of the visible page height (from the bottom). */
-  y: number;
-  /** Width, 0..1 of the visible page width. */
-  width: number;
-  /** Height, 0..1 of the visible page height. */
-  height: number;
-}
+import type { NormRect, PageSize } from '@repo/field-geometry';
 
-/** The unrotated media-box size of a PDF page, in points. */
-export interface PageSize {
-  width: number;
-  height: number;
-}
+export type { NormRect, PageSize };
 
 /** A page rotation in degrees clockwise — always a multiple of 90 per the PDF spec. */
 export type Rotation = 0 | 90 | 180 | 270;

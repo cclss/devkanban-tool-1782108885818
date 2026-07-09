@@ -2,7 +2,7 @@
 const nextConfig = {
   reactStrictMode: true,
   // Compile shared workspace packages from source.
-  transpilePackages: ['@repo/ui', '@repo/db'],
+  transpilePackages: ['@repo/ui', '@repo/db', '@repo/field-geometry'],
   experimental: {
     // Allow importing files from outside the app dir (monorepo packages).
     externalDir: true,
