@@ -31,7 +31,14 @@ import {
   artifactFilename,
   type CompletionArtifact,
 } from '../completion/artifact';
-import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
+import type {
+  CreateDocumentDto,
+  SaveFieldsDto,
+  SendContractDto,
+  SignFieldDto,
+} from './dto/documents.dto';
+import { extractPdfTextLayer } from './field-suggestions/pdf-text-extraction';
+import { suggestSignFields } from './field-suggestions/field-suggestion-engine';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
 
@@ -151,6 +158,40 @@ export class DocumentsService {
     });
 
     return { count };
+  }
+
+  /**
+   * Propose draft sign-field placements for a document, using the in-process
+   * text-heuristic engine (기획서 M1). Owner-guarded through the same
+   * `requireOwnedDocument` contract as every other document operation: a
+   * non-owner gets `ForbiddenException`, a missing document `NotFoundException`.
+   *
+   * The whole estimation runs inside `apps/api` — the stored PDF bytes are read
+   * from storage, its text layer extracted, and the pure engine derives the
+   * boxes. No document data leaves the process (기획서 하드 제약: 외부로 문서
+   * 데이터 전송 금지).
+   *
+   * Suggestion is a best-effort assist, never a gate on the wizard: if the PDF
+   * can't be read or parsed (손상 PDF 등), the failure is logged and swallowed,
+   * returning an **empty array** (the manual-placement fallback) rather than
+   * throwing. A scanned/image-only PDF has no text layer, so the engine already
+   * returns `[]` and it falls back naturally. Only the ownership/existence guard
+   * exceptions above propagate — those are authorization, not a suggestion
+   * failure. Suggestions are returned, not persisted (제안은 저장하지 않음).
+   */
+  async suggestFields(ownerId: string, documentId: string): Promise<SignFieldDto[]> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+
+    try {
+      const bytes = await this.storage.read(document.storageKey);
+      const textLayer = await extractPdfTextLayer(bytes);
+      return suggestSignFields(textLayer);
+    } catch (err) {
+      // A corrupt/unreadable PDF must not block the placement wizard: fall back
+      // to manual placement with an empty suggestion set instead of failing.
+      this.logger.warn(`필드 제안 생성 실패 (documentId=${documentId}): ${String(err)}`);
+      return [];
+    }
   }
 
   /**
