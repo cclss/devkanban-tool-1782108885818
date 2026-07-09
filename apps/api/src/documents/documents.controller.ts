@@ -140,6 +140,18 @@ export class DocumentsController {
     return this.documents.saveFields(user.id, id, dto);
   }
 
+  /**
+   * Propose draft sign-field placements from the in-process text heuristic
+   * (기획 M2). Returns `SignFieldDto[]` — or `[]` when auto-placement isn't
+   * possible (스캔본·앵커 미매칭·파싱 실패) — for the wizard to draft, never a
+   * gate. Auth is the class-level guard; ownership is enforced in the service.
+   */
+  @Post(':id/field-suggestions')
+  @HttpCode(HttpStatus.OK)
+  suggestFields(@CurrentUser() user: AuthUser, @Param('id') id: string) {
+    return this.documents.suggestFields(user.id, id);
+  }
+
   /** Dispatch the contract → 진행 중. */
   @Post(':id/send')
   @HttpCode(HttpStatus.OK)
