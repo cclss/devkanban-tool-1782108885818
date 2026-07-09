@@ -44,6 +44,11 @@ import {
   type SnapLine,
 } from '@/lib/field-geometry';
 import type { SignFieldDraft } from './wizard-context';
+// Field ids come from a shared, DOM-free counter so canvas-placed and
+// AI-suggested fields (lib/send.ts) never collide. Re-exported for existing
+// callers that import it from here (e.g. fields-step).
+import { nextFieldId } from '@/lib/field-id';
+export { nextFieldId };
 
 const SNAP_THRESHOLD = 6; // px
 const NUDGE_PX = 1;
@@ -67,13 +72,6 @@ interface FieldCanvasProps {
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
-}
-
-let fieldSeq = 0;
-/** Monotonic, collision-resistant id for a newly placed field. */
-export function nextFieldId(): string {
-  fieldSeq += 1;
-  return `field-${fieldSeq}-${Math.round(performance.now())}`;
 }
 
 /** Active pointer gesture transient state (px space, current page). */

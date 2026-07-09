@@ -44,6 +44,14 @@ export interface SignFieldDraft {
   height: number;
   /** 0-based recipient index this field is assigned to. */
   recipientIndex?: number;
+  /**
+   * How the field got onto the canvas. Absent/'manual' = the user placed it;
+   * 'auto' = it came from AI auto-placement (`fetchFieldSuggestions`). Purely a
+   * client-side render/UX marker (violet suggestion styling, "제안 모두 지우기");
+   * it never reaches the server — `saveFields` omits it so the persisted
+   * `SignFieldDto` contract is unchanged.
+   */
+  source?: 'auto' | 'manual';
 }
 
 export interface RecipientDraft {
