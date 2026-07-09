@@ -70,6 +70,19 @@
     --color-warning-foreground: #ffffff;
     --color-warning-subtle: #fff4e6;
 
+    /* — AI accent —
+       Marks elements our product's AI generated/suggested (auto-placed sign
+       fields, premium AI notes). A single violet halo that never collides with
+       action-blue (primary) or the status hues. Deliberately does NOT follow the
+       `--brand-*` hook: it points to *our* AI feature, not the sender's brand, so
+       it stays fixed under a brand re-skin. Never the sole signal — always paired
+       with the sparkle mark + label. Values mirror the design spec's `ai-accent`
+       token group; foreground-on-accent ≈5.7:1 and strong-on-subtle ≈6.3:1 (AA). */
+    --color-ai-accent: #7c3aed;
+    --color-ai-accent-strong: #6d28d9;
+    --color-ai-accent-foreground: #ffffff;
+    --color-ai-accent-subtle: #f3efff;
+
     /* — Interaction — */
     --color-ring: var(--brand-primary);
     --color-overlay: rgba(13, 16, 21, 0.55);

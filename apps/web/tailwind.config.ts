@@ -78,6 +78,13 @@ const config: Config = {
           foreground: 'var(--color-warning-foreground)',
           subtle: 'var(--color-warning-subtle)',
         },
+        // Product-AI accent (violet). Fixed under a brand re-skin — see globals.css.
+        'ai-accent': {
+          DEFAULT: 'var(--color-ai-accent)',
+          strong: 'var(--color-ai-accent-strong)',
+          foreground: 'var(--color-ai-accent-foreground)',
+          subtle: 'var(--color-ai-accent-subtle)',
+        },
         grey: {
           50: 'var(--grey-50)',
           100: 'var(--grey-100)',

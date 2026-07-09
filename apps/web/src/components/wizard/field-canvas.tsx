@@ -435,6 +435,28 @@ interface FieldBoxProps {
   onDelete: () => void;
 }
 
+/**
+ * Per-state box treatment for a field marker, keyed on whether the field was
+ * placed by the user (manual — action-blue `primary`) or drafted by AI auto-place
+ * (`source === 'auto'` — violet `ai-accent`). The two share the *exact same* state
+ * grammar (idle = dashed border + faint tint; hover/select = solid border + shadow;
+ * select also raises the focus ring) so an AI field reads as the same kind of
+ * object — only the color axis swaps, which is what tells the two apart at a glance.
+ * `ai-accent-strong` text on the `ai-accent-subtle` tint clears WCAG AA.
+ */
+const MANUAL_STATE_CLASS = {
+  selected: 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus',
+  hovered: 'border-primary bg-primary-subtle/60 text-primary shadow-sm',
+  idle: 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90',
+} as const;
+
+const AUTO_STATE_CLASS = {
+  selected:
+    'border-ai-accent bg-ai-accent-subtle/80 text-ai-accent-strong shadow-md ring-2 ring-focus',
+  hovered: 'border-ai-accent bg-ai-accent-subtle/60 text-ai-accent-strong shadow-sm',
+  idle: 'border-dashed border-ai-accent/60 bg-ai-accent-subtle/40 text-ai-accent-strong',
+} as const;
+
 function FieldBox({
   field,
   rect,
@@ -451,11 +473,18 @@ function FieldBox({
   onDelete,
 }: FieldBoxProps) {
   const meta = FIELD_TYPE_META[field.type];
+  // AI-drafted fields (source: 'auto') wear the violet ai-accent treatment + an
+  // "AI 추천" pin. Editing (move/resize/nudge) only patches geometry, so `source`
+  // survives — a suggestion stays a suggestion until it is deleted, never silently
+  // "converted" to manual by being adjusted (spec: suggested-field-marker).
+  const isAuto = field.source === 'auto';
+  const stateClass = isAuto ? AUTO_STATE_CLASS : MANUAL_STATE_CLASS;
+  const state = selected ? 'selected' : hovered ? 'hovered' : 'idle';
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`}
+      aria-label={`${isAuto ? 'AI 추천 ' : ''}${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`}
       aria-pressed={selected}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
@@ -469,14 +498,23 @@ function FieldBox({
         'group absolute flex select-none items-center justify-center rounded-sm border-2 text-xs font-semibold',
         'outline-none transition-[box-shadow,background-color,border-color]',
         dragging ? 'cursor-grabbing duration-0' : 'cursor-grab duration-fast ease-standard',
-        selected
-          ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
-          : hovered
-            ? 'border-primary bg-primary-subtle/60 text-primary shadow-sm'
-            : 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90',
+        stateClass[state],
       )}
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     >
+      {/* AI-source pin — always on (every state), so the violet color is never the
+          only signal: sparkle mark + "AI 추천" label carry it non-chromatically. The
+          box's aria-label already announces "AI 추천", so the pin is decorative to SR. */}
+      {isAuto ? (
+        <span
+          aria-hidden="true"
+          className="pointer-events-none absolute -top-2.5 left-0 flex items-center gap-[2px] rounded-full bg-ai-accent-subtle px-1.5 py-[1px] text-2xs font-semibold text-ai-accent-strong shadow-xs ring-1 ring-ai-accent/25"
+        >
+          <SparkleGlyph />
+          AI 추천
+        </span>
+      ) : null}
+
       <span className="pointer-events-none flex items-center gap-2xs truncate px-2xs">
         <FieldGlyph type={field.type} />
         {meta.label}
@@ -486,7 +524,7 @@ function FieldBox({
       {selected ? (
         <button
           type="button"
-          aria-label={`${meta.label} 필드 삭제`}
+          aria-label={`${isAuto ? 'AI 추천 ' : ''}${meta.label} 필드 삭제`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -500,14 +538,16 @@ function FieldBox({
         </button>
       ) : null}
 
-      {/* Resize handles — visible on select/hover. */}
+      {/* Resize handles — visible on select/hover. Border tracks the field's color
+          axis so an AI field's handles stay violet. */}
       {selected || hovered
         ? RESIZE_HANDLES.map((h) => (
             <span
               key={h}
               onPointerDown={(e) => onPointerDownHandle(e, h)}
               className={cn(
-                'absolute h-2.5 w-2.5 rounded-full border border-primary bg-surface shadow-xs',
+                'absolute h-2.5 w-2.5 rounded-full border bg-surface shadow-xs',
+                isAuto ? 'border-ai-accent' : 'border-primary',
                 HANDLE_POSITION[h],
                 HANDLE_CURSOR[h],
               )}
@@ -515,6 +555,20 @@ function FieldBox({
           ))
         : null}
     </div>
+  );
+}
+
+/**
+ * Two-star sparkle — the AI mark. A non-color signal that always accompanies the
+ * violet ai-accent tint + "AI 추천" label so the AI source is legible without hue
+ * alone (mirrors the palette trigger's mark in fields-step).
+ */
+function SparkleGlyph() {
+  return (
+    <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
+      <path d="M8 1.5l1.35 3.65L13 6.5l-3.65 1.35L8 11.5 6.65 7.85 3 6.5l3.65-1.35L8 1.5Z" fill="currentColor" />
+      <path d="M12.6 10.4l.55 1.45 1.45.55-1.45.55-.55 1.45-.55-1.45-1.45-.55 1.45-.55.55-1.45Z" fill="currentColor" />
+    </svg>
   );
 }
 
