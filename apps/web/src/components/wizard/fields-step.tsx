@@ -17,7 +17,20 @@
  */
 
 import * as React from 'react';
-import { cn } from '@repo/ui';
+import { useRouter } from 'next/navigation';
+import {
+  Button,
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogFooter,
+  DialogTitle,
+  DialogDescription,
+  cn,
+} from '@repo/ui';
+import { ApiError } from '@/lib/api';
+import { getToken } from '@/lib/auth';
+import { fetchFieldSuggestions } from '@/lib/send';
 import {
   FIELD_TYPE_META,
   FIELD_TYPES,
@@ -33,15 +46,58 @@ const ZOOM_STEP = 0.25;
 /** Page fits comfortably in the 760px wizard column at zoom 1. */
 const BASE_FIT_WIDTH = 640;
 
+/**
+ * AI auto-placement copy — kept in one place so the tone stays auditable.
+ *
+ * Inherits the project base voice (해요체 · 비난 없음 · 다음 행동을 준다) and the
+ * AI-copy extension: the AI speaks as a helper, never the decider, and always
+ * hands control back to the user ("제안했어요 · 자유롭게 바꿀 수 있어요"). Both the
+ * empty ("찾지 못했어요") and failed ("할 수 없어요") outcomes stay calm and offer the
+ * manual-placement next step — auto-place is best-effort help and never blames or
+ * blocks. The AI identity is carried by the label's "AI" + the sparkle mark
+ * (non-color signal), not by color.
+ */
+const AI_PLACE_COPY = {
+  /** Palette trigger — value verb entry point. */
+  trigger: 'AI로 자동 배치',
+  /** In-progress — stated plainly; the Button also drives spinner/disabled/aria-busy. */
+  triggering: '배치하는 중…',
+  /** 제안 완료: 대상·개수 + 통제권 안내. */
+  done: (count: number) =>
+    `AI가 필드 ${count}개를 제안했어요. 확인하고 자유롭게 바꿀 수 있어요.`,
+  /** 제안 없음 (텍스트 레이어 없음/앵커 미매칭): 비난 없이 + 직접 배치 안내. */
+  empty: 'AI가 제안할 필드를 찾지 못했어요. 원하는 위치에 직접 배치해 주세요.',
+  /** 호출 실패: 담담히, 위저드를 막지 않고 + 직접 배치 안내. */
+  failed: '지금은 자동 배치를 할 수 없어요. 원하는 위치에 직접 배치해 주세요.',
+  /** 덮어쓰기 확인 — 이미 필드가 있을 때 (재)실행 시 먼저 묻는다. */
+  confirmTitle: '이미 배치한 필드가 있어요',
+  confirmBody: (count: number) =>
+    `AI로 자동 배치하면 지금 있는 필드 ${count}개를 지우고 새로 채워요. 계속할까요?`,
+  /** 거절/대안 — 자율을 존중하는 담담한 표현(안전한 기본 선택). */
+  confirmCancel: '그대로 둘게요',
+  /** 수락/진행 — 가치를 담은 동사구(주 액션). */
+  confirmProceed: '덮어쓰고 배치',
+} as const;
+
+/** Auto-placement request lifecycle, drives the button + result/fallback note. */
+type AutoStatus = 'idle' | 'loading' | 'done' | 'empty' | 'error';
+
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
   const { state, dispatch } = useWizard();
   const { file, document, fields } = state;
 
+  const router = useRouter();
   const [page, setPage] = React.useState(1);
   const [zoom, setZoom] = React.useState(1);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
+
+  // AI auto-placement lifecycle. `suggestedCount` freezes the last accepted count
+  // for the result note; `confirmOpen` gates the overwrite dialog.
+  const [autoStatus, setAutoStatus] = React.useState<AutoStatus>('idle');
+  const [suggestedCount, setSuggestedCount] = React.useState(0);
+  const [confirmOpen, setConfirmOpen] = React.useState(false);
 
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
@@ -64,6 +120,49 @@ export function FieldsStep() {
     },
     [fields, page, setFields],
   );
+
+  // Ask the server to draft field placements and inject them into wizard state.
+  // The canvas then renders/edits them exactly like manual fields — the drafts
+  // already carry normalized geometry + `source: 'auto'` from fetchFieldSuggestions.
+  const runAutoPlace = React.useCallback(async () => {
+    if (!document) return;
+    setConfirmOpen(false);
+    setAutoStatus('loading');
+    try {
+      const suggestions = await fetchFieldSuggestions(document.id, getToken() ?? undefined);
+      if (suggestions.length === 0) {
+        // Empty = "nothing to suggest" (scanned PDF, no anchors). Not an error —
+        // fall back to manual placement without touching the current fields.
+        setAutoStatus('empty');
+        return;
+      }
+      // SET_FIELDS replaces the set — this is the overwrite the dialog confirmed.
+      setFields(suggestions);
+      setSelectedId(null);
+      setSuggestedCount(suggestions.length);
+      // Jump to the first page that got a suggestion so results are on screen.
+      setPage(Math.min(...suggestions.map((f) => f.page)));
+      setAutoStatus('done');
+    } catch (err) {
+      // A lapsed session bounces to login (matches the send flow); any other
+      // failure degrades to a calm manual-placement fallback — auto-place is
+      // best-effort help and must never gate the wizard.
+      if (err instanceof ApiError && err.status === 401) {
+        router.replace('/login');
+        return;
+      }
+      setAutoStatus('error');
+    }
+  }, [document, router, setFields]);
+
+  // Re-running over existing fields overwrites them, so confirm before doing so.
+  const onAutoPlaceClick = React.useCallback(() => {
+    if (fields.length > 0) {
+      setConfirmOpen(true);
+      return;
+    }
+    void runAutoPlace();
+  }, [fields.length, runAutoPlace]);
 
   if (!file) {
     // Defensive: the upload gate prevents reaching here without a document.
@@ -91,10 +190,33 @@ export function FieldsStep() {
         {FIELD_TYPES.map((type) => (
           <FieldTool key={type} type={type} onAdd={() => addAtCenter(type)} />
         ))}
+        <Button
+          type="button"
+          variant="secondary"
+          size="sm"
+          isLoading={autoStatus === 'loading'}
+          disabled={!document}
+          onClick={onAutoPlaceClick}
+        >
+          {autoStatus !== 'loading' ? <SparkleGlyph /> : null}
+          {autoStatus === 'loading' ? AI_PLACE_COPY.triggering : AI_PLACE_COPY.trigger}
+        </Button>
         <span className="ml-auto text-xs font-medium text-foreground-subtle">
           이 페이지에 {pageFieldCount}개 · 전체 {fields.length}개
         </span>
       </div>
+
+      {/* AI auto-placement result / fallback — polite live region, never an alarm. */}
+      {autoStatus === 'done' || autoStatus === 'empty' || autoStatus === 'error' ? (
+        <p role="status" className="flex items-center gap-2xs text-sm font-medium text-foreground-muted">
+          {autoStatus === 'done' ? <SparkleGlyph /> : null}
+          {autoStatus === 'done'
+            ? AI_PLACE_COPY.done(suggestedCount)
+            : autoStatus === 'empty'
+              ? AI_PLACE_COPY.empty
+              : AI_PLACE_COPY.failed}
+        </p>
+      ) : null}
 
       {/* Page nav + zoom */}
       <div className="flex items-center justify-between gap-sm rounded-md border border-border bg-surface px-sm py-2xs">
@@ -170,7 +292,35 @@ export function FieldsStep() {
       <p className="text-xs text-foreground-subtle">
         필드를 선택한 뒤 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제할 수 있어요.
       </p>
+
+      {/* Overwrite confirmation — only reached when fields already exist. */}
+      <Dialog open={confirmOpen} onOpenChange={setConfirmOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{AI_PLACE_COPY.confirmTitle}</DialogTitle>
+            <DialogDescription>{AI_PLACE_COPY.confirmBody(fields.length)}</DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="secondary" onClick={() => setConfirmOpen(false)}>
+              {AI_PLACE_COPY.confirmCancel}
+            </Button>
+            <Button variant="primary" onClick={() => void runAutoPlace()}>
+              {AI_PLACE_COPY.confirmProceed}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
+  );
+}
+
+/** Two-star sparkle — the AI mark (non-color signal accompanying the "AI" label). */
+function SparkleGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" className={cn('h-4 w-4', className)} fill="none" aria-hidden="true">
+      <path d="M8 1.5l1.35 3.65L13 6.5l-3.65 1.35L8 11.5 6.65 7.85 3 6.5l3.65-1.35L8 1.5Z" fill="currentColor" />
+      <path d="M12.6 10.4l.55 1.45 1.45.55-1.45.55-.55 1.45-.55-1.45-1.45-.55 1.45-.55.55-1.45Z" fill="currentColor" />
+    </svg>
   );
 }
 
