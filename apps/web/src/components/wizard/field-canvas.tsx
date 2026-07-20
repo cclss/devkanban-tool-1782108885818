@@ -64,6 +64,24 @@ interface FieldCanvasProps {
   onSelect: (id: string | null) => void;
   /** Replace the full field list (single source lives in wizard state). */
   onFieldsChange: (fields: SignFieldDraft[]) => void;
+  /**
+   * Auto-placement recommendations, kept in a *separate* list from `fields` so
+   * the confirmed render/gesture/coord path is never touched. Each is a
+   * fully-shaped draft (id assigned upstream) drawn in the distinct "추천"
+   * (recommendation) visual state. Empty/omitted ⇒ the canvas renders exactly
+   * as it did before this feature existed.
+   */
+  suggestions?: SignFieldDraft[];
+  /** Accept a suggestion as-is — the parent promotes it into `fields`. */
+  onSuggestionAccept?: (id: string) => void;
+  /** Reject a suggestion — the parent drops it from the suggestion list. */
+  onSuggestionDismiss?: (id: string) => void;
+  /**
+   * A suggestion's geometry changed via move/resize/keyboard. "편집=수락": the
+   * parent treats an edited recommendation as accepted, updating the geometry
+   * while promoting it out of the recommendation state.
+   */
+  onSuggestionChange?: (id: string, patch: Partial<SignFieldDraft>) => void;
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
@@ -76,11 +94,15 @@ export function nextFieldId(): string {
   return `field-${fieldSeq}-${Math.round(performance.now())}`;
 }
 
+/** Whether a gesture is acting on a confirmed field or a recommendation. */
+type GestureTarget = 'field' | 'suggestion';
+
 /** Active pointer gesture transient state (px space, current page). */
 type Gesture =
-  | { kind: 'move'; id: string; startRect: PxRect; startX: number; startY: number }
+  | { kind: 'move'; target: GestureTarget; id: string; startRect: PxRect; startX: number; startY: number }
   | {
       kind: 'resize';
+      target: GestureTarget;
       id: string;
       handle: ResizeHandle;
       startRect: PxRect;
@@ -97,6 +119,10 @@ export function FieldCanvas({
   selectedId,
   onSelect,
   onFieldsChange,
+  suggestions,
+  onSuggestionAccept,
+  onSuggestionDismiss,
+  onSuggestionChange,
   onPageCount,
   className,
 }: FieldCanvasProps) {
@@ -180,6 +206,10 @@ export function FieldCanvas({
   }, [docReady, page, cssWidth]);
 
   const pageFields = React.useMemo(() => fields.filter((f) => f.page === page), [fields, page]);
+  const pageSuggestions = React.useMemo(
+    () => (suggestions ?? []).filter((s) => s.page === page),
+    [suggestions, page],
+  );
 
   const updateField = React.useCallback(
     (id: string, patch: Partial<SignFieldDraft>) => {
@@ -261,19 +291,25 @@ export function FieldCanvas({
         /* capture may already be gone */
       }
       if (live && live.id === g.id) {
-        updateField(g.id, clampNormRect(pxToNorm(live.rect, pageSize)));
+        const norm = clampNormRect(pxToNorm(live.rect, pageSize));
+        // A confirmed field updates in place; an edited recommendation is
+        // reported to the parent, which treats the edit as an accept.
+        if (g.target === 'suggestion') onSuggestionChange?.(g.id, norm);
+        else updateField(g.id, norm);
       }
     },
-    [liveRect, pageSize, updateField],
+    [liveRect, pageSize, updateField, onSuggestionChange],
   );
 
   const startMove = React.useCallback(
-    (event: React.PointerEvent, field: SignFieldDraft) => {
+    (event: React.PointerEvent, field: SignFieldDraft, target: GestureTarget = 'field') => {
       if (event.button !== 0) return;
       event.stopPropagation();
-      onSelect(field.id);
+      // `selectedId` tracks confirmed fields only — don't route recommendations
+      // through it (they carry their own accept/dismiss affordances instead).
+      if (target === 'field') onSelect(field.id);
       const startRect = normToPx(field, pageSize);
-      gestureRef.current = { kind: 'move', id: field.id, startRect, startX: event.clientX, startY: event.clientY };
+      gestureRef.current = { kind: 'move', target, id: field.id, startRect, startX: event.clientX, startY: event.clientY };
       setLiveRect({ id: field.id, rect: startRect });
       (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     },
@@ -281,13 +317,14 @@ export function FieldCanvas({
   );
 
   const startResize = React.useCallback(
-    (event: React.PointerEvent, field: SignFieldDraft, handle: ResizeHandle) => {
+    (event: React.PointerEvent, field: SignFieldDraft, handle: ResizeHandle, target: GestureTarget = 'field') => {
       if (event.button !== 0) return;
       event.stopPropagation();
-      onSelect(field.id);
+      if (target === 'field') onSelect(field.id);
       const startRect = normToPx(field, pageSize);
       gestureRef.current = {
         kind: 'resize',
+        target,
         id: field.id,
         handle,
         startRect,
@@ -330,6 +367,35 @@ export function FieldCanvas({
       updateField(field.id, clampNormRect(pxToNorm(clampPxRect(next, pageSize), pageSize)));
     },
     [pageSize, removeField, updateField],
+  );
+
+  // Keyboard assist for a focused recommendation. Mirrors `onFieldKeyDown` but
+  // routes through the suggestion callbacks: Delete dismisses; arrows nudge and,
+  // per "편집=수락", the parent promotes the edited recommendation on change.
+  const onSuggestionKeyDown = React.useCallback(
+    (event: React.KeyboardEvent, suggestion: SignFieldDraft) => {
+      const step = event.shiftKey ? NUDGE_PX_LARGE : NUDGE_PX;
+      if (event.key === 'Delete' || event.key === 'Backspace') {
+        event.preventDefault();
+        onSuggestionDismiss?.(suggestion.id);
+        return;
+      }
+      const arrows: Record<string, [number, number]> = {
+        ArrowLeft: [-step, 0],
+        ArrowRight: [step, 0],
+        ArrowUp: [0, -step],
+        ArrowDown: [0, step],
+      };
+      const delta = arrows[event.key];
+      if (!delta) return;
+      event.preventDefault();
+      const base = normToPx(suggestion, pageSize);
+      const next: PxRect = event.shiftKey
+        ? resizePxRect(base, 'se', delta[0], delta[1])
+        : { ...base, left: base.left + delta[0], top: base.top + delta[1] };
+      onSuggestionChange?.(suggestion.id, clampNormRect(pxToNorm(clampPxRect(next, pageSize), pageSize)));
+    },
+    [pageSize, onSuggestionChange, onSuggestionDismiss],
   );
 
   const rectFor = (field: SignFieldDraft): PxRect =>
@@ -415,6 +481,35 @@ export function FieldCanvas({
               />
             );
           })}
+
+          {/* Recommendations — a separate, visually-distinct layer. Reuses the
+              same FieldBox gesture surface but never enters the `fields` list
+              until the parent accepts. */}
+          {pageSuggestions.map((suggestion) => {
+            const rect = rectFor(suggestion);
+            const hovered = hoverId === suggestion.id;
+            const dragging = liveRect?.id === suggestion.id;
+            return (
+              <FieldBox
+                key={suggestion.id}
+                variant="suggestion"
+                field={suggestion}
+                rect={rect}
+                selected={false}
+                hovered={hovered}
+                dragging={dragging}
+                onPointerEnter={() => setHoverId(suggestion.id)}
+                onPointerLeave={() => setHoverId((h) => (h === suggestion.id ? null : h))}
+                onPointerDownBody={(e) => startMove(e, suggestion, 'suggestion')}
+                onPointerDownHandle={(e, h) => startResize(e, suggestion, h, 'suggestion')}
+                onPointerMove={onGesturePointerMove}
+                onPointerUp={endGesture}
+                onKeyDown={(e) => onSuggestionKeyDown(e, suggestion)}
+                onDelete={() => onSuggestionDismiss?.(suggestion.id)}
+                onAccept={() => onSuggestionAccept?.(suggestion.id)}
+              />
+            );
+          })}
         </div>
       </div>
     </div>
@@ -427,6 +522,8 @@ interface FieldBoxProps {
   selected: boolean;
   hovered: boolean;
   dragging: boolean;
+  /** 'field' = confirmed placement; 'suggestion' = auto-placement recommendation. */
+  variant?: GestureTarget;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
   onPointerDownBody: (e: React.PointerEvent) => void;
@@ -435,6 +532,27 @@ interface FieldBoxProps {
   onPointerUp: (e: React.PointerEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onDelete: () => void;
+  /** Accept affordance — recommendation only. */
+  onAccept?: () => void;
+}
+
+/**
+ * State palette per variant. Confirmed fields read the `primary` (brand) group
+ * with a solid/dashed border; recommendations read the `warning` group with a
+ * dotted border, so the two states are unmistakable at a glance (hue + border
+ * style both differ). Recommendations never enter the `selected` state.
+ */
+function boxStateClasses(variant: GestureTarget, selected: boolean, hovered: boolean): string {
+  if (variant === 'suggestion') {
+    return selected || hovered
+      ? 'border-dotted border-warning bg-warning-subtle/70 text-warning shadow-sm'
+      : 'border-dotted border-warning/70 bg-warning-subtle/40 text-warning';
+  }
+  return selected
+    ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
+    : hovered
+      ? 'border-primary bg-primary-subtle/60 text-primary shadow-sm'
+      : 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90';
 }
 
 function FieldBox({
@@ -443,6 +561,7 @@ function FieldBox({
   selected,
   hovered,
   dragging,
+  variant = 'field',
   onPointerEnter,
   onPointerLeave,
   onPointerDownBody,
@@ -451,14 +570,23 @@ function FieldBox({
   onPointerUp,
   onKeyDown,
   onDelete,
+  onAccept,
 }: FieldBoxProps) {
   const meta = FIELD_TYPE_META[field.type];
+  const isSuggestion = variant === 'suggestion';
+  // Recommendation controls stay visible; a confirmed field reveals them on select.
+  const showControls = isSuggestion || selected;
+  const showHandles = isSuggestion ? hovered || dragging : selected || hovered;
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={`${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`}
-      aria-pressed={selected}
+      aria-label={
+        isSuggestion
+          ? `${meta.label} 추천 필드. 방향키로 이동, Shift+방향키로 크기 조절, 수락 또는 삭제 버튼을 사용하세요`
+          : `${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`
+      }
+      aria-pressed={isSuggestion ? undefined : selected}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       onPointerDown={onPointerDownBody}
@@ -471,11 +599,7 @@ function FieldBox({
         'group absolute flex select-none items-center justify-center rounded-sm border-2 text-xs font-semibold',
         'outline-none transition-[box-shadow,background-color,border-color]',
         dragging ? 'cursor-grabbing duration-0' : 'cursor-grab duration-fast ease-standard',
-        selected
-          ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
-          : hovered
-            ? 'border-primary bg-primary-subtle/60 text-primary shadow-sm'
-            : 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90',
+        boxStateClasses(variant, selected, hovered),
       )}
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     >
@@ -484,32 +608,58 @@ function FieldBox({
         {meta.label}
       </span>
 
-      {/* Delete affordance — appears when the field is active. */}
-      {selected ? (
-        <button
-          type="button"
-          aria-label={`${meta.label} 필드 삭제`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onDelete();
-          }}
-          className="absolute -right-2.5 -top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-danger text-danger-foreground shadow-sm transition-transform duration-fast hover:scale-110 active:scale-95"
-        >
-          <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
-            <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </button>
+      {/* "추천" badge — marks the recommendation state. */}
+      {isSuggestion ? (
+        <span className="pointer-events-none absolute -top-2.5 left-1 rounded-full bg-warning px-1 py-0 text-xs font-semibold leading-tight text-warning-foreground shadow-xs">
+          추천
+        </span>
+      ) : null}
+
+      {/* Active affordances: accept (recommendation only) + delete. */}
+      {showControls ? (
+        <div className="absolute -right-2.5 -top-2.5 flex items-center gap-1">
+          {isSuggestion && onAccept ? (
+            <button
+              type="button"
+              aria-label={`${meta.label} 추천 필드 수락`}
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                onAccept();
+              }}
+              className="flex h-5 w-5 items-center justify-center rounded-full bg-success text-success-foreground shadow-sm transition-transform duration-fast hover:scale-110 active:scale-95"
+            >
+              <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
+                <path d="M2.5 6.5l2.5 2.5 4.5-5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            </button>
+          ) : null}
+          <button
+            type="button"
+            aria-label={isSuggestion ? `${meta.label} 추천 필드 삭제` : `${meta.label} 필드 삭제`}
+            onPointerDown={(e) => e.stopPropagation()}
+            onClick={(e) => {
+              e.stopPropagation();
+              onDelete();
+            }}
+            className="flex h-5 w-5 items-center justify-center rounded-full bg-danger text-danger-foreground shadow-sm transition-transform duration-fast hover:scale-110 active:scale-95"
+          >
+            <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
+              <path d="M3 3l6 6M9 3l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </button>
+        </div>
       ) : null}
 
       {/* Resize handles — visible on select/hover. */}
-      {selected || hovered
+      {showHandles
         ? RESIZE_HANDLES.map((h) => (
             <span
               key={h}
               onPointerDown={(e) => onPointerDownHandle(e, h)}
               className={cn(
-                'absolute h-2.5 w-2.5 rounded-full border border-primary bg-surface shadow-xs',
+                'absolute h-2.5 w-2.5 rounded-full border bg-surface shadow-xs',
+                isSuggestion ? 'border-warning' : 'border-primary',
                 HANDLE_POSITION[h],
                 HANDLE_CURSOR[h],
               )}
