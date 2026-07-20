@@ -26,12 +26,24 @@ import {
 } from '@/lib/field-geometry';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
+import { autoPlaceFields, candidatesToSuggestions } from '@/lib/field-candidates';
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
 const ZOOM_STEP = 0.25;
 /** Page fits comfortably in the 760px wizard column at zoom 1. */
 const BASE_FIT_WIDTH = 640;
+
+/**
+ * Auto-placement run state, kept local to this step (recommendations are
+ * transient — they vanish on re-entry, which is allowed).
+ *   idle    — never run / cleared
+ *   loading — reading the PDF and matching anchors
+ *   ready   — one or more recommendations are on the page
+ *   empty   — ran successfully but found nothing to recommend
+ *   error   — the run failed; the manual flow is unaffected
+ */
+type AutoPlaceStatus = 'idle' | 'loading' | 'ready' | 'empty' | 'error';
 
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
@@ -43,9 +55,62 @@ export function FieldsStep() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
 
+  // Auto-placement recommendations live only in this step's local state — they
+  // are drafts awaiting the user's accept/edit/dismiss, never persisted until
+  // promoted into `fields`. Leaving and returning drops them (allowed).
+  const [suggestions, setSuggestions] = React.useState<SignFieldDraft[]>([]);
+  const [autoStatus, setAutoStatus] = React.useState<AutoPlaceStatus>('idle');
+
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
     [dispatch],
+  );
+
+  // Run auto-placement: read the PDF, match anchors, and drop the survivors
+  // (deduped against already-placed fields) into local recommendation state.
+  // Any failure falls back to the manual flow with an error notice.
+  const runAutoPlace = React.useCallback(async () => {
+    if (!file) return;
+    setAutoStatus('loading');
+    try {
+      const candidates = await autoPlaceFields(file);
+      const drafts = candidatesToSuggestions(candidates, fields);
+      if (drafts.length === 0) {
+        setSuggestions([]);
+        setAutoStatus('empty');
+        return;
+      }
+      setSuggestions(drafts.map((draft) => ({ ...draft, id: nextFieldId() })));
+      setAutoStatus('ready');
+    } catch {
+      setSuggestions([]);
+      setAutoStatus('error');
+    }
+  }, [file, fields]);
+
+  // Promote a recommendation into the confirmed field list with a fresh id, then
+  // drop it from the recommendation layer. Shared by accept and "편집=수락".
+  const promoteSuggestion = React.useCallback(
+    (id: string, patch?: Partial<SignFieldDraft>) => {
+      const match = suggestions.find((s) => s.id === id);
+      if (!match) return;
+      const { id: _drop, ...rest } = match;
+      const newId = nextFieldId();
+      setFields([...fields, { ...rest, ...patch, id: newId }]);
+      setSuggestions((prev) => prev.filter((s) => s.id !== id));
+      setSelectedId(newId);
+    },
+    [suggestions, fields, setFields],
+  );
+
+  const acceptSuggestion = React.useCallback((id: string) => promoteSuggestion(id), [promoteSuggestion]);
+  const changeSuggestion = React.useCallback(
+    (id: string, patch: Partial<SignFieldDraft>) => promoteSuggestion(id, patch),
+    [promoteSuggestion],
+  );
+  const dismissSuggestion = React.useCallback(
+    (id: string) => setSuggestions((prev) => prev.filter((s) => s.id !== id)),
+    [],
   );
 
   const addAtCenter = React.useCallback(
@@ -91,10 +156,13 @@ export function FieldsStep() {
         {FIELD_TYPES.map((type) => (
           <FieldTool key={type} type={type} onAdd={() => addAtCenter(type)} />
         ))}
+        <AutoPlaceButton loading={autoStatus === 'loading'} onRun={runAutoPlace} />
         <span className="ml-auto text-xs font-medium text-foreground-subtle">
           이 페이지에 {pageFieldCount}개 · 전체 {fields.length}개
         </span>
       </div>
+
+      <AutoPlaceNotice status={autoStatus} count={suggestions.length} />
 
       {/* Page nav + zoom */}
       <div className="flex items-center justify-between gap-sm rounded-md border border-border bg-surface px-sm py-2xs">
@@ -156,13 +224,17 @@ export function FieldsStep() {
           selectedId={selectedId}
           onSelect={setSelectedId}
           onFieldsChange={setFields}
+          suggestions={suggestions}
+          onSuggestionAccept={acceptSuggestion}
+          onSuggestionChange={changeSuggestion}
+          onSuggestionDismiss={dismissSuggestion}
           onPageCount={setPageCount}
           className="max-h-[60vh]"
         />
 
-        {fields.length === 0 ? (
+        {fields.length === 0 && suggestions.length === 0 ? (
           <p className="pointer-events-none absolute inset-x-0 bottom-md text-center text-xs font-medium text-foreground-subtle">
-            위 도구를 PDF 위로 끌어다 놓아 필드를 배치하세요
+            위 도구를 PDF 위로 끌어다 놓거나 ‘자동 배치’로 시작하세요
           </p>
         ) : null}
       </div>
@@ -201,6 +273,66 @@ function FieldTool({ type, onAdd }: { type: SignFieldType; onAdd: () => void }) 
       {meta.label}
     </button>
   );
+}
+
+/**
+ * Runs auto-placement. Styled as the palette's primary action (solid brand fill)
+ * so it reads as "do this for me" against the outlined manual tools beside it.
+ * While a run is in flight it shows a spinner and disables to prevent re-entry.
+ */
+function AutoPlaceButton({ loading, onRun }: { loading: boolean; onRun: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onRun}
+      disabled={loading}
+      aria-label="문서를 분석해 서명 필드를 자동으로 추천 배치"
+      aria-busy={loading}
+      className={cn(
+        'inline-flex items-center gap-xs rounded-md border border-primary bg-primary px-sm py-2xs',
+        'text-sm font-semibold text-primary-foreground shadow-xs',
+        'transition-[transform,background-color,opacity] duration-fast ease-standard',
+        'hover:bg-primary/90 focus-visible:ring-2 focus-visible:ring-focus active:scale-[0.97]',
+        'disabled:cursor-progress disabled:opacity-70',
+      )}
+    >
+      <span className="flex h-6 w-6 items-center justify-center">
+        {loading ? <SpinnerIcon /> : <SparkleIcon />}
+      </span>
+      {loading ? '분석 중…' : '자동 배치'}
+    </button>
+  );
+}
+
+/**
+ * Guidance for each auto-placement outcome. Recommendations are self-evident on
+ * the canvas (dotted "추천" boxes), so `ready` reminds the user how to confirm
+ * them; `empty`/`error` reassure that manual placement still works; `idle`/
+ * `loading` say nothing (the button already carries that state).
+ */
+function AutoPlaceNotice({ status, count }: { status: AutoPlaceStatus; count: number }) {
+  if (status === 'ready' && count > 0) {
+    return (
+      <p role="status" className="text-xs font-medium text-foreground-subtle">
+        점선으로 표시된 추천 필드 {count}개를 확인해 주세요. 수락하거나 위치·크기를 다듬으면 확정돼요.
+      </p>
+    );
+  }
+  if (status === 'empty') {
+    return (
+      <p role="status" className="text-xs font-medium text-foreground-subtle">
+        자동으로 넣을 만한 위치를 찾지 못했어요. 위 도구를 끌어다 직접 배치해 주세요.
+      </p>
+    );
+  }
+  if (status === 'error') {
+    return (
+      <p role="alert" className="text-xs font-medium text-danger">
+        자동 배치에 실패했어요. 잠시 후 다시 시도하거나 직접 배치해 주세요.
+      </p>
+    );
+  }
+  return null;
 }
 
 function DesktopOnlyFallback() {
@@ -318,6 +450,29 @@ function MinusIcon() {
   return (
     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
       <path d="M5 10h10" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function SparkleIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+      <path
+        d="M10 3l1.4 3.6L15 8l-3.6 1.4L10 13l-1.4-3.6L5 8l3.6-1.4L10 3z"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinejoin="round"
+      />
+      <path d="M15 13l.7 1.8L17.5 15.5l-1.8.7L15 18l-.7-1.8L12.5 15.5l1.8-.7L15 13z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function SpinnerIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4 animate-spin" fill="none" aria-hidden="true">
+      <circle cx="10" cy="10" r="7" stroke="currentColor" strokeOpacity="0.3" strokeWidth="2" />
+      <path d="M17 10a7 7 0 00-7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
     </svg>
   );
 }
