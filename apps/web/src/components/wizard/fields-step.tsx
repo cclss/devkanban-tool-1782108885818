@@ -61,6 +61,30 @@ export function FieldsStep() {
   const [suggestions, setSuggestions] = React.useState<SignFieldDraft[]>([]);
   const [autoStatus, setAutoStatus] = React.useState<AutoPlaceStatus>('idle');
 
+  // Stale-run guards for auto-placement. A run reads the PDF asynchronously, so
+  // by the time it resolves the user may have swapped the document or left the
+  // step. `runTokenRef` fences out superseded runs, `fileRef` catches a document
+  // swap, and `mountedRef` blocks setState after unmount — together they ensure
+  // a run only writes recommendations that belong to the file still on screen.
+  const runTokenRef = React.useRef(0);
+  const fileRef = React.useRef(file);
+  const mountedRef = React.useRef(true);
+  React.useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
+
+  // A new document invalidates any prior run: drop stale recommendations and
+  // reset to idle so a run left mid-flight by the swap can't strand the button
+  // in its loading state. Leaves only the manual flow on the fresh file.
+  React.useEffect(() => {
+    fileRef.current = file;
+    setSuggestions([]);
+    setAutoStatus('idle');
+  }, [file]);
+
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
     [dispatch],
@@ -71,19 +95,32 @@ export function FieldsStep() {
   // Any failure falls back to the manual flow with an error notice.
   const runAutoPlace = React.useCallback(async () => {
     if (!file) return;
+    // Fence this run: a later run, a document swap, or unmount makes it stale,
+    // and a stale run must discard its result rather than paint the wrong file.
+    const token = (runTokenRef.current += 1);
+    const runFile = file;
+    const isStale = () =>
+      !mountedRef.current || runTokenRef.current !== token || fileRef.current !== runFile;
+
     setAutoStatus('loading');
     try {
       const candidates = await autoPlaceFields(file);
+      if (isStale()) return;
       const drafts = candidatesToSuggestions(candidates, fields);
       if (drafts.length === 0) {
+        // Nothing to recommend — fully clear so only the manual flow remains.
         setSuggestions([]);
+        setSelectedId(null);
         setAutoStatus('empty');
         return;
       }
       setSuggestions(drafts.map((draft) => ({ ...draft, id: nextFieldId() })));
       setAutoStatus('ready');
     } catch {
+      if (isStale()) return;
+      // Run failed — fully clear so only the manual flow remains.
       setSuggestions([]);
+      setSelectedId(null);
       setAutoStatus('error');
     }
   }, [file, fields]);
