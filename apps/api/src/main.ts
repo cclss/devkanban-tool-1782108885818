@@ -3,8 +3,13 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import type { NestExpressApplication } from '@nestjs/platform-express';
 import { AppModule } from './app.module';
+import { warnOnDefaultProductionSecrets } from './common/production-secrets';
 
 async function bootstrap(): Promise<void> {
+  // Surface a misconfigured deploy (dev-default/unset secrets in production)
+  // before we start accepting traffic. Non-throwing — fallbacks still apply.
+  warnOnDefaultProductionSecrets();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // Captured signature values arrive as base64 image dataURLs, which exceed
