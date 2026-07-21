@@ -58,6 +58,16 @@ export class SigningController {
     return this.signing.payload(signer.signRequestId);
   }
 
+  /**
+   * ③b Plain-language key-clause highlights for the pre-read summary (session
+   * required). Additive to `payload` — the existing shapes are untouched.
+   */
+  @Get(':token/highlights')
+  @UseGuards(SignerSessionGuard)
+  highlights(@CurrentSigner() signer: SignerSession) {
+    return this.signing.highlights(signer.signRequestId);
+  }
+
   /** ④ Stream the document PDF bytes (session required). */
   @Get(':token/pdf')
   @UseGuards(SignerSessionGuard)

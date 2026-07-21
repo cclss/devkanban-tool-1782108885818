@@ -4,6 +4,7 @@ import { SigningController } from './signing.controller';
 import { SigningService } from './signing.service';
 import { SignerSessionService } from './signer-session.service';
 import { SignerSessionGuard } from './signer-session.guard';
+import { PdfTextService } from './pdf-text.service';
 import { CompletionModule } from '../completion/completion.module';
 
 /**
@@ -18,7 +19,7 @@ import { CompletionModule } from '../completion/completion.module';
 @Module({
   imports: [JwtModule.register({}), CompletionModule],
   controllers: [SigningController],
-  providers: [SigningService, SignerSessionService, SignerSessionGuard],
+  providers: [SigningService, SignerSessionService, SignerSessionGuard, PdfTextService],
   // Exported so the LINK share flow (sharing module) can reuse the exact same
   // session-guarded field/submit machinery (openPdf / saveFields / complete)
   // without duplicating it. The OTP (CODE) flow is unaffected.

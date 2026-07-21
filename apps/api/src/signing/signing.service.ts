@@ -23,6 +23,8 @@ import {
 import { SignerSessionService } from './signer-session.service';
 import { CompletionQueue } from '../completion/completion.queue';
 import { artifactFilename, type CompletionArtifact } from '../completion/artifact';
+import { PdfTextService } from './pdf-text.service';
+import { extractHighlights, type HighlightsResult } from './clause-extraction';
 import type { SaveFieldValuesDto } from './dto/signing.dto';
 
 /** Audit-log action names for the signer flow. */
@@ -43,6 +45,7 @@ export class SigningService {
     private readonly storage: StorageService,
     private readonly sessions: SignerSessionService,
     private readonly completionQueue: CompletionQueue,
+    private readonly pdfText: PdfTextService,
   ) {}
 
   // --- ① pre-auth meta -----------------------------------------------------
@@ -197,6 +200,34 @@ export class SigningService {
         filled: f.value != null && f.value.length > 0,
       })),
     };
+  }
+
+  // --- ③b key-clause highlights (session) ---------------------------------
+
+  /**
+   * Plain-language "highlight cards" of the contract's key clauses — parties,
+   * money, term, obligations, and the most important caution — so the signer can
+   * grasp what matters before reading the full PDF (Toss-style 약관 요약 UX).
+   *
+   * Computed on-the-fly at signer entry (no new column, no migration; already
+   * dispatched contracts get summaries retroactively). Extraction is best-effort:
+   * when the PDF has no machine-readable text (scanned/image-only) the result is
+   * `{ available: false, clauses: [] }` and the client falls back to the full
+   * document — never an error. The session guard already binds this signRequest
+   * to the accessed link, so a signer only ever summarizes their own contract.
+   */
+  async highlights(signRequestId: string): Promise<HighlightsResult> {
+    const signRequest = await this.prisma.signRequest.findUnique({
+      where: { id: signRequestId },
+      select: { document: { select: { storageKey: true } } },
+    });
+    if (!signRequest) throw new NotFoundException(MESSAGES.signing.invalidLink);
+
+    const stream = await this.storage.openStream(signRequest.document.storageKey);
+    const bytes = await streamToBuffer(stream);
+    const pages = await this.pdfText.extract(bytes);
+    const available = pages.some((p) => p.text.trim().length > 0);
+    return { available, clauses: extractHighlights(pages) };
   }
 
   // --- ④ pdf bytes (session) ----------------------------------------------
@@ -442,6 +473,15 @@ export class SigningService {
 }
 
 // --- pure helpers ----------------------------------------------------------
+
+/** Buffer a readable stream fully into memory (contract PDFs are small). */
+async function streamToBuffer(stream: Readable): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of stream) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+  }
+  return Buffer.concat(chunks);
+}
 
 /** Constant-time string compare; false on length mismatch. */
 function safeEqual(a: string, b: string): boolean {

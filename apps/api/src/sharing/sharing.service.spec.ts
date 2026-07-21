@@ -217,7 +217,14 @@ function setup(): Harness {
     openStream: jest.fn().mockResolvedValue({ on: jest.fn(), pipe: jest.fn() }),
   } as never;
   const signerSessions = {} as never;
-  const signing = new SigningService(prisma as never, storage, signerSessions, completionQueue);
+  const pdfText = { extract: jest.fn().mockResolvedValue([]) } as never;
+  const signing = new SigningService(
+    prisma as never,
+    storage,
+    signerSessions,
+    completionQueue,
+    pdfText,
+  );
 
   const sendQuota = new SendQuotaService(prisma as never);
   const linkPassword = new LinkPasswordCipher(config);
