@@ -27,11 +27,19 @@ import { createPortal } from 'react-dom';
 import { Confetti, SuccessCheck } from '@repo/ui';
 import { brandStyle } from '@/lib/branding';
 import { CompletionDownload } from '@/components/completion-download';
+import { CompletionSummary } from './completion-summary';
 import { useFill } from './fill-context';
 
 export function CompletionScreen() {
-  const { brandColor, documentTitle, payload, documentCompleted, copy, download } = useFill();
+  const { brandColor, documentTitle, payload, documentCompleted, copy, download, highlights } =
+    useFill();
   const done = copy.done;
+
+  // The finish-screen recap reuses the pre-read key-clause cards (grain-5 data).
+  // Only render it when this flow projects highlights *and* clauses surfaced —
+  // the share flow (no highlights) and scanned PDFs (available:false) skip it.
+  const recapClauses =
+    highlights && highlights.available ? highlights.clauses : [];
 
   // Portals need the DOM; gate on mount so SSR/first paint stays clean.
   const [mounted, setMounted] = React.useState(false);
@@ -69,6 +77,14 @@ export function CompletionScreen() {
         </div>
 
         <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
+
+        {recapClauses.length > 0 && highlights ? (
+          <CompletionSummary
+            clauses={recapClauses}
+            copy={highlights.copy}
+            heading={done.summaryLabel}
+          />
+        ) : null}
 
         {download && documentCompleted ? (
           <CompletionDownload

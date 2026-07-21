@@ -132,6 +132,12 @@ export interface DoneCopy {
   nextAllDone: string;
   /** Next-step note when other participants are still pending. */
   nextWaiting: string;
+  /**
+   * Heading above the completion recap cards ("계약 핵심 요약"). Only shown when
+   * the flow projects highlights with at least one clause (OTP flow); the share
+   * flow provides it for type-completeness but never renders the recap.
+   */
+  summaryLabel: string;
 }
 
 /** Optional completed-artifact download (OTP only; the share flow omits it). */

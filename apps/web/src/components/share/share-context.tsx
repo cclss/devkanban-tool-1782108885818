@@ -296,5 +296,8 @@ const SHARE_FILL_COPY: FillCopy = {
     // A share submission shows one next-step line regardless of other participants.
     nextAllDone: SHARE_RECIPIENT_COPY.done.next,
     nextWaiting: SHARE_RECIPIENT_COPY.done.next,
+    // Type-completeness only: the share flow projects no highlights, so the recap
+    // (and this heading) never render.
+    summaryLabel: SHARE_RECIPIENT_COPY.done.documentLabel,
   },
 };

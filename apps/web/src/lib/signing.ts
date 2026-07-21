@@ -214,6 +214,8 @@ export const SIGNER_COPY = {
     /** What happens next, by whether the whole document is now complete. */
     nextAllDone: '모든 서명이 끝났어요. 완료된 계약서를 메일로 보내 드릴게요.',
     nextWaiting: '다른 분들의 서명이 끝나면 완료된 계약서를 메일로 보내 드릴게요.',
+    /** Heading above the completion recap cards (reuses the pre-read key clauses). */
+    summaryLabel: '계약 핵심 요약',
   },
   /** Final-CTA failure fallback (no blame, just retry) — when the server gives none. */
   completeError: '서명을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
