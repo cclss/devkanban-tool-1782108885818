@@ -68,6 +68,12 @@ export interface FillCopy {
   pageError: (pageNumber: number) => string;
   /** Progress line, by total + completed counts. */
   progress: (total: number, done: number) => string;
+  /**
+   * Compact progress counter for the bottom CTA ("서명 N/M 완료"), by completed +
+   * total counts. Shorter than {@link progress} (a full sentence) — the CTA needs
+   * a glanceable count, not prose. Only shown when there is at least one field.
+   */
+  progressCount: (done: number, total: number) => string;
   /** Progress line when there are no fields to fill. */
   progressNone: string;
   /** Progress line when every field is done. */

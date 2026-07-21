@@ -330,6 +330,16 @@ export function DocumentViewer() {
               {completeError}
             </p>
           ) : null}
+          {/* Progress counter + track (grain-8). Purely derived from the reused
+              `orderedUnfilled`/`total` state — no new flow logic. Hidden when there
+              is nothing to fill (the CTA then just finalizes). */}
+          {total > 0 ? (
+            <ProgressMeter
+              done={total - remaining}
+              total={total}
+              label={copy.progressCount(total - remaining, total)}
+            />
+          ) : null}
           <Button fullWidth size="lg" onClick={onCta} isLoading={completing}>
             {remaining > 0 ? copy.ctaContinue : copy.ctaComplete}
           </Button>
@@ -339,6 +349,62 @@ export function DocumentViewer() {
       {/* The capture BottomSheet targets the field opened via the fill context. */}
       <SignatureInputSheet />
     </main>
+  );
+}
+
+interface ProgressMeterProps {
+  /** Fields captured so far. */
+  done: number;
+  /** Total assigned fields (caller guarantees > 0). */
+  total: number;
+  /** Compact counter copy ("서명 N/M 완료"), flow-projected. */
+  label: string;
+}
+
+/**
+ * The bottom-CTA progress meter (grain-8): a compact "서명 N/M 완료" counter beside
+ * a thin fill track that grows as fields are captured.
+ *
+ * Pure presentation — it renders whatever `done/total` the reused
+ * `orderedUnfilled` bookkeeping produces and owns no state. The track fill uses
+ * the **primary** tone while filling (progress toward the required signing
+ * action) and switches to **success** once complete (`done === total`), together
+ * with the counter, to confirm "ready to submit" before the CTA finalizes. The
+ * fill width animates with a token-timed CSS `width` transition — no
+ * framer-motion (card Boundary: CSS only). Every value comes from existing Token
+ * Groups (color/spacing/radius/typography/transition).
+ */
+function ProgressMeter({ done, total, label }: ProgressMeterProps) {
+  const complete = done >= total;
+  const pct = Math.round((done / total) * 100);
+  return (
+    <div className="mb-sm flex items-center gap-md">
+      <div
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={total}
+        aria-valuenow={done}
+        aria-label={label}
+        className="h-2xs flex-1 overflow-hidden rounded-full bg-surface-muted"
+      >
+        <div
+          className={cn(
+            'h-full rounded-full transition-[width] duration-base ease-standard',
+            complete ? 'bg-success' : 'bg-primary',
+          )}
+          style={{ width: `${pct}%` }}
+        />
+      </div>
+      <span
+        aria-hidden="true"
+        className={cn(
+          'shrink-0 text-sm font-semibold tabular-nums',
+          complete ? 'text-success' : 'text-foreground-subtle',
+        )}
+      >
+        {label}
+      </span>
+    </div>
   );
 }
 

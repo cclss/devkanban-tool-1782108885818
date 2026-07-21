@@ -269,6 +269,7 @@ const SHARE_FILL_COPY: FillCopy = {
   loadError: SHARE_RECIPIENT_COPY.viewer.loadError,
   pageError: (n) => `${n}페이지를 불러올 수 없어요.`,
   progress: (total, done) => `작성할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
+  progressCount: (done, total) => `작성 ${done}/${total} 완료`,
   progressNone: SHARE_RECIPIENT_COPY.viewer.progressNone,
   progressAllDone: SHARE_RECIPIENT_COPY.viewer.progressAllDone,
   // The capture affordance + sheet chrome are identical to the signer flow.

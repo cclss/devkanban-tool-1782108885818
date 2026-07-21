@@ -322,6 +322,7 @@ const SIGNER_FILL_COPY: FillCopy = {
   loadError: SIGNER_COPY.viewerLoadError,
   pageError: (n) => `${n}페이지를 불러올 수 없어요.`,
   progress: (total, done) => `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
+  progressCount: (done, total) => `서명 ${done}/${total} 완료`,
   progressNone: '서명할 항목이 없어요.',
   progressAllDone: '모든 항목을 작성했어요.',
   fieldAffordance: SIGNER_COPY.fieldAffordance,
