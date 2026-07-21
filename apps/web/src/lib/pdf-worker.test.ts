@@ -11,8 +11,13 @@ import { readFileSync, existsSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
 describe('self-hosted pdf worker', () => {
+  // Resolve the installed pdfjs-dist from disk to compare its worker build. This
+  // node-only jest test intentionally uses require to read the package manifest
+  // synchronously; the rule targets app/runtime code, not a build-time guard.
+  /* eslint-disable @typescript-eslint/no-require-imports */
   const pkgJsonPath = require.resolve('pdfjs-dist/package.json');
   const { version } = require('pdfjs-dist/package.json') as { version: string };
+  /* eslint-enable @typescript-eslint/no-require-imports */
   const installedWorker = join(dirname(pkgJsonPath), 'build', 'pdf.worker.min.mjs');
   const committedWorker = join(__dirname, '..', '..', 'public', 'pdf.worker.min.mjs');
 

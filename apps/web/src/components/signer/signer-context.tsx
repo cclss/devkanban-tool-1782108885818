@@ -25,6 +25,7 @@ import { ApiError } from '@/lib/api';
 import {
   completeSigning,
   downloadSignerArtifact,
+  fetchHighlights,
   fetchMeta,
   fetchPayload,
   getSignerSession,
@@ -33,6 +34,7 @@ import {
   signerPdfUrl,
   verifyCode,
   SIGNER_COPY,
+  type HighlightsResult,
   type SigningMeta,
   type SigningPayload,
 } from '@/lib/signing';
@@ -41,6 +43,7 @@ import {
   type FillContextValue,
   type FillCopy,
   type FillFieldValue,
+  type FillHighlightsCopy,
 } from './fill-context';
 
 /**
@@ -66,6 +69,11 @@ export interface SignerState {
   meta: SigningMeta | null;
   /** The signer's working set, fetched right after a successful verify. */
   payload: SigningPayload | null;
+  /**
+   * Pre-read key-clause summary, fetched (non-blocking) after verify. `null`
+   * while in flight; a resolved `{ available:false }` degrades gracefully.
+   */
+  highlights: HighlightsResult | null;
   /** Why a link is non-signable, when `phase === 'blocked'`. */
   blockReason: BlockReason | null;
   /** Values captured per field id; the viewer reflects these inline. */
@@ -80,6 +88,7 @@ const initialState: SignerState = {
   phase: 'loading',
   meta: null,
   payload: null,
+  highlights: null,
   blockReason: null,
   fieldValues: {},
   activeFieldId: null,
@@ -90,6 +99,7 @@ type SignerAction =
   | { type: 'META_OK'; meta: SigningMeta }
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
   | { type: 'VERIFIED'; payload: SigningPayload }
+  | { type: 'HIGHLIGHTS'; highlights: HighlightsResult }
   | { type: 'GO_SIGNING' }
   | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'OPEN_FIELD'; fieldId: string }
@@ -109,6 +119,8 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
       };
     case 'VERIFIED':
       return { ...state, phase: 'viewing', payload: action.payload };
+    case 'HIGHLIGHTS':
+      return { ...state, highlights: action.highlights };
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
@@ -204,6 +216,13 @@ export function SignerProvider({
       // Hand the signer's fields + (implicit) session to the viewer.
       const payload = await fetchPayload(token, sessionToken);
       dispatch({ type: 'VERIFIED', payload });
+      // Load the pre-read summary in the background — additive, never blocks the
+      // viewer. Any failure degrades to a graceful "couldn't summarize" fallback.
+      fetchHighlights(token, sessionToken)
+        .then((highlights) => dispatch({ type: 'HIGHLIGHTS', highlights }))
+        .catch(() =>
+          dispatch({ type: 'HIGHLIGHTS', highlights: { available: false, clauses: [] } }),
+        );
     },
     [token],
   );
@@ -272,6 +291,17 @@ export function SignerProvider({
       setFieldValue,
       complete,
       copy: SIGNER_FILL_COPY,
+      // Project the pre-read summary once verified: `null` while its background
+      // fetch is in flight, the bundle (+ client chrome) once it resolves.
+      highlights: state.payload
+        ? state.highlights
+          ? {
+              available: state.highlights.available,
+              clauses: state.highlights.clauses,
+              copy: SIGNER_HIGHLIGHTS_COPY,
+            }
+          : null
+        : undefined,
       download: {
         onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
       },
@@ -305,6 +335,15 @@ const SIGNER_FILL_COPY: FillCopy = {
     },
   },
   done: SIGNER_COPY.done,
+};
+
+/** Client-owned chrome for the signer's key-clause summary (content is server-owned). */
+const SIGNER_HIGHLIGHTS_COPY: FillHighlightsCopy = {
+  sectionTitle: SIGNER_COPY.summary.sectionTitle,
+  sectionHint: SIGNER_COPY.summary.sectionHint,
+  categoryLabel: SIGNER_COPY.summary.categoryLabel,
+  sourceLink: SIGNER_COPY.summary.sourceLink,
+  unavailable: SIGNER_COPY.summary.unavailable,
 };
 
 export function useSigner(): SignerContextValue {

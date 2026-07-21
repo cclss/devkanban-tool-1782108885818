@@ -78,6 +78,52 @@ export interface SigningPayload {
   fields: SigningPayloadField[];
 }
 
+// --- key-clause highlights (mirror clause-extraction.ts return types) --------
+
+/** Semantic category of a highlight card (mirrors the server enum). */
+export type HighlightCategory =
+  | 'parties'
+  | 'money'
+  | 'term'
+  | 'obligation'
+  | 'caution';
+
+/**
+ * Visual/voice tone for a card. `caution` clauses (penalties, liability,
+ * auto-renewal…) carry a distinct tone the summary UI renders differently
+ * (contract-highlight caution Variant).
+ */
+export type HighlightTone = 'default' | 'caution';
+
+export interface HighlightSource {
+  /** 1-based page the excerpt was found on (0 when unknown → no jump link). */
+  page: number;
+  /** Original contract text the card summarizes — anchors the "원문 보기" jump. */
+  excerpt: string;
+}
+
+/** One plain-language key-clause card produced by the server. */
+export interface ContractHighlight {
+  id: string;
+  category: HighlightCategory;
+  /** Everyday-language heading (server-owned copy). */
+  title: string;
+  /** Plain-language, honorific one-liner (server-owned copy). */
+  summary: string;
+  tone: HighlightTone;
+  source: HighlightSource;
+}
+
+export interface HighlightsResult {
+  /**
+   * False when no text could be extracted (scanned/image-only PDF or a parse
+   * failure). The UI shows a graceful fallback and the signer proceeds with the
+   * full document — never an error.
+   */
+  available: boolean;
+  clauses: ContractHighlight[];
+}
+
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
 
 /**
@@ -97,6 +143,28 @@ export const SIGNER_COPY = {
   unavailable: '더 이상 서명할 수 없는 계약이에요. 발신자에게 문의해 주세요.',
   invalidLinkTitle: '링크를 확인해 주세요',
   invalidLink: '서명 링크가 올바르지 않아요. 발신자에게 링크를 다시 요청해 주세요.',
+  /**
+   * Key-clause summary chrome. The card *content* (title/summary) is authored by
+   * the server (tone/clause-translation.md); only this chrome is client-owned —
+   * the section heading, the category badge labels, the source-jump affordance,
+   * and the graceful "couldn't summarize" fallback.
+   */
+  summary: {
+    sectionTitle: '핵심 조항 요약',
+    sectionHint: '서명 전에 꼭 확인할 내용만 모았어요. 원문은 아래에서 이어서 볼 수 있어요.',
+    /** Category badge label (chrome), by card category. */
+    categoryLabel: {
+      parties: '당사자',
+      money: '금액',
+      term: '기간',
+      obligation: '의무',
+      caution: '주의',
+    },
+    /** "Jump to the original text" affordance on each card. */
+    sourceLink: '원문 보기',
+    /** Shown when extraction wasn't possible (scanned/image PDF) — not an error. */
+    unavailable: '요약을 만들 수 없어요. 아래 원문을 확인해 주세요.',
+  },
   // Document viewer chrome (mirrors the same Toss voice).
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',
@@ -209,6 +277,21 @@ export function fetchPayload(
   sessionToken: string,
 ): Promise<SigningPayload> {
   return apiFetch<SigningPayload>(`${base(accessToken)}/payload`, {
+    token: sessionToken,
+  });
+}
+
+/**
+ * ③b Plain-language key-clause highlights for the pre-read summary (session
+ * required). Additive to `payload`; the signer UI shows these cards above the
+ * full document. A `{ available: false }` result (scanned/image PDF) is a
+ * graceful fallback, not an error.
+ */
+export function fetchHighlights(
+  accessToken: string,
+  sessionToken: string,
+): Promise<HighlightsResult> {
+  return apiFetch<HighlightsResult>(`${base(accessToken)}/highlights`, {
     token: sessionToken,
   });
 }

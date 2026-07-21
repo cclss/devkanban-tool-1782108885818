@@ -19,7 +19,7 @@
  */
 
 import * as React from 'react';
-import type { SignFieldType } from '@/lib/signing';
+import type { ContractHighlight, HighlightCategory, SignFieldType } from '@/lib/signing';
 import type { CompletionArtifact } from '@/lib/completion-download';
 import type { SignerSender } from '@/lib/signing';
 
@@ -116,6 +116,36 @@ export interface FillDownload {
 }
 
 /**
+ * Client-owned chrome for the key-clause summary (the card *content* is
+ * server-authored). Bundled with the data so a flow either provides the whole
+ * summary feature or omits it entirely.
+ */
+export interface FillHighlightsCopy {
+  /** Section heading above the cards. */
+  sectionTitle: string;
+  /** One-line intro under the heading. */
+  sectionHint: string;
+  /** Category badge label, by card category. */
+  categoryLabel: Record<HighlightCategory, string>;
+  /** "Jump to the original text" affordance on each card. */
+  sourceLink: string;
+  /** Graceful line when extraction wasn't possible (not an error). */
+  unavailable: string;
+}
+
+/**
+ * The pre-read key-clause summary, projected by a flow that supports it. Absent
+ * (`undefined`) on flows that don't (e.g. the link-share recipient), in which
+ * case the viewer renders no summary. `null` means "still loading".
+ */
+export interface FillHighlights {
+  /** False ⇒ show the graceful `copy.unavailable` fallback instead of cards. */
+  available: boolean;
+  clauses: ContractHighlight[];
+  copy: FillHighlightsCopy;
+}
+
+/**
  * Everything the shared reading/filling/completion screens need, projected from
  * whichever flow state machine owns the session.
  */
@@ -152,6 +182,13 @@ export interface FillContextValue {
   copy: FillCopy;
   /** Present ⇒ the completion screen shows a download area (OTP only). */
   download?: FillDownload;
+  /**
+   * Present ⇒ the viewer renders the key-clause summary above the document.
+   * `null` while loading, `undefined` on flows without the feature. Absent on
+   * the link-share flow (its recipients read the full doc, no OTP session
+   * highlights endpoint), so it stays undefined and no summary shows.
+   */
+  highlights?: FillHighlights | null;
 }
 
 const FillContext = React.createContext<FillContextValue | null>(null);

@@ -35,6 +35,7 @@ import { normToPx, type PageSize } from '@/lib/field-geometry';
 import { useFill, type FillField, type FillFieldValue } from './fill-context';
 import { BrandingHeader } from './branding-header';
 import { SignatureInputSheet } from './signature-sheet';
+import { HighlightSummary } from './highlight-summary';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
 
@@ -48,6 +49,11 @@ const TYPE_LABEL: Record<SignFieldType, string> = {
 /** Stable DOM id so the CTA / a tap can scroll a field into view. */
 function fieldDomId(id: string): string {
   return `fill-field-${id}`;
+}
+
+/** Stable DOM id so a summary card's "원문 보기" can scroll a page into view. */
+function pageDomId(pageNumber: number): string {
+  return `fill-page-${pageNumber}`;
 }
 
 /** A field is done when a value was captured, or the server already has one. */
@@ -72,6 +78,7 @@ export function DocumentViewer() {
     openField,
     complete,
     copy,
+    highlights,
   } = useFill();
 
   // Finalize state for the bottom CTA. A failed `complete` keeps every captured
@@ -162,6 +169,13 @@ export function DocumentViewer() {
     document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
+  // A summary card's "원문 보기" jumps to its source page in this same scroll
+  // column. A no-op while the pages are still rasterizing (nothing to scroll to
+  // yet) — the signer can re-tap once the document has loaded below the cards.
+  const scrollToPage = React.useCallback((pageNumber: number) => {
+    document.getElementById(pageDomId(pageNumber))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, []);
+
   const onFieldTap = React.useCallback(
     (field: FillField) => {
       scrollToField(field.id);
@@ -219,6 +233,12 @@ export function DocumentViewer() {
         // design value — derived from the bar's measured height).
         style={{ paddingBottom: ctaHeight ? ctaHeight + 24 : undefined }}
       >
+        {/* Pre-read key-clause summary above the full document. Present only on
+            flows that project it (the OTP signer); `null` while it loads. */}
+        {highlights ? (
+          <HighlightSummary highlights={highlights} onJumpToSource={scrollToPage} />
+        ) : null}
+
         {status === 'error' ? (
           <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-xs rounded-md border border-border bg-surface-muted px-md text-center">
             <p className="text-sm text-foreground-muted">{error}</p>
@@ -229,6 +249,7 @@ export function DocumentViewer() {
           Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNumber) => (
             <PdfPageView
               key={pageNumber}
+              domId={pageDomId(pageNumber)}
               doc={doc}
               pageNumber={pageNumber}
               width={pageWidth}
@@ -271,6 +292,8 @@ export function DocumentViewer() {
 
 interface PdfPageViewProps {
   doc: PdfDocument;
+  /** Stable DOM id (the "원문 보기" scroll target for this page). */
+  domId: string;
   pageNumber: number;
   /** Fit-to-width target in CSS px. */
   width: number;
@@ -284,6 +307,7 @@ interface PdfPageViewProps {
 /** One PDF page rasterized fit-to-width, with its field overlay on top. */
 function PdfPageView({
   doc,
+  domId,
   pageNumber,
   width,
   fields,
@@ -319,7 +343,7 @@ function PdfPageView({
   const ready = status === 'ready' && pageSize !== null;
 
   return (
-    <div className="relative w-full">
+    <div id={domId} className="relative w-full scroll-mt-md">
       {ready ? null : status === 'error' ? (
         <div className="flex aspect-[1/1.414] w-full items-center justify-center rounded-sm border border-border bg-surface-muted px-md text-center">
           <p className="text-sm text-foreground-muted">{pageError(pageNumber)}</p>
