@@ -18,9 +18,15 @@ async function bootstrap(): Promise<void> {
   app.useBodyParser('json', { limit: '8mb' });
   app.useBodyParser('urlencoded', { limit: '8mb', extended: true });
 
-  // Allow the web app (and signer pages) to call the API during development.
+  // Allow the web app (and signer pages) to call the API. `WEB_ORIGIN` may list
+  // several comma-separated origins (e.g. the app host and a separate signer
+  // host); we allow each one. Falls back to the dev origin when unset.
+  const webOrigins = (process.env.WEB_ORIGIN ?? 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim().replace(/\/+$/, ''))
+    .filter((origin) => origin.length > 0);
   app.enableCors({
-    origin: process.env.WEB_ORIGIN ?? 'http://localhost:3000',
+    origin: webOrigins,
     credentials: true,
     // Let the browser read the artifact filename on cross-origin downloads.
     exposedHeaders: ['Content-Disposition'],

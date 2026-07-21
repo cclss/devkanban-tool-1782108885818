@@ -16,7 +16,23 @@
  * whose paths already carry the `/api` prefix — can prefix the origin without
  * double-appending `/api` (which {@link apiUrl} would do).
  */
-export const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+/**
+ * Normalize a configured API origin so appending `/api` never produces `/api/api`.
+ * Strips trailing slashes and a trailing `/api` segment — tolerant of deploy
+ * values set to `https://host`, `https://host/`, `https://host/api`, or
+ * `https://host/api/`.
+ */
+export function normalizeApiOrigin(raw: string): string {
+  return raw
+    .trim()
+    .replace(/\/+$/, '') // drop trailing slashes
+    .replace(/\/api$/i, '') // drop a trailing /api segment
+    .replace(/\/+$/, ''); // drop any slash the /api strip exposed
+}
+
+export const API_ORIGIN = normalizeApiOrigin(
+  process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001',
+);
 const API_BASE = `${API_ORIGIN}/api`;
 
 /** Neutral fallback when we can't read a server-provided message. */

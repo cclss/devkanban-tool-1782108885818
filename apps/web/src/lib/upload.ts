@@ -11,10 +11,11 @@
  * `DocumentSummary` (a DRAFT document). See documents.controller.ts.
  */
 
-import { ApiError, GENERIC_ERROR } from './api';
+import { API_ORIGIN, ApiError, GENERIC_ERROR } from './api';
 import type { DocumentSummary } from './documents';
 
-const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3001';
+// Reuse the normalized origin from lib/api so `/api` is appended exactly once
+// (a deploy value carrying `/api` would otherwise yield `/api/api`).
 const API_BASE = `${API_ORIGIN}/api`;
 
 export interface UploadProgress {
