@@ -334,6 +334,12 @@ const SIGNER_FILL_COPY: FillCopy = {
       return SIGNER_COPY.sheet.drawHint;
     },
   },
+  document: {
+    sectionTitle: SIGNER_COPY.viewerDocTitle,
+    hint: SIGNER_COPY.viewerDocHint,
+    expand: SIGNER_COPY.viewerDocExpand,
+    collapse: SIGNER_COPY.viewerDocCollapse,
+  },
   done: SIGNER_COPY.done,
 };
 

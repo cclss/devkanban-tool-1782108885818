@@ -282,6 +282,12 @@ const SHARE_FILL_COPY: FillCopy = {
       return SIGNER_COPY.sheet.drawHint;
     },
   },
+  document: {
+    sectionTitle: SHARE_RECIPIENT_COPY.viewer.docTitle,
+    hint: SHARE_RECIPIENT_COPY.viewer.docHint,
+    expand: SHARE_RECIPIENT_COPY.viewer.docExpand,
+    collapse: SHARE_RECIPIENT_COPY.viewer.docCollapse,
+  },
   done: {
     title: SHARE_RECIPIENT_COPY.done.title,
     body: SHARE_RECIPIENT_COPY.done.body,

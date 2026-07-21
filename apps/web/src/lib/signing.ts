@@ -169,6 +169,12 @@ export const SIGNER_COPY = {
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',
   viewerLoadError: '문서를 불러올 수 없어요. 잠시 후 다시 시도해 주세요.',
+  // Collapsible full-document ("원문 보기") disclosure — folded by default so the
+  // key-clause summary reads first (grain-7).
+  viewerDocTitle: '계약 원문',
+  viewerDocHint: '핵심 요약으로 충분하면 펼치지 않아도 괜찮아요.',
+  viewerDocExpand: '원문 보기',
+  viewerDocCollapse: '원문 접기',
   fieldFilled: '작성됨',
   /** "Tap here" affordance shown on an unfilled field, by type. */
   fieldAffordance: {

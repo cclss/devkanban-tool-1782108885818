@@ -222,6 +222,11 @@ export const SHARE_RECIPIENT_COPY = {
     progressNone: '작성할 항목이 없어요.',
     progressAllDone: '모든 항목을 작성했어요.',
     completeError: '제출하지 못했어요. 잠시 후 다시 시도해 주세요.',
+    // Collapsible full-document ("원문 보기") disclosure — folded by default (grain-7).
+    docTitle: '계약 원문',
+    docHint: '전체 계약서를 펼쳐서 확인할 수 있어요.',
+    docExpand: '원문 보기',
+    docCollapse: '원문 접기',
   },
   /** Submit-success completion takeover (`completion-screen`, Download 비노출). */
   done: {

@@ -17,6 +17,13 @@
  * flow-specific wiring — the PDF URL, the bearer session, the save endpoint, and
  * copy — comes from the {@link useFill} adapter, so the OTP signer flow and the
  * link-share recipient flow reuse this one screen verbatim.
+ *
+ * The full page-scroll view is **collapsed by default** (grain-7): the pre-read
+ * key-clause summary is what greets the recipient, and a neutral-toned "원문 보기"
+ * disclosure reveals the same rasterized pages on demand (the pages don't mount —
+ * nor rasterize — until expanded). A summary card's "원문 보기" link and the bottom
+ * CTA's jump-to-next-field both auto-expand first, then scroll, so field access
+ * survives even while the document is folded.
  */
 
 import * as React from 'react';
@@ -85,6 +92,10 @@ export function DocumentViewer() {
   // value in place (the context never clears them), so the recipient just retries.
   const [completing, setCompleting] = React.useState(false);
   const [completeError, setCompleteError] = React.useState<string | null>(null);
+
+  // The full document is folded by default (grain-7) — the summary reads first.
+  // The pages only mount (and rasterize) once this flips true.
+  const [docExpanded, setDocExpanded] = React.useState(false);
 
   const session = React.useMemo(() => loadSession(), [loadSession]);
   const fields = React.useMemo(() => payload?.fields ?? [], [payload]);
@@ -165,16 +176,40 @@ export function DocumentViewer() {
   const remaining = orderedUnfilled.length;
   const total = fields.length;
 
-  const scrollToField = React.useCallback((id: string) => {
-    document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  // Reveal the (possibly folded) document, then scroll a target into view once it
+  // exists. Expanding mounts the pages asynchronously — and each page rasterizes a
+  // beat later — so we poll a few frames for the element instead of firing once
+  // into an empty DOM. This is what keeps field access alive while collapsed: a
+  // jump-to-field expands the document and lands on the field when it paints in.
+  const revealAndScroll = React.useCallback((domId: string, block: ScrollLogicalPosition) => {
+    setDocExpanded(true);
+    if (typeof requestAnimationFrame !== 'function') {
+      document.getElementById(domId)?.scrollIntoView({ behavior: 'smooth', block });
+      return;
+    }
+    let tries = 0;
+    const tick = () => {
+      const el = document.getElementById(domId);
+      if (el) {
+        el.scrollIntoView({ behavior: 'smooth', block });
+        return;
+      }
+      if (tries++ < 60) requestAnimationFrame(tick); // ~1s budget for mount+raster
+    };
+    requestAnimationFrame(tick);
   }, []);
 
-  // A summary card's "원문 보기" jumps to its source page in this same scroll
-  // column. A no-op while the pages are still rasterizing (nothing to scroll to
-  // yet) — the signer can re-tap once the document has loaded below the cards.
-  const scrollToPage = React.useCallback((pageNumber: number) => {
-    document.getElementById(pageDomId(pageNumber))?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, []);
+  const scrollToField = React.useCallback(
+    (id: string) => revealAndScroll(fieldDomId(id), 'center'),
+    [revealAndScroll],
+  );
+
+  // A summary card's "원문 보기" expands the folded document and scrolls to the
+  // clause's source page in the same column.
+  const scrollToPage = React.useCallback(
+    (pageNumber: number) => revealAndScroll(pageDomId(pageNumber), 'start'),
+    [revealAndScroll],
+  );
 
   const onFieldTap = React.useCallback(
     (field: FillField) => {
@@ -239,28 +274,45 @@ export function DocumentViewer() {
           <HighlightSummary highlights={highlights} onJumpToSource={scrollToPage} />
         ) : null}
 
-        {status === 'error' ? (
-          <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-xs rounded-md border border-border bg-surface-muted px-md text-center">
-            <p className="text-sm text-foreground-muted">{error}</p>
-          </div>
-        ) : status === 'loading' || !doc || pageWidth === 0 ? (
-          <Skeleton className="aspect-[1/1.414] w-full" />
-        ) : (
-          Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNumber) => (
-            <PdfPageView
-              key={pageNumber}
-              domId={pageDomId(pageNumber)}
-              doc={doc}
-              pageNumber={pageNumber}
-              width={pageWidth}
-              fields={fields.filter((f) => f.page === pageNumber)}
-              fieldValues={fieldValues}
-              affordance={copy.fieldAffordance}
-              pageError={copy.pageError}
-              onFieldTap={onFieldTap}
-            />
-          ))
-        )}
+        {/* The full contract, folded away by default (grain-7). The pages mount
+            (and rasterize) only once expanded. */}
+        <section aria-label={copy.document.sectionTitle}>
+          <DocumentDisclosureToggle
+            expanded={docExpanded}
+            title={copy.document.sectionTitle}
+            hint={copy.document.hint}
+            expandLabel={copy.document.expand}
+            collapseLabel={copy.document.collapse}
+            onToggle={() => setDocExpanded((v) => !v)}
+          />
+
+          {docExpanded ? (
+            <div id="fill-original-document" className="mt-md flex flex-col gap-lg">
+              {status === 'error' ? (
+                <div className="flex aspect-[1/1.414] w-full flex-col items-center justify-center gap-xs rounded-md border border-border bg-surface-muted px-md text-center">
+                  <p className="text-sm text-foreground-muted">{error}</p>
+                </div>
+              ) : status === 'loading' || !doc || pageWidth === 0 ? (
+                <Skeleton className="aspect-[1/1.414] w-full" />
+              ) : (
+                Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNumber) => (
+                  <PdfPageView
+                    key={pageNumber}
+                    domId={pageDomId(pageNumber)}
+                    doc={doc}
+                    pageNumber={pageNumber}
+                    width={pageWidth}
+                    fields={fields.filter((f) => f.page === pageNumber)}
+                    fieldValues={fieldValues}
+                    affordance={copy.fieldAffordance}
+                    pageError={copy.pageError}
+                    onFieldTap={onFieldTap}
+                  />
+                ))
+              )}
+            </div>
+          ) : null}
+        </section>
       </div>
 
       <div
@@ -287,6 +339,82 @@ export function DocumentViewer() {
       {/* The capture BottomSheet targets the field opened via the fill context. */}
       <SignatureInputSheet />
     </main>
+  );
+}
+
+interface DocumentDisclosureToggleProps {
+  expanded: boolean;
+  title: string;
+  hint: string;
+  expandLabel: string;
+  collapseLabel: string;
+  onToggle: () => void;
+}
+
+/**
+ * The "원문 보기" disclosure header for the folded contract.
+ *
+ * Deliberately **neutral-toned** (surface + border, foreground text) — not the
+ * primary/brand tone. The primary tone is reserved for the two calls to action
+ * the recipient must take (the bottom sign/submit CTA, and the summary cards'
+ * "원문 보기" link); a secondary "peek at the full text if you want" control must
+ * read as optional, so it stays quiet and doesn't compete for the tap. Every
+ * value comes from existing Token Groups (color/spacing/radius/typography/
+ * transition); the chevron rotates with a token-timed CSS transform (no
+ * framer-motion — grain-7 Boundary).
+ */
+function DocumentDisclosureToggle({
+  expanded,
+  title,
+  hint,
+  expandLabel,
+  collapseLabel,
+  onToggle,
+}: DocumentDisclosureToggleProps) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      aria-expanded={expanded}
+      aria-controls="fill-original-document"
+      className={cn(
+        'flex w-full items-center gap-md rounded-lg border border-border bg-surface px-lg py-md text-left',
+        'transition-colors duration-fast ease-standard hover:bg-surface-muted',
+        'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
+      )}
+    >
+      <span className="min-w-0 flex-1">
+        <span className="block text-base font-bold text-foreground">{title}</span>
+        <span className="mt-2xs block text-sm text-foreground-subtle">{hint}</span>
+      </span>
+      <span className="flex shrink-0 items-center gap-2xs text-sm font-semibold text-foreground-muted">
+        {expanded ? collapseLabel : expandLabel}
+        <ChevronGlyph expanded={expanded} />
+      </span>
+    </button>
+  );
+}
+
+/** Down-chevron that flips up when the disclosure is open (token-timed rotate). */
+function ChevronGlyph({ expanded }: { expanded: boolean }) {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 24 24"
+      fill="none"
+      className={cn(
+        'h-4 w-4 transition-transform duration-fast ease-standard',
+        expanded ? 'rotate-180' : 'rotate-0',
+      )}
+    >
+      <path
+        d="M6 9l6 6 6-6"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
   );
 }
 

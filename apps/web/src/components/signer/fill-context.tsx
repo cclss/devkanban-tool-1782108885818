@@ -78,8 +78,26 @@ export interface FillCopy {
   completeError: string;
   /** The capture BottomSheet chrome (titles, mode toggles, hints, apply…). */
   sheet: SheetCopy;
+  /** The collapsible full-document ("원문 보기") disclosure chrome. */
+  document: DocumentDisclosureCopy;
   /** The completion takeover chrome. */
   done: DoneCopy;
+}
+
+/**
+ * Chrome for the collapsible full-contract view. The full PDF is collapsed by
+ * default (the pre-read summary is what the recipient sees first); this labels
+ * the disclosure toggle that reveals it and the calm hint under the heading.
+ */
+export interface DocumentDisclosureCopy {
+  /** Accessible label + heading for the collapsible original-document section. */
+  sectionTitle: string;
+  /** One-line hint under the heading (why the full text is folded away). */
+  hint: string;
+  /** Toggle label while collapsed — tapping expands the document. */
+  expand: string;
+  /** Toggle label while expanded — tapping collapses it again. */
+  collapse: string;
 }
 
 export interface SheetCopy {
