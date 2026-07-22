@@ -1,6 +1,7 @@
 'use client';
 
 import * as React from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import {
   Button,
@@ -43,6 +44,7 @@ import {
   SUMMARY_COPY,
   VIEW_SWITCHER_COPY,
 } from '@/lib/todo-copy';
+import { TEMPLATES_ENTRY_LABEL } from '@/lib/templates-copy';
 
 /**
  * Dashboard list ordering by urgency (design-spec/components/urgency-badge/base.md
@@ -57,6 +59,7 @@ function sortByUrgency(docs: DocumentSummary[]): DocumentSummary[] {
 }
 
 const NEW_CONTRACT_ROUTE = '/contracts/new';
+const TEMPLATES_ROUTE = '/templates';
 
 export default function DashboardPage() {
   const router = useRouter();
@@ -196,9 +199,14 @@ export default function DashboardPage() {
               보낸 계약의 진행 상황을 한눈에 확인하세요.
             </p>
           </div>
-          <Button size="lg" onClick={() => router.push(NEW_CONTRACT_ROUTE)} className="sm:w-auto">
-            새 계약 생성
-          </Button>
+          <div className="flex items-center gap-xs">
+            <Button variant="secondary" size="lg" asChild className="sm:w-auto">
+              <Link href={TEMPLATES_ROUTE}>{TEMPLATES_ENTRY_LABEL}</Link>
+            </Button>
+            <Button size="lg" onClick={() => router.push(NEW_CONTRACT_ROUTE)} className="sm:w-auto">
+              새 계약 생성
+            </Button>
+          </div>
         </div>
 
         <PlanUsage quota={quota} plan={user?.plan} className="mt-lg" />
