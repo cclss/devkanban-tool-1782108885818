@@ -7,6 +7,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { EmailModule } from './email/email.module';
 import { AuthModule } from './auth/auth.module';
 import { DocumentsModule } from './documents/documents.module';
+import { TemplatesModule } from './templates/templates.module';
 import { SigningModule } from './signing/signing.module';
 import { SharingModule } from './sharing/sharing.module';
 import { PdfModule } from './pdf/pdf.module';
@@ -22,6 +23,7 @@ import { BrandingModule } from './branding/branding.module';
     EmailModule,
     AuthModule,
     DocumentsModule,
+    TemplatesModule,
     SigningModule,
     SharingModule,
     PdfModule,
