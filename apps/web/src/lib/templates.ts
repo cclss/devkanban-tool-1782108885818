@@ -14,7 +14,7 @@
  * generic line.
  */
 
-import { apiFetch } from './api';
+import { apiDownload, apiFetch } from './api';
 import { getToken } from './auth';
 import type { SignFieldDraft } from '@/components/wizard/wizard-context';
 
@@ -108,4 +108,56 @@ export function createTemplate(input: CreateTemplateInput): Promise<TemplateDeta
 /** List the signed-in owner's templates, newest first. */
 export function listTemplates(): Promise<TemplateSummary[]> {
   return apiFetch<TemplateSummary[]>('/templates', { token: getToken() ?? undefined });
+}
+
+/**
+ * Load a single template incl. its full field layout, ready to hydrate the
+ * wizard. Rejects with the server's Korean copy (not-found / forbidden) on
+ * failure. Mirrors `GET /templates/:id` (`TemplateDetail`).
+ */
+export function getTemplate(id: string): Promise<TemplateDetail> {
+  return apiFetch<TemplateDetail>(`/templates/${encodeURIComponent(id)}`, {
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Rename a template — only its display name changes. The server trims the name
+ * and re-validates length, then returns the updated detail. Rejects with the
+ * server's Korean copy on failure. Mirrors `PATCH /templates/:id`.
+ */
+export function renameTemplate(id: string, name: string): Promise<TemplateDetail> {
+  return apiFetch<TemplateDetail>(`/templates/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    json: { name: name.trim() },
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Delete one of the owner's templates. Resolves once the server confirms
+ * (`204 No Content`); rejects with the server's Korean copy on failure. Mirrors
+ * `DELETE /templates/:id`.
+ */
+export async function deleteTemplate(id: string): Promise<void> {
+  await apiFetch<void>(`/templates/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Fetch the template's original PDF bytes as a `File`, so the wizard can reload
+ * the source document exactly as an upload would. Streams from the new
+ * `GET /templates/:id/file` endpoint; the server names the download via
+ * `Content-Disposition` (falling back to `template.pdf`). Rejects with the
+ * server's Korean copy on failure.
+ */
+export async function fetchTemplateFile(id: string): Promise<File> {
+  const { blob, filename } = await apiDownload(`/templates/${encodeURIComponent(id)}/file`, {
+    token: getToken() ?? undefined,
+  });
+  return new File([blob], filename ?? 'template.pdf', {
+    type: blob.type || 'application/pdf',
+  });
 }
