@@ -1,15 +1,20 @@
 'use client';
 
 /**
- * TemplatePreviewDialog — a read-only look at a saved template's source PDF
- * (design-spec `components/template-preview-dialog/base.md`, copy
- * `tone/templates-list.md`).
+ * TemplatePreviewDialog — a read-only look at a saved template's source PDF with
+ * its field layout overlaid (design-spec `components/template-preview-dialog/base.md`,
+ * copy `lib/templates-copy.ts` `preview_dialog`, tone `tone/templates-list.md`).
  *
- * Opening it streams the template's original PDF via `fetchTemplateFile` and
- * renders the first page into the shared `PdfPreview` canvas. Its own state
- * machine — loading → (ready | error) — keeps it independent of the list: a
- * failed fetch surfaces the server's Korean copy with a 다시 시도 path, and a 401
- * bounces to /login like the rest of the app. Preview never mutates the template.
+ * The list hands it a `TemplateSummary` (no field layout). Opening the dialog
+ * loads the rest — the full field array + pageCount via `getTemplate(id)` and the
+ * original PDF bytes via `fetchTemplateFile(id)` — in parallel, then mounts the
+ * grain's read-only `TemplateFieldPreview` surface so the sender can confirm where
+ * each signature/date/text field sits, page by page. Preview never mutates the
+ * template: it only *reads* the stored geometry.
+ *
+ * Its own state machine — loading → (ready | error) — keeps it independent of the
+ * list: a failed load surfaces the server's Korean copy with a 다시 시도 path, and
+ * a 401 bounces to /login like the rest of the app.
  */
 
 import * as React from 'react';
@@ -18,18 +23,30 @@ import {
   Button,
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   Skeleton,
 } from '@repo/ui';
-import { PdfPreview } from '@/components/wizard/pdf-preview';
+import { TemplateFieldPreview } from '@/components/template-field-preview';
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
-import { fetchTemplateFile, type TemplateSummary } from '@/lib/templates';
+import {
+  fetchTemplateFile,
+  getTemplate,
+  type TemplateField,
+  type TemplateSummary,
+} from '@/lib/templates';
 import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
 
 const COPY = TEMPLATE_ACTIONS_COPY.preview_dialog;
 
 type Status = 'loading' | 'ready' | 'error';
+
+/** The source PDF + saved layout the preview surface needs, loaded on open. */
+interface PreviewData {
+  file: File;
+  fields: TemplateField[];
+}
 
 export interface TemplatePreviewDialogProps {
   open: boolean;
@@ -45,7 +62,7 @@ export function TemplatePreviewDialog({
 }: TemplatePreviewDialogProps) {
   const router = useRouter();
   const [status, setStatus] = React.useState<Status>('loading');
-  const [file, setFile] = React.useState<File | null>(null);
+  const [data, setData] = React.useState<PreviewData | null>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [reloadKey, setReloadKey] = React.useState(0);
 
@@ -56,12 +73,14 @@ export function TemplatePreviewDialog({
     let cancelled = false;
     setStatus('loading');
     setError(null);
-    setFile(null);
+    setData(null);
 
-    fetchTemplateFile(templateId)
-      .then((f) => {
+    // Load the field layout and the PDF bytes together — both are needed before
+    // the overlay can render, and neither depends on the other.
+    Promise.all([getTemplate(templateId), fetchTemplateFile(templateId)])
+      .then(([detail, file]) => {
         if (cancelled) return;
-        setFile(f);
+        setData({ file, fields: detail.fields });
         setStatus('ready');
       })
       .catch((err: unknown) => {
@@ -86,6 +105,7 @@ export function TemplatePreviewDialog({
           <DialogTitle className="truncate pr-9">
             {template ? COPY.title(template.name) : ''}
           </DialogTitle>
+          <DialogDescription>{COPY.description}</DialogDescription>
         </DialogHeader>
 
         <div className="mt-sm">
@@ -93,8 +113,13 @@ export function TemplatePreviewDialog({
             <Skeleton className="mx-auto aspect-[1/1.414] w-full max-w-[420px]" />
           ) : null}
 
-          {status === 'ready' && file ? (
-            <PdfPreview file={file} className="mx-auto max-w-[420px]" />
+          {status === 'ready' && data ? (
+            <TemplateFieldPreview
+              file={data.file}
+              fields={data.fields}
+              maxWidth={420}
+              className="mx-auto max-w-[420px]"
+            />
           ) : null}
 
           {status === 'error' ? (

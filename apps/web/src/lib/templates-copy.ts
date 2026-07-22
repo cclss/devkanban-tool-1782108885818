@@ -69,10 +69,16 @@ export const TEMPLATE_ACTIONS_COPY = {
     deleting: '삭제 중',
   },
 
-  /** Preview modal — read-only first-page render of the template's source PDF. */
+  /**
+   * Preview modal — read-only render of the template's source PDF with its saved
+   * field layout overlaid. The purpose is confirming *where fields sit*, so the
+   * description says so plainly and reassures that previewing never edits.
+   */
   preview_dialog: {
     /** `{name}` is the template name. */
     title: (name: string) => `${name} 미리보기`,
+    /** States the modal's purpose: confirm field placement, non-destructive. */
+    description: '저장된 서명·날짜·텍스트란이 PDF 어디에 놓이는지 확인해 보세요. 미리보기는 템플릿을 바꾸지 않아요.',
     loading: '미리보기를 불러오고 있어요.',
     error: '미리보기를 불러오지 못했어요.',
     retry: '다시 시도',
