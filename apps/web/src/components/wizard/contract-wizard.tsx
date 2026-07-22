@@ -30,6 +30,7 @@ import {
   stepSequence,
   STEP_LABELS,
   type StepKey,
+  type WizardPreload,
 } from './wizard-context';
 import { UploadStep } from './upload-step';
 import { FieldsStep } from './fields-step';
@@ -38,9 +39,9 @@ import { RecipientsStep } from './recipients-step';
 import { ReviewStep } from './review-step';
 import { LinkShareStep } from './link-share-step';
 
-export function ContractWizard() {
+export function ContractWizard({ preload }: { preload?: WizardPreload }) {
   return (
-    <WizardProvider>
+    <WizardProvider preload={preload}>
       <WizardShell />
     </WizardProvider>
   );

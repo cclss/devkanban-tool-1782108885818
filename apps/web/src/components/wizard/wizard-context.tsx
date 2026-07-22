@@ -89,6 +89,16 @@ export function stepSequence(deliveryMethod: DeliveryMethod | null): readonly St
   return COMMON_STEPS;
 }
 
+/**
+ * The cursor index of a step key within a delivery branch, or 0 when the key is
+ * not present in that branch. Lets callers place the cursor by stable key
+ * (e.g. a template preload opening at 'recipients') without index math.
+ */
+export function stepIndexOf(deliveryMethod: DeliveryMethod | null, key: StepKey): number {
+  const idx = stepSequence(deliveryMethod).indexOf(key);
+  return idx === -1 ? 0 : idx;
+}
+
 export interface WizardState {
   step: number;
   /** Travel direction of the last step change, for the transition animation. */
@@ -112,6 +122,44 @@ export const initialWizardState: WizardState = {
   recipients: [],
   deliveryMethod: null,
 };
+
+/**
+ * Optional seed for mounting the wizard mid-flow — the "start from a template"
+ * entry point. Before mounting, the caller has re-registered the template's PDF
+ * as a fresh DRAFT `document`, reloaded its bytes as a `file`, and carries the
+ * saved `fields` layout. Seeding with this opens the wizard straight at the
+ * recipients step with fields/review pre-filled, so only signer info remains.
+ *
+ * The tail is fixed to the 'email' branch by default (recipients → review),
+ * because a template send always collects named signers. Everything else stays
+ * live: re-uploading, jumping back to fields, and sending all behave exactly as
+ * on the from-scratch path — this only changes the *starting* cursor and data.
+ */
+export interface WizardPreload {
+  document: DocumentSummary;
+  file: File;
+  fields: SignFieldDraft[];
+  /** Delivery branch to enter; defaults to 'email'. */
+  deliveryMethod?: DeliveryMethod;
+}
+
+/**
+ * Build a wizard state from a template preload: document/file/fields populated,
+ * the delivery branch chosen (default 'email'), and the cursor placed on the
+ * recipients step so the flow opens there. Derived entirely from
+ * {@link initialWizardState} so any new state field defaults correctly.
+ */
+export function preloadedWizardState(preload: WizardPreload): WizardState {
+  const deliveryMethod = preload.deliveryMethod ?? 'email';
+  return {
+    ...initialWizardState,
+    document: preload.document,
+    file: preload.file,
+    fields: preload.fields,
+    deliveryMethod,
+    step: stepIndexOf(deliveryMethod, 'recipients'),
+  };
+}
 
 type WizardAction =
   | { type: 'SET_DOCUMENT'; document: DocumentSummary; file: File }
@@ -213,8 +261,22 @@ interface WizardContextValue {
 
 const WizardContext = React.createContext<WizardContextValue | null>(null);
 
-export function WizardProvider({ children }: { children: React.ReactNode }) {
-  const [state, dispatch] = React.useReducer(wizardReducer, initialWizardState);
+export function WizardProvider({
+  children,
+  preload,
+}: {
+  children: React.ReactNode;
+  /** Seed the wizard mid-flow (template send); omit for the from-scratch path. */
+  preload?: WizardPreload;
+}) {
+  // Lazy init so the preload → seeded state runs once on mount; thereafter the
+  // reducer owns every transition (re-upload, back, send) identically to the
+  // from-scratch flow.
+  const [state, dispatch] = React.useReducer(
+    wizardReducer,
+    preload,
+    (p) => (p ? preloadedWizardState(p) : initialWizardState),
+  );
   const goNext = React.useCallback(() => dispatch({ type: 'GO_NEXT' }), []);
   const goBack = React.useCallback(() => dispatch({ type: 'GO_BACK' }), []);
   const value = React.useMemo(
