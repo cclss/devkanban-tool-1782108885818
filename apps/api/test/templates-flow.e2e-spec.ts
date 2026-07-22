@@ -15,10 +15,15 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { StorageService } from '../src/storage/storage.service';
+
+/** Smallest valid-ish PDF payload; enough to assert bytes stream back. */
+const SAMPLE_PDF = Buffer.from('%PDF-1.4\n%stub template pdf\n%%EOF\n');
 
 describe('Templates flow (e2e)', () => {
   let app: INestApplication;
   let prisma: PrismaService;
+  let storage: StorageService;
   let token: string;
   let userId: string;
 
@@ -43,6 +48,7 @@ describe('Templates flow (e2e)', () => {
     );
     await app.init();
     prisma = app.get(PrismaService);
+    storage = app.get(StorageService);
 
     const res = await request(app.getHttpServer())
       .post('/api/auth/register')
@@ -102,6 +108,43 @@ describe('Templates flow (e2e)', () => {
       .expect(200);
     expect(res.body.storageKey).toBe(`templates/${userId}/std.pdf`);
     expect(res.body.fields).toHaveLength(2);
+  });
+
+  it('streams the original PDF bytes to the owner (200, application/pdf)', async () => {
+    // Seed the object the template points at so the stream has bytes to serve.
+    await storage.save(`templates/${userId}/std.pdf`, SAMPLE_PDF);
+
+    const res = await request(app.getHttpServer())
+      .get(`/api/templates/${templateId}/file`)
+      .set('Authorization', `Bearer ${token}`)
+      .buffer(true)
+      .parse((r, cb) => {
+        const chunks: Buffer[] = [];
+        r.on('data', (c: Buffer) => chunks.push(c));
+        r.on('end', () => cb(null, Buffer.concat(chunks)));
+      })
+      .expect(200);
+
+    expect(res.headers['content-type']).toContain('application/pdf');
+    expect(Buffer.isBuffer(res.body)).toBe(true);
+    expect(res.body.length).toBe(SAMPLE_PDF.length);
+    expect(res.body.subarray(0, 5).toString()).toBe('%PDF-');
+  });
+
+  it("forbids streaming another owner's template PDF (403)", async () => {
+    const other = await request(app.getHttpServer())
+      .post('/api/auth/register')
+      .send({ email: `filer_${Date.now()}@example.com`, password, name: '파일침입자' })
+      .expect(201);
+    const otherToken = other.body.accessToken;
+    const otherId = other.body.user.id;
+
+    await request(app.getHttpServer())
+      .get(`/api/templates/${templateId}/file`)
+      .set('Authorization', `Bearer ${otherToken}`)
+      .expect(403);
+
+    await prisma.user.delete({ where: { id: otherId } }).catch(() => undefined);
   });
 
   it('renames a template', async () => {

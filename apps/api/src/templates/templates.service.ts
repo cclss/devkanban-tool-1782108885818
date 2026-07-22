@@ -4,7 +4,9 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Plan, Prisma, type Template } from '@repo/db';
+import type { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
+import { StorageService } from '../storage/storage.service';
 import { MESSAGES } from '../common/messages';
 import type { CreateTemplateDto, RenameTemplateDto } from './dto/templates.dto';
 
@@ -33,7 +35,10 @@ export interface TemplateField {
 
 @Injectable()
 export class TemplatesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
 
   /** Persist a new template for the owner, guarded by the per-plan cap. */
   async create(ownerId: string, dto: CreateTemplateDto): Promise<TemplateDetail> {
@@ -81,6 +86,16 @@ export class TemplatesService {
   async remove(ownerId: string, id: string): Promise<void> {
     await this.requireOwnedTemplate(ownerId, id);
     await this.prisma.template.delete({ where: { id } });
+  }
+
+  /**
+   * Open the template's original PDF bytes as a stream for `application/pdf`
+   * download (used to auto-load the source PDF into the wizard). Owner-scoped
+   * via `requireOwnedTemplate`, so non-owners get a 403 before any bytes read.
+   */
+  async openPdf(ownerId: string, id: string): Promise<Readable> {
+    const template = await this.requireOwnedTemplate(ownerId, id);
+    return this.storage.openStream(template.storageKey);
   }
 
   // --- internals ----------------------------------------------------------

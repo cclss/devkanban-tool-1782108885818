@@ -8,8 +8,10 @@ import {
   Param,
   Patch,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/current-user.decorator';
 import { TemplatesService } from './templates.service';
@@ -36,6 +38,24 @@ export class TemplatesController {
   @Get(':id')
   detail(@CurrentUser() user: AuthUser, @Param('id') id: string) {
     return this.templates.detail(user.id, id);
+  }
+
+  /** Stream the template's original PDF bytes inline (owner only). */
+  @Get(':id/file')
+  async file(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Res() res: Response,
+  ) {
+    const stream = await this.templates.openPdf(user.id, id);
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', 'inline; filename="template.pdf"');
+    res.setHeader('Cache-Control', 'no-store');
+    stream.on('error', () => {
+      if (!res.headersSent) res.status(HttpStatus.NOT_FOUND);
+      res.end();
+    });
+    stream.pipe(res);
   }
 
   /** Rename a template. */
