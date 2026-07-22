@@ -1,9 +1,9 @@
 'use client';
 
 import * as React from 'react';
-import { Card } from '@repo/ui';
+import { Button, Card } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_META_COPY } from '@/lib/templates-copy';
+import { TEMPLATE_ACTIONS_COPY, TEMPLATE_META_COPY } from '@/lib/templates-copy';
 
 /**
  * TemplateCard — one saved template as a card (design-spec
@@ -11,7 +11,7 @@ import { TEMPLATE_META_COPY } from '@/lib/templates-copy';
  * dashboard's ContractCard (icon tile + title row + muted meta line on the Card
  * surface) so the lists read as one system.
  *
- * Two shapes:
+ * Three shapes:
  * - **base** (default): a read-only summary in the "내 템플릿" list — no link,
  *   badges, or actions.
  * - **selectable** Variant (design-spec `components/template-card/selectable.md`):
@@ -19,10 +19,29 @@ import { TEMPLATE_META_COPY } from '@/lib/templates-copy';
  *   interactive hover-lift + a trailing chevron. Used by the `/contracts/new`
  *   picker to start a contract from a template. Disable it (`disabled`) while a
  *   pick is being prepared so only one prepare runs at a time.
+ * - **manageable** Extension (design-spec `components/template-card/manageable.md`):
+ *   pass `actions` and the summary row grows a divided action cluster —
+ *   미리보기 · 이름 수정 · 삭제 (quiet ghost buttons; delete carries a subtle danger
+ *   tint) on the left and the primary '이 템플릿으로 시작' on the right. Used by
+ *   `/templates` so a saved layout can be previewed, renamed, deleted, or reused.
  *
- * Copy (units, ordering, a11y label) is never owned here — it comes from
- * `lib/templates-copy.ts` (meta) and the caller (`selectLabel`).
+ * `onSelect` and `actions` are mutually exclusive — the picker uses `onSelect`,
+ * the list uses `actions`. Copy (units, ordering, a11y labels) is never owned
+ * here: it comes from `lib/templates-copy.ts` and the caller (`selectLabel`).
  */
+
+/** Per-card management handlers for the manageable Extension. */
+export interface TemplateCardActions {
+  /** Primary — reuse this template for a new contract. */
+  onStart: (template: TemplateSummary) => void;
+  /** Open the read-only PDF preview. */
+  onPreview: (template: TemplateSummary) => void;
+  /** Open the rename modal. */
+  onRename: (template: TemplateSummary) => void;
+  /** Open the delete-confirm modal. */
+  onDelete: (template: TemplateSummary) => void;
+}
+
 export interface TemplateCardProps {
   template: TemplateSummary;
   /**
@@ -34,10 +53,21 @@ export interface TemplateCardProps {
   selectLabel?: string;
   /** Block selection while another template is being prepared. */
   disabled?: boolean;
+  /**
+   * When provided, the card renders the management action cluster (manageable
+   * Extension). Mutually exclusive with `onSelect`.
+   */
+  actions?: TemplateCardActions;
 }
 
-export function TemplateCard({ template, onSelect, selectLabel, disabled = false }: TemplateCardProps) {
-  const body = (
+export function TemplateCard({
+  template,
+  onSelect,
+  selectLabel,
+  disabled = false,
+  actions,
+}: TemplateCardProps) {
+  const summaryRow = (
     <>
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
         <TemplateIcon />
@@ -60,15 +90,50 @@ export function TemplateCard({ template, onSelect, selectLabel, disabled = false
         className="block w-full rounded-lg focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus disabled:cursor-default disabled:opacity-60"
       >
         <Card interactive className="flex items-center gap-md p-lg">
-          {body}
+          {summaryRow}
         </Card>
       </button>
     );
   }
 
+  if (actions) {
+    return (
+      <Card className="flex flex-col gap-md p-lg">
+        <div className="flex items-center gap-md">{summaryRow}</div>
+        <div
+          className="flex flex-wrap items-center gap-xs border-t border-border pt-md"
+          role="group"
+          aria-label={TEMPLATE_ACTIONS_COPY.actionsLabel(template.name)}
+        >
+          <Button variant="ghost" size="sm" onClick={() => actions.onPreview(template)}>
+            {TEMPLATE_ACTIONS_COPY.preview}
+          </Button>
+          <Button variant="ghost" size="sm" onClick={() => actions.onRename(template)}>
+            {TEMPLATE_ACTIONS_COPY.rename}
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => actions.onDelete(template)}
+            className="text-danger hover:bg-danger-subtle hover:text-danger active:bg-danger-subtle"
+          >
+            {TEMPLATE_ACTIONS_COPY.delete}
+          </Button>
+          <Button
+            size="sm"
+            onClick={() => actions.onStart(template)}
+            className="ml-auto"
+          >
+            {TEMPLATE_ACTIONS_COPY.start}
+          </Button>
+        </div>
+      </Card>
+    );
+  }
+
   return (
     <Card className="flex items-center gap-md p-lg">
-      {body}
+      {summaryRow}
     </Card>
   );
 }
