@@ -44,6 +44,12 @@ export interface DocumentSummary {
   status: DocumentStatus;
   /** Korean status label, authored server-side (single source of truth). */
   statusLabel: string;
+  /**
+   * Storage key of the uploaded source PDF, returned only on owner-gated read
+   * paths. Optional because older/cached payloads may omit it; the wizard uses
+   * it to save a template that reuses the already-uploaded PDF.
+   */
+  storageKey?: string;
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;

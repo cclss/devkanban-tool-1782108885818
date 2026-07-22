@@ -479,6 +479,12 @@ export class DocumentsService {
       title: document.title,
       status: document.status,
       statusLabel: DOCUMENT_STATUS_LABEL[document.status],
+      // Owner-scoped: every `toSummary` call site is already gated to the owner
+      // (upload/create build the owner's own doc; list filters by ownerId;
+      // send/detail assert ownership), so exposing the raw storage key here is
+      // safe. The wizard needs it to reference the uploaded PDF when saving a
+      // template without re-uploading the bytes.
+      storageKey: document.storageKey,
       pageCount: document.pageCount,
       recipientCount,
       sentAt: document.sentAt ? document.sentAt.toISOString() : null,
@@ -504,6 +510,12 @@ export interface DocumentSummary {
   title: string;
   status: DocumentStatus;
   statusLabel: string;
+  /**
+   * Storage key of the uploaded source PDF. Owner-scoped — only returned on
+   * owner-gated read paths — so the creation wizard can reference the persisted
+   * bytes (e.g. when saving a template) without re-uploading.
+   */
+  storageKey: string;
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;
