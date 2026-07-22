@@ -84,6 +84,33 @@ export const TEMPLATE_ACTIONS_COPY = {
   deleteFailed: '삭제하지 못해 목록에 다시 넣었어요.',
 } as const;
 
+/**
+ * Read-only field-overlay preview surface (`template-field-preview.tsx`). Copy
+ * for the page-flip controls, the field-type legend, and the per-field recipient
+ * badge. This surface only *shows* where fields sit — no edit/save verbs — so the
+ * tone stays purely descriptive ("여기에 무엇이 있는지"), matching `tone/templates-list.md`.
+ */
+export const TEMPLATE_FIELD_PREVIEW_COPY = {
+  /** Accessible name for the rendered page canvas. `{page}`/`{total}` 1-based. */
+  pageLabel: (page: number, total: number) => `템플릿 ${page}/${total}페이지 미리보기`,
+  /** Prev/next page control labels (shown only for multi-page templates). */
+  prevPage: '이전 페이지',
+  nextPage: '다음 페이지',
+  /** Page position indicator, e.g. `2 / 5`. */
+  pageIndicator: (page: number, total: number) => `${page} / ${total}`,
+  /** Legend heading above the field-type swatches. */
+  legendLabel: '필드 종류',
+  /** a11y name for a field box + its badge; `{n}` is the 1-based recipient slot. */
+  recipientBadgeLabel: (n: number) => `수신자 ${n}`,
+  /** Explains the number badge — shown only when a template has 2+ recipients. */
+  recipientHint: '박스 왼쪽 위 숫자는 서명할 수신자 순서예요.',
+  /** Shown over the page when the current page holds no placed fields. */
+  noFieldsOnPage: '이 페이지에는 배치된 필드가 없어요.',
+  /** Own loading + read-failure states (mirrors `PdfRenderError`'s message). */
+  loading: '미리보기를 불러오고 있어요.',
+  error: 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
+} as const;
+
 /** Units for the per-card meta line (페이지 수 · 필드 수 · 저장일). */
 export const TEMPLATE_META_COPY = {
   /** `2페이지` — page count of the source PDF. */
