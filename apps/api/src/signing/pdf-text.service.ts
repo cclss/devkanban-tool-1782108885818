@@ -55,9 +55,21 @@ export class PdfTextService {
         for (let page = 1; page <= doc.numPages; page++) {
           const p = await doc.getPage(page);
           const content = await p.getTextContent();
-          const text = content.items
-            .map((item) => ('str' in item ? item.str : ''))
-            .join(' ');
+          // pdfjs already emits an explicit whitespace item (`str: ' '`) wherever
+          // the source text has a real space, and flags line ends with `hasEOL`;
+          // every other item is a bare glyph run with no space of its own. So we
+          // concatenate item strings verbatim — NOT space-joined. A naive
+          // `join(' ')` wedges a space between every glyph run (Korean is emitted
+          // one syllable-cluster per item), turning "주식회사" into "주 식 회 사"
+          // and "위약금" into "위 약 금", which no clause-detection regex can match —
+          // the summary silently comes back empty on real (esp. CJK) contracts.
+          // Each `hasEOL` becomes a newline so sentence/line splitting still works.
+          let text = '';
+          for (const item of content.items) {
+            if (!('str' in item)) continue;
+            text += item.str;
+            if (item.hasEOL) text += '\n';
+          }
           pages.push({ page, text });
           // Release page resources as we go for large documents.
           p.cleanup();
@@ -83,6 +95,8 @@ export class PdfTextService {
  *  pdfjs types under CommonJS moduleResolution). */
 interface PdfjsTextItem {
   str?: string;
+  /** True on the item that ends a visual line (pdfjs inserts these). */
+  hasEOL?: boolean;
 }
 interface PdfjsPage {
   getTextContent(): Promise<{ items: PdfjsTextItem[] }>;
