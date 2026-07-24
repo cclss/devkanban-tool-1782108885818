@@ -23,7 +23,9 @@ import {
   FIELD_TYPES,
   alignNormRects,
   clampNormRect,
+  distributeNormRects,
   type AlignMode,
+  type DistributeAxis,
   type SignFieldType,
 } from '@/lib/field-geometry';
 import { useWizard, type SignFieldDraft } from './wizard-context';
@@ -85,6 +87,35 @@ export function FieldsStep() {
       // non-selected fields (and other pages) stay byte-for-byte unchanged.
       const nextById = new Map<string, (typeof aligned)[number]>();
       aligned.forEach((rect, i) => {
+        const f = targets[i];
+        if (f) nextById.set(f.id, clampNormRect(rect));
+      });
+      setFields(
+        fields.map((f) => {
+          const next = nextById.get(f.id);
+          return next ? { ...f, ...next } : f;
+        }),
+      );
+    },
+    [fields, page, selectedIds, setFields],
+  );
+
+  const distributeSelected = React.useCallback(
+    (axis: DistributeAxis) => {
+      // Same page-scoped, defensive filter as alignSelected — cross-page ids can
+      // never move. Distribution needs 3+ (two ends pinned, ≥1 field between).
+      const selected = new Set(selectedIds);
+      const targets = fields.filter((f) => f.page === page && selected.has(f.id));
+      if (targets.length < 3) return;
+
+      const distributed = distributeNormRects(
+        targets.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })),
+        axis,
+      );
+      // Re-clamp + splice back exactly as alignSelected does; non-selected fields
+      // and other pages stay byte-for-byte unchanged.
+      const nextById = new Map<string, (typeof distributed)[number]>();
+      distributed.forEach((rect, i) => {
         const f = targets[i];
         if (f) nextById.set(f.id, clampNormRect(rect));
       });
@@ -169,6 +200,21 @@ export function FieldsStep() {
                 <AlignIcon mode={mode} />
               </IconButton>
             ))}
+            {/* Distribute tools — only meaningful with a field between two ends. */}
+            {selectedIds.length >= 3 ? (
+              <>
+                <span aria-hidden="true" className="mx-2xs h-5 w-px bg-border" />
+                {(['horizontal', 'vertical'] as const).map((axis) => (
+                  <IconButton
+                    key={axis}
+                    label={DISTRIBUTE_LABELS[axis]}
+                    onClick={() => distributeSelected(axis)}
+                  >
+                    <DistributeIcon axis={axis} />
+                  </IconButton>
+                ))}
+              </>
+            ) : null}
           </div>
         </div>
       ) : null}
@@ -248,6 +294,7 @@ export function FieldsStep() {
         필드를 선택한 뒤 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제할 수 있어요.
         Shift 또는 Cmd(Ctrl)+클릭으로 여러 필드를 함께 선택하고, 빈 곳 클릭이나 Esc로 선택을 해제해요.
         2개 이상 선택하면 정렬 도구로 좌·가운데·우, 상·가운데·하 줄맞춤을 할 수 있어요.
+        3개 이상 선택하면 가로·세로 균등 분배로 바깥 두 필드는 고정한 채 사이 간격을 고르게 맞출 수 있어요.
       </p>
     </div>
   );
@@ -424,6 +471,32 @@ function AlignIcon({ mode }: { mode: AlignMode }) {
     <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
       {guide}
       {bars}
+    </svg>
+  );
+}
+
+/** Korean labels for the two distribute (even-spacing) actions. */
+const DISTRIBUTE_LABELS: Record<DistributeAxis, string> = {
+  horizontal: '가로 균등 분배',
+  vertical: '세로 균등 분배',
+};
+
+/**
+ * Glyph for a distribute axis: three parallel field bars spread with equal gaps
+ * along the axis. Horizontal spreads bars across x (vertical bars); vertical is
+ * the 90°-rotated counterpart (horizontal bars stacked down y).
+ */
+function DistributeIcon({ axis }: { axis: DistributeAxis }) {
+  const common = { stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const };
+  const bars =
+    axis === 'horizontal'
+      ? ['M4 4v12', 'M10 4v12', 'M16 4v12']
+      : ['M4 4h12', 'M4 10h12', 'M4 16h12'];
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+      {bars.map((d) => (
+        <path key={d} d={d} {...common} />
+      ))}
     </svg>
   );
 }
