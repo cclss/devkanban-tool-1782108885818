@@ -265,6 +265,51 @@ export function offsetNormRects(rects: readonly NormRect[], dx: number, dy: numb
 }
 
 /**
+ * Move a selection of normalized rects by one shared delta, clamping the *group*
+ * (not each rect) so the whole selection stops together at a page edge.
+ *
+ * This is the move-as-one contract for arrow-key nudge and multi-drag: the
+ * selection's relative layout — every gap and every size — is preserved exactly,
+ * even when one field is already flush against a page edge. The whole group halts
+ * as soon as its bounding box hits the boundary, so nothing slides relative to
+ * its neighbours.
+ *
+ * That's the deliberate difference from {@link offsetNormRects}, which clamps each
+ * rect independently: per-rect clamping is right for *duplicate* (a copy pushed
+ * off-page is pulled back on its own, arrangement is secondary), but wrong for
+ * *move* (an edge field would stop while the rest keep going, shearing the
+ * arrangement). Here we clamp once, against the selection's shared bounding box.
+ *
+ * The requested delta is applied to the bounding box origin, then clamped to the
+ * page so the box's far edge stays within 1.0 (`x + dx` bounded to
+ * `[0, 1 − boxWidth]`, same for y in the bottom-left axis). The *effective* delta
+ * — the shift the box actually took after clamping — is then added to every rect,
+ * which is what keeps the group rigid. In the ordinary case (small nudge, group
+ * well inside the page) the clamp is a no-op and the move is exact.
+ *
+ * Sizes are never touched. Empty input returns `[]`; otherwise fresh rects are
+ * returned (input untouched). A group larger than the page collapses to the
+ * origin corner rather than overflowing.
+ */
+export function translateNormRects(rects: readonly NormRect[], dx: number, dy: number): NormRect[] {
+  if (rects.length === 0) return [];
+
+  const minX = Math.min(...rects.map((r) => r.x));
+  const minY = Math.min(...rects.map((r) => r.y));
+  const maxX = Math.max(...rects.map((r) => r.x + r.width));
+  const maxY = Math.max(...rects.map((r) => r.y + r.height));
+
+  // Clamp the group's bounding box, not each rect: bound the shifted origin so
+  // the box stays fully in-page, then re-derive the delta the box really moved.
+  const boxWidth = maxX - minX;
+  const boxHeight = maxY - minY;
+  const appliedDx = clamp(minX + dx, 0, Math.max(0, 1 - boxWidth)) - minX;
+  const appliedDy = clamp(minY + dy, 0, Math.max(0, 1 - boxHeight)) - minY;
+
+  return rects.map((r) => ({ ...r, x: r.x + appliedDx, y: r.y + appliedDy }));
+}
+
+/**
  * Clamp a pixel rect to stay fully within the page raster, preserving size where
  * possible (used for live drag/resize feedback before normalizing on commit).
  */

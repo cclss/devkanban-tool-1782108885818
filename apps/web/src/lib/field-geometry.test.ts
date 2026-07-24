@@ -22,6 +22,7 @@ import {
   alignNormRects,
   distributeNormRects,
   offsetNormRects,
+  translateNormRects,
   FIELD_TYPE_META,
   MIN_NORM_WIDTH,
   MIN_NORM_HEIGHT,
@@ -570,5 +571,117 @@ describe('offsetNormRects', () => {
 
   it('is a no-op returning [] for an empty selection', () => {
     expect(offsetNormRects([], DX, DY)).toEqual([]);
+  });
+});
+
+describe('translateNormRects', () => {
+  // A three-field selection sitting comfortably inside the page, so an ordinary
+  // nudge never touches an edge.
+  const sel: NormRect[] = [
+    { x: 0.1, y: 0.7, width: 0.2, height: 0.08 },
+    { x: 0.5, y: 0.5, width: 0.15, height: 0.1 },
+    { x: 0.3, y: 0.2, width: 0.1, height: 0.06 },
+  ];
+
+  it('applies one shared delta so relative layout is preserved', () => {
+    const dx = 0.05;
+    const dy = -0.03;
+    const out = translateNormRects(sel, dx, dy);
+    out.forEach((r, i) => {
+      expect(r.x).toBeCloseTo(sel[i]!.x + dx, 9);
+      expect(r.y).toBeCloseTo(sel[i]!.y + dy, 9);
+    });
+    // Pairwise offsets between fields are unchanged (arrangement kept rigid).
+    const dOrig = { x: sel[1]!.x - sel[0]!.x, y: sel[1]!.y - sel[0]!.y };
+    const dOut = { x: out[1]!.x - out[0]!.x, y: out[1]!.y - out[0]!.y };
+    expect(dOut.x).toBeCloseTo(dOrig.x, 9);
+    expect(dOut.y).toBeCloseTo(dOrig.y, 9);
+  });
+
+  it('preserves every field size', () => {
+    const out = translateNormRects(sel, 0.05, -0.03);
+    out.forEach((r, i) => {
+      expect(r.width).toBeCloseTo(sel[i]!.width, 9);
+      expect(r.height).toBeCloseTo(sel[i]!.height, 9);
+    });
+  });
+
+  it('clamps the whole group at a page edge, keeping relative layout intact', () => {
+    // Group bounding box: x ∈ [0.1, 0.65]. Pushing right by 0.6 would put the far
+    // edge at 1.25 — the group must stop so its right edge sits exactly at 1.0.
+    const out = translateNormRects(sel, 0.6, 0);
+    const maxRight = Math.max(...out.map((r) => r.x + r.width));
+    expect(maxRight).toBeCloseTo(1, 9);
+    // Even though the rightmost field hit the wall, every gap is unchanged: the
+    // whole group moved by the SAME (clamped) delta, not per-rect.
+    const applied = out[0]!.x - sel[0]!.x;
+    out.forEach((r, i) => {
+      expect(r.x - sel[i]!.x).toBeCloseTo(applied, 9); // one shared delta
+      expect(r.y).toBeCloseTo(sel[i]!.y, 9); // untouched axis
+    });
+    // The relative arrangement survives the clamp.
+    const dOrig = sel[1]!.x - sel[0]!.x;
+    expect(out[1]!.x - out[0]!.x).toBeCloseTo(dOrig, 9);
+  });
+
+  it('clamps against the group bounding box at the left/bottom edges too', () => {
+    // Nudge hard down-left; group must stop with its min corner at 0.
+    const out = translateNormRects(sel, -0.5, -0.5);
+    const minLeft = Math.min(...out.map((r) => r.x));
+    const minBottom = Math.min(...out.map((r) => r.y));
+    expect(minLeft).toBeCloseTo(0, 9);
+    expect(minBottom).toBeCloseTo(0, 9);
+    // Shared delta on both axes.
+    const appliedX = out[0]!.x - sel[0]!.x;
+    const appliedY = out[0]!.y - sel[0]!.y;
+    out.forEach((r, i) => {
+      expect(r.x - sel[i]!.x).toBeCloseTo(appliedX, 9);
+      expect(r.y - sel[i]!.y).toBeCloseTo(appliedY, 9);
+    });
+  });
+
+  it('differs from offsetNormRects: group-clamp vs per-rect clamp at an edge', () => {
+    // One field flush to the right edge, another well inside. Offsetting right:
+    //  • offsetNormRects clamps each rect on its own → the flush field can't move,
+    //    the interior field does → the gap between them shrinks (arrangement shears).
+    //  • translateNormRects clamps the whole group → nothing moves at all here
+    //    (group already touches the wall), so the gap is preserved.
+    const pair: NormRect[] = [
+      { x: 1 - 0.2, y: 0.4, width: 0.2, height: 0.08 }, // flush to right edge
+      { x: 0.3, y: 0.4, width: 0.1, height: 0.08 },
+    ];
+    const gapOf = (rs: NormRect[]) => rs[0]!.x - rs[1]!.x;
+
+    const offset = offsetNormRects(pair, 0.1, 0);
+    const translated = translateNormRects(pair, 0.1, 0);
+
+    // Group is already at the wall → translate is a no-op, gap identical.
+    expect(gapOf(translated)).toBeCloseTo(gapOf(pair), 9);
+    // Per-rect clamp shears the arrangement: gap no longer matches the original.
+    expect(Math.abs(gapOf(offset) - gapOf(pair))).toBeGreaterThan(1e-6);
+  });
+
+  it('keeps every result a valid in-page normalized rect', () => {
+    const spread: NormRect[] = [
+      { x: 0.9, y: 0.05, width: 0.08, height: 0.05 },
+      { x: 0.02, y: 0.9, width: 0.1, height: 0.06 },
+    ];
+    for (const r of translateNormRects(spread, 0.3, 0.3)) {
+      expect(r.x).toBeGreaterThanOrEqual(-1e-9);
+      expect(r.y).toBeGreaterThanOrEqual(-1e-9);
+      expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-9);
+      expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  it('does not mutate the input and returns fresh copies', () => {
+    const before = sel.map((r) => ({ ...r }));
+    const out = translateNormRects(sel, 0.05, -0.03);
+    sel.forEach((r, i) => expect(r).toEqual(before[i]));
+    expect(out[0]).not.toBe(sel[0]);
+  });
+
+  it('is a no-op returning [] for an empty selection', () => {
+    expect(translateNormRects([], 0.05, -0.03)).toEqual([]);
   });
 });
