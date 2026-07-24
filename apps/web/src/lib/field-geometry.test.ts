@@ -20,6 +20,7 @@ import {
   rectFromPoints,
   marqueeHitTest,
   alignNormRects,
+  distributeNormRects,
   FIELD_TYPE_META,
   MIN_NORM_WIDTH,
   MIN_NORM_HEIGHT,
@@ -362,5 +363,123 @@ describe('alignNormRects', () => {
     const out = alignNormRects([one], 'left');
     expect(out[0]).toEqual(one);
     expect(out[0]).not.toBe(one); // fresh copy, safe to mutate downstream
+  });
+});
+
+describe('distributeNormRects', () => {
+  // Deliberately differing widths/heights + scrambled input order, so the tests
+  // exercise "equal adjacent gaps" (not equal centers) and order-independence.
+  //   x:      0.10   0.40   0.55   0.80   (widths 0.10, 0.20, 0.05, 0.10)
+  //   y:      0.05   0.30   0.50   0.70   (heights 0.10, 0.15, 0.05, 0.08)
+  const A: NormRect = { x: 0.1, y: 0.05, width: 0.1, height: 0.1 };
+  const B: NormRect = { x: 0.4, y: 0.3, width: 0.2, height: 0.15 };
+  const C: NormRect = { x: 0.55, y: 0.5, width: 0.05, height: 0.05 };
+  const D: NormRect = { x: 0.8, y: 0.7, width: 0.1, height: 0.08 };
+  const sel: NormRect[] = [C, A, D, B]; // intentionally unsorted
+
+  // Gaps between adjacent fields once ordered along an axis.
+  const gapsAlong = (rects: NormRect[], axis: 'x' | 'y') => {
+    const size = axis === 'x' ? 'width' : 'height';
+    const ordered = [...rects].sort((a, b) => a[axis] - b[axis]);
+    const gaps: number[] = [];
+    for (let i = 1; i < ordered.length; i++) {
+      gaps.push(ordered[i]![axis] - (ordered[i - 1]![axis] + ordered[i - 1]![size]));
+    }
+    return gaps;
+  };
+
+  it('horizontal: makes every adjacent x-gap equal', () => {
+    const gaps = gapsAlong(distributeNormRects(sel, 'horizontal'), 'x');
+    for (const g of gaps) expect(g).toBeCloseTo(gaps[0]!, 9);
+    expect(gaps.length).toBe(3);
+  });
+
+  it('vertical: makes every adjacent y-gap equal', () => {
+    const gaps = gapsAlong(distributeNormRects(sel, 'vertical'), 'y');
+    for (const g of gaps) expect(g).toBeCloseTo(gaps[0]!, 9);
+    expect(gaps.length).toBe(3);
+  });
+
+  it('pins the two outermost fields, moving only the ones between', () => {
+    const outH = distributeNormRects(sel, 'horizontal');
+    const byId = (src: NormRect) => outH[sel.indexOf(src)]!;
+    expect(byId(A).x).toBeCloseTo(0.1, 9); // leftmost fixed
+    expect(byId(D).x).toBeCloseTo(0.8, 9); // rightmost fixed
+    // Interior fields actually shifted from their original x.
+    expect(byId(B).x).not.toBeCloseTo(0.4, 6);
+    expect(byId(C).x).not.toBeCloseTo(0.55, 6);
+
+    const outV = distributeNormRects(sel, 'vertical');
+    const byIdV = (src: NormRect) => outV[sel.indexOf(src)]!;
+    expect(byIdV(A).y).toBeCloseTo(0.05, 9); // bottommost fixed
+    expect(byIdV(D).y).toBeCloseTo(0.7, 9); // topmost fixed
+  });
+
+  it('horizontal: preserves size and the y axis for every field', () => {
+    const out = distributeNormRects(sel, 'horizontal');
+    out.forEach((r, i) => {
+      const src = sel[i]!;
+      expect(r.width).toBeCloseTo(src.width, 9);
+      expect(r.height).toBeCloseTo(src.height, 9);
+      expect(r.y).toBeCloseTo(src.y, 9); // untouched axis unchanged
+    });
+  });
+
+  it('vertical: preserves size and the x axis for every field', () => {
+    const out = distributeNormRects(sel, 'vertical');
+    out.forEach((r, i) => {
+      const src = sel[i]!;
+      expect(r.width).toBeCloseTo(src.width, 9);
+      expect(r.height).toBeCloseTo(src.height, 9);
+      expect(r.x).toBeCloseTo(src.x, 9);
+    });
+  });
+
+  it('returns results in the caller original order (not axis-sorted)', () => {
+    const out = distributeNormRects(sel, 'horizontal');
+    // sel = [C, A, D, B]; sizes must line up with that order.
+    expect(out[0]!.width).toBeCloseTo(C.width, 9);
+    expect(out[1]!.width).toBeCloseTo(A.width, 9);
+    expect(out[2]!.width).toBeCloseTo(D.width, 9);
+    expect(out[3]!.width).toBeCloseTo(B.width, 9);
+  });
+
+  it('keeps every result a valid normalized rect (0..1, in-page)', () => {
+    for (const axis of ['horizontal', 'vertical'] as const) {
+      for (const r of distributeNormRects(sel, axis)) {
+        expect(r.x).toBeGreaterThanOrEqual(0);
+        expect(r.y).toBeGreaterThanOrEqual(0);
+        expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-9);
+        expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-9);
+      }
+    }
+  });
+
+  it('is idempotent — re-distributing an even selection is a no-op', () => {
+    const once = distributeNormRects(sel, 'horizontal');
+    const twice = distributeNormRects(once, 'horizontal');
+    twice.forEach((r, i) => expect(r.x).toBeCloseTo(once[i]!.x, 9));
+  });
+
+  it('does not mutate the input rects', () => {
+    const before = sel.map((r) => ({ ...r }));
+    distributeNormRects(sel, 'horizontal');
+    distributeNormRects(sel, 'vertical');
+    sel.forEach((r, i) => expect(r).toEqual(before[i]));
+  });
+
+  it('is a no-op returning fresh copies for < 3 rects', () => {
+    expect(distributeNormRects([], 'horizontal')).toEqual([]);
+    const one: NormRect = { x: 0.3, y: 0.4, width: 0.2, height: 0.1 };
+    const outer: NormRect[] = [
+      { x: 0.1, y: 0.1, width: 0.1, height: 0.1 },
+      { x: 0.8, y: 0.8, width: 0.1, height: 0.1 },
+    ];
+    expect(distributeNormRects([one], 'horizontal')).toEqual([one]);
+    expect(distributeNormRects([one], 'horizontal')[0]).not.toBe(one);
+    // Two rects: nothing sits between the ends, so both stay put (fresh copies).
+    const two = distributeNormRects(outer, 'horizontal');
+    expect(two).toEqual(outer);
+    expect(two[0]).not.toBe(outer[0]);
   });
 });

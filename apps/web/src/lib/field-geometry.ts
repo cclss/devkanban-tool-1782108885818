@@ -169,6 +169,77 @@ export function alignNormRects(rects: readonly NormRect[], mode: AlignMode): Nor
 }
 
 /**
+ * Which axis to even out spacing along. `horizontal` touches only `x` (and
+ * orders/pins by the left/right fields); `vertical` touches only `y` (orders/pins
+ * by the bottom/top fields, bottom-left origin).
+ */
+export type DistributeAxis = 'horizontal' | 'vertical';
+
+/**
+ * Even out the spacing of a selection along one axis, pinning the two outermost
+ * fields and re-flowing the ones between them.
+ *
+ * Spacing rule — **equal adjacent gaps** (edge-to-edge), not equal centers. The
+ * interior region runs from the first field's trailing edge to the last field's
+ * leading edge; the middle fields' own extents subtract out, and the remainder is
+ * split into `n-1` equal gaps — one between each adjacent pair. This is the
+ * keynote/slides "distribute" convention and the one the spec asks for
+ * ("인접 필드 간 간격이 동일") — it stays correct when fields differ in size, where
+ * equal-center spacing would leave visibly uneven gaps.
+ *
+ * The two outermost fields keep their stored position exactly (returned as fresh
+ * copies, untouched). Only the distributed axis moves; every field's size and the
+ * other axis are preserved, so results stay valid normalized rects (0..1,
+ * bottom-left origin) with no clamping — same guarantee as {@link alignNormRects}.
+ *
+ * Fields are ordered by their leading edge along the axis (stable on ties), but
+ * the result is returned in the caller's original order so it maps back to the
+ * selection by index. Fewer than three rects is a no-op (nothing sits "between"
+ * two ends), returned as fresh copies for caller-safety.
+ */
+export function distributeNormRects(
+  rects: readonly NormRect[],
+  axis: DistributeAxis,
+): NormRect[] {
+  const out = rects.map((r) => ({ ...r }));
+  if (out.length < 3) return out;
+
+  const horizontal = axis === 'horizontal';
+  const pos = (r: NormRect): number => (horizontal ? r.x : r.y);
+  const size = (r: NormRect): number => (horizontal ? r.width : r.height);
+
+  // Order indices by leading edge; ties keep input order (stable) so
+  // equal-position fields don't jitter.
+  const order = out
+    .map((_, i) => i)
+    .sort((a, b) => pos(out[a]!) - pos(out[b]!));
+
+  const first = out[order[0]!]!;
+  const last = out[order[order.length - 1]!]!;
+
+  // Interior span = first field's trailing edge → last field's leading edge.
+  // Subtract the middle fields' extents; split what's left into n-1 equal gaps.
+  const innerStart = pos(first) + size(first);
+  const innerEnd = pos(last);
+  let sumMiddle = 0;
+  for (let i = 1; i < order.length - 1; i++) sumMiddle += size(out[order[i]!]!);
+  const gap = (innerEnd - innerStart - sumMiddle) / (order.length - 1);
+
+  // Walk left→right (or bottom→top), placing each middle field one gap past the
+  // previous field's trailing edge. The outer two fields are never touched.
+  let cursor = innerStart;
+  for (let i = 1; i < order.length - 1; i++) {
+    const r = out[order[i]!]!;
+    const next = cursor + gap;
+    if (horizontal) r.x = next;
+    else r.y = next;
+    cursor = next + size(r);
+  }
+
+  return out;
+}
+
+/**
  * Clamp a pixel rect to stay fully within the page raster, preserving size where
  * possible (used for live drag/resize feedback before normalizing on commit).
  */
