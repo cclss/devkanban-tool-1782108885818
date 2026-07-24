@@ -17,7 +17,7 @@
  */
 
 import * as React from 'react';
-import { cn } from '@repo/ui';
+import { Button, cn } from '@repo/ui';
 import {
   FIELD_TYPE_META,
   FIELD_TYPES,
@@ -26,6 +26,7 @@ import {
 } from '@/lib/field-geometry';
 import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
+import { SaveTemplateDialog } from './save-template-dialog';
 
 const ZOOM_MIN = 0.5;
 const ZOOM_MAX = 2;
@@ -42,6 +43,7 @@ export function FieldsStep() {
   const [zoom, setZoom] = React.useState(1);
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
+  const [saveOpen, setSaveOpen] = React.useState(false);
 
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
@@ -76,15 +78,37 @@ export function FieldsStep() {
 
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
+  // Saving needs the uploaded PDF's storage key and at least one placed field.
+  const canSaveTemplate = fields.length > 0 && Boolean(document?.storageKey);
 
   return (
     <div className="flex flex-col gap-md">
-      <div className="flex flex-col gap-2xs">
-        <h2 className="text-xl font-bold text-foreground">서명 필드를 배치해 주세요</h2>
-        <p className="text-sm text-foreground-subtle">
-          받는 분이 서명할 위치에 필드를 끌어다 놓으세요. 클릭하면 가운데에 추가돼요.
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-md">
+        <div className="flex flex-col gap-2xs">
+          <h2 className="text-xl font-bold text-foreground">서명 필드를 배치해 주세요</h2>
+          <p className="text-sm text-foreground-subtle">
+            받는 분이 서명할 위치에 필드를 끌어다 놓으세요. 클릭하면 가운데에 추가돼요.
+          </p>
+        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setSaveOpen(true)}
+          disabled={!canSaveTemplate}
+        >
+          템플릿으로 저장
+        </Button>
       </div>
+
+      {document?.storageKey ? (
+        <SaveTemplateDialog
+          open={saveOpen}
+          onOpenChange={setSaveOpen}
+          storageKey={document.storageKey}
+          pageCount={pageCount > 0 ? pageCount : undefined}
+          fields={fields}
+        />
+      ) : null}
 
       {/* Tool palette */}
       <div className="flex flex-wrap items-center gap-xs">

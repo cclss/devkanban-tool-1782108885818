@@ -44,6 +44,12 @@ export interface DocumentSummary {
   status: DocumentStatus;
   /** Korean status label, authored server-side (single source of truth). */
   statusLabel: string;
+  /**
+   * Storage key of the uploaded source PDF, returned only on owner-gated read
+   * paths. Optional because older/cached payloads may omit it; the wizard uses
+   * it to save a template that reuses the already-uploaded PDF.
+   */
+  storageKey?: string;
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;
@@ -99,6 +105,37 @@ export interface Quota {
 
 export function fetchDocuments(): Promise<DocumentSummary[]> {
   return apiFetch<DocumentSummary[]>('/documents', { token: getToken() ?? undefined });
+}
+
+/** Inputs for {@link createDocumentFromStorageKey} (mirrors `CreateDocumentDto`). */
+export interface CreateDocumentFromStorageKeyInput {
+  /** Storage key of the source PDF (from a prior upload, e.g. a template's PDF). */
+  storageKey: string;
+  title: string;
+  /** Page count if already known; the server derives it from the bytes otherwise. */
+  pageCount?: number;
+}
+
+/**
+ * Register a new DRAFT contract from an already-uploaded PDF (by storage key),
+ * without re-uploading the bytes. Used by the "start from a template" flow: the
+ * template's PDF is re-registered as a fresh document the wizard can then send.
+ * Rejects with the server's Korean copy on failure. Mirrors `POST /documents`
+ * (`createFromStorageKey` → `DocumentSummary`).
+ */
+export function createDocumentFromStorageKey(
+  input: CreateDocumentFromStorageKeyInput,
+): Promise<DocumentSummary> {
+  const payload: CreateDocumentFromStorageKeyInput = {
+    storageKey: input.storageKey,
+    title: input.title.trim(),
+    ...(input.pageCount !== undefined ? { pageCount: input.pageCount } : {}),
+  };
+  return apiFetch<DocumentSummary>('/documents', {
+    method: 'POST',
+    json: payload,
+    token: getToken() ?? undefined,
+  });
 }
 
 /** Fetch one owned contract's detail for the `/contracts/[id]` screen. */

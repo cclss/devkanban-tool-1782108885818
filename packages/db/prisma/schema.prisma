@@ -30,6 +30,7 @@ model User {
 
   documents Document[]
   auditLogs AuditLog[]
+  templates Template[]
 
   @@map("users")
 }
@@ -187,6 +188,33 @@ model BrandingSettings {
   updatedAt           DateTime @updatedAt @map("updated_at")
 
   @@map("branding_settings")
+}
+
+/// A reusable contract template: a stored PDF plus its saved field layout, so a
+/// sender can start a new contract without re-uploading the file and re-placing
+/// every signature/date/text field. Owned by a single user; deleting the user
+/// cascades their templates away. Field placements are captured in `fields`
+/// (type, normalized 0..1 geometry, recipient index) rather than as rows, since
+/// a template has no concrete SignRequests/recipients until it is instantiated.
+model Template {
+  id         String   @id @default(cuid())
+  ownerId    String   @map("owner_id")
+  name       String
+  // Object storage key of the template's source PDF (same storage layer as
+  // Document.storageKey).
+  storageKey String   @map("storage_key")
+  pageCount  Int      @default(0) @map("page_count")
+  // Saved field layout as JSON: an array of placements, each with the field
+  // type, normalized (0..1) position/size, and the 0-based recipient index it
+  // targets. Mirrors SignField geometry but decoupled from concrete rows.
+  fields     Json     @default("[]")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  owner User @relation(fields: [ownerId], references: [id], onDelete: Cascade)
+
+  @@index([ownerId])
+  @@map("templates")
 }
 
 enum Plan {

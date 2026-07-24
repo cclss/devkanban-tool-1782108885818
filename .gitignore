@@ -47,3 +47,25 @@ packages/db/src/generated/
 # Local-disk storage fallback (uploaded PDFs when S3 is not configured)
 .storage/
 **/.storage/
+
+# Charlie baseline (auto-added)
+.pnp.*
+.yarn/cache/
+.venv/
+*.egg-info/
+.gradle/
+priv/static/assets/
+/dist/
+.nuxt/
+.svelte-kit/
+.remix/
+.parcel-cache/
+storybook-static/
+Thumbs.db
+.xcuserdata/
+.eslintcache
+.tsbuildinfo
+coverage/
+.nyc_output/
+htmlcov/
+.terraform/
