@@ -11,8 +11,9 @@
  * - **내 템플릿에서 시작**: pick a saved template; we re-register its PDF as a
  *   fresh DRAFT (`createDocumentFromStorageKey`), reload its bytes
  *   (`fetchTemplateFile`), and hydrate its saved field layout, then mount
- *   `<ContractWizard preload={…} />` straight at the recipients step so only
- *   signer info remains before sending.
+ *   `<ContractWizard preload={…} />` straight at the delivery-method step. The
+ *   template only skips the upload/place-fields work — the user still picks
+ *   email or link exactly as on the from-scratch path.
  *
  * A `?template=<id>` query jumps past the chooser and prepares that template
  * immediately (e.g. a "이 템플릿으로 보내기" deep link). Loading / error copy is

@@ -20,11 +20,14 @@ function preload(over: Partial<WizardPreload> = {}): WizardPreload {
 }
 
 describe('preloadedWizardState', () => {
-  it('opens on the recipients step of the email branch', () => {
+  it('opens on the delivery-method step with no branch chosen yet', () => {
     const state = preloadedWizardState(preload());
-    expect(state.deliveryMethod).toBe('email');
-    expect(state.step).toBe(stepIndexOf('email', 'recipients'));
-    expect(currentStepKey(state)).toBe('recipients');
+    // Same email/link choice as the from-scratch path — nothing preselected.
+    expect(state.deliveryMethod).toBeNull();
+    expect(state.step).toBe(stepIndexOf(null, 'delivery'));
+    expect(currentStepKey(state)).toBe('delivery');
+    // "다음" stays locked until the user picks how the contract is delivered.
+    expect(canProceed(state)).toBe(false);
   });
 
   it('carries the document, file, and saved field layout', () => {
@@ -32,21 +35,37 @@ describe('preloadedWizardState', () => {
     expect(state.document).toBe(doc);
     expect(state.file).toBe(file);
     expect(state.fields).toEqual(fields);
-    // Recipients are the only thing left to fill in.
+    // The delivery choice (and anything past it) is all that's left to fill in.
     expect(state.recipients).toEqual([]);
     expect(canProceed(state)).toBe(false);
   });
 
   it('honors an explicit delivery branch override', () => {
     const state = preloadedWizardState(preload({ deliveryMethod: 'link' }));
+    // An explicit branch is still respected rather than being reset to null.
     expect(state.deliveryMethod).toBe('link');
-    // 'recipients' is absent from the link branch → cursor falls back to 0.
-    expect(state.step).toBe(0);
+    // The cursor opens on the delivery step (present in every branch).
+    expect(state.step).toBe(stepIndexOf('link', 'delivery'));
+    expect(currentStepKey(state)).toBe('delivery');
+  });
+
+  it('advances into the link branch once the user picks link', () => {
+    let state = preloadedWizardState(preload());
+    state = wizardReducer(state, { type: 'SET_DELIVERY_METHOD', method: 'link' });
+    expect(canProceed(state)).toBe(true);
+    state = wizardReducer(state, { type: 'GO_NEXT' });
+    expect(currentStepKey(state)).toBe('link');
+  });
+
+  it('advances into the email branch once the user picks email', () => {
+    let state = preloadedWizardState(preload());
+    state = wizardReducer(state, { type: 'SET_DELIVERY_METHOD', method: 'email' });
+    state = wizardReducer(state, { type: 'GO_NEXT' });
+    expect(currentStepKey(state)).toBe('recipients');
   });
 
   it('lets the user step back through the pre-filled common steps', () => {
     let state = preloadedWizardState(preload());
-    state = wizardReducer(state, { type: 'GO_BACK' });
     expect(currentStepKey(state)).toBe('delivery');
     state = wizardReducer(state, { type: 'GO_BACK' });
     expect(currentStepKey(state)).toBe('fields');

@@ -128,36 +128,41 @@ export const initialWizardState: WizardState = {
  * entry point. Before mounting, the caller has re-registered the template's PDF
  * as a fresh DRAFT `document`, reloaded its bytes as a `file`, and carries the
  * saved `fields` layout. Seeding with this opens the wizard straight at the
- * recipients step with fields/review pre-filled, so only signer info remains.
+ * delivery-method step with upload/fields pre-filled, so the user still picks
+ * how the contract is delivered before continuing.
  *
- * The tail is fixed to the 'email' branch by default (recipients → review),
- * because a template send always collects named signers. Everything else stays
- * live: re-uploading, jumping back to fields, and sending all behave exactly as
- * on the from-scratch path — this only changes the *starting* cursor and data.
+ * The delivery branch is left unchosen by default (`deliveryMethod` null), so a
+ * template send lands on the same email/link choice as the from-scratch path —
+ * templates only skip the earlier upload/place-fields work, never the delivery
+ * decision. An explicit `deliveryMethod` may still be supplied to pre-select a
+ * branch. Everything else stays live: re-uploading, jumping back to fields, and
+ * sending all behave exactly as on the from-scratch path — this only changes the
+ * *starting* cursor and data.
  */
 export interface WizardPreload {
   document: DocumentSummary;
   file: File;
   fields: SignFieldDraft[];
-  /** Delivery branch to enter; defaults to 'email'. */
+  /** Delivery branch to pre-select; omit to let the user choose at 'delivery'. */
   deliveryMethod?: DeliveryMethod;
 }
 
 /**
  * Build a wizard state from a template preload: document/file/fields populated,
- * the delivery branch chosen (default 'email'), and the cursor placed on the
- * recipients step so the flow opens there. Derived entirely from
+ * the delivery branch left unchosen (null) unless one is supplied, and the
+ * cursor placed on the 'delivery' step so the flow opens on the same email/link
+ * choice as the from-scratch path. Derived entirely from
  * {@link initialWizardState} so any new state field defaults correctly.
  */
 export function preloadedWizardState(preload: WizardPreload): WizardState {
-  const deliveryMethod = preload.deliveryMethod ?? 'email';
+  const deliveryMethod = preload.deliveryMethod ?? null;
   return {
     ...initialWizardState,
     document: preload.document,
     file: preload.file,
     fields: preload.fields,
     deliveryMethod,
-    step: stepIndexOf(deliveryMethod, 'recipients'),
+    step: stepIndexOf(deliveryMethod, 'delivery'),
   };
 }
 
