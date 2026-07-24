@@ -21,7 +21,9 @@ import { Button, cn } from '@repo/ui';
 import {
   FIELD_TYPE_META,
   FIELD_TYPES,
+  alignNormRects,
   clampNormRect,
+  type AlignMode,
   type SignFieldType,
 } from '@/lib/field-geometry';
 import { useWizard, type SignFieldDraft } from './wizard-context';
@@ -65,6 +67,35 @@ export function FieldsStep() {
       setSelectedIds([id]);
     },
     [fields, page, setFields],
+  );
+
+  const alignSelected = React.useCallback(
+    (mode: AlignMode) => {
+      // Only the selected fields on the current page participate; selection is
+      // page-scoped, but filter defensively so cross-page ids can never move.
+      const selected = new Set(selectedIds);
+      const targets = fields.filter((f) => f.page === page && selected.has(f.id));
+      if (targets.length < 2) return;
+
+      const aligned = alignNormRects(
+        targets.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })),
+        mode,
+      );
+      // Re-clamp each moved rect into the page, then splice back in place —
+      // non-selected fields (and other pages) stay byte-for-byte unchanged.
+      const nextById = new Map<string, (typeof aligned)[number]>();
+      aligned.forEach((rect, i) => {
+        const f = targets[i];
+        if (f) nextById.set(f.id, clampNormRect(rect));
+      });
+      setFields(
+        fields.map((f) => {
+          const next = nextById.get(f.id);
+          return next ? { ...f, ...next } : f;
+        }),
+      );
+    },
+    [fields, page, selectedIds, setFields],
   );
 
   if (!file) {
@@ -119,6 +150,28 @@ export function FieldsStep() {
           이 페이지에 {pageFieldCount}개 · 전체 {fields.length}개
         </span>
       </div>
+
+      {/* Alignment toolbar — appears once 2+ fields are selected. */}
+      {selectedIds.length >= 2 ? (
+        <div className="flex flex-wrap items-center gap-sm rounded-md border border-border bg-surface px-sm py-2xs">
+          <span className="text-xs font-medium text-foreground-subtle">
+            {selectedIds.length}개 필드 정렬
+          </span>
+          <div className="flex items-center gap-2xs">
+            {(['left', 'hcenter', 'right'] as const).map((mode) => (
+              <IconButton key={mode} label={ALIGN_LABELS[mode]} onClick={() => alignSelected(mode)}>
+                <AlignIcon mode={mode} />
+              </IconButton>
+            ))}
+            <span aria-hidden="true" className="mx-2xs h-5 w-px bg-border" />
+            {(['top', 'vcenter', 'bottom'] as const).map((mode) => (
+              <IconButton key={mode} label={ALIGN_LABELS[mode]} onClick={() => alignSelected(mode)}>
+                <AlignIcon mode={mode} />
+              </IconButton>
+            ))}
+          </div>
+        </div>
+      ) : null}
 
       {/* Page nav + zoom */}
       <div className="flex items-center justify-between gap-sm rounded-md border border-border bg-surface px-sm py-2xs">
@@ -194,6 +247,7 @@ export function FieldsStep() {
       <p className="text-xs text-foreground-subtle">
         필드를 선택한 뒤 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제할 수 있어요.
         Shift 또는 Cmd(Ctrl)+클릭으로 여러 필드를 함께 선택하고, 빈 곳 클릭이나 Esc로 선택을 해제해요.
+        2개 이상 선택하면 정렬 도구로 좌·가운데·우, 상·가운데·하 줄맞춤을 할 수 있어요.
       </p>
     </div>
   );
@@ -313,6 +367,63 @@ function ToolGlyph({ type }: { type: SignFieldType }) {
   return (
     <svg viewBox="0 0 16 16" className="h-4 w-4" fill="none" aria-hidden="true">
       <path d="M4 4h8M8 4v8M6.5 12h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Korean labels for each of the six alignment actions. */
+const ALIGN_LABELS: Record<AlignMode, string> = {
+  left: '왼쪽 정렬',
+  hcenter: '가로 가운데 정렬',
+  right: '오른쪽 정렬',
+  top: '위쪽 정렬',
+  vcenter: '세로 가운데 정렬',
+  bottom: '아래쪽 정렬',
+};
+
+/**
+ * Glyph for an alignment mode: a reference guide line plus two field bars pinned
+ * to it. Horizontal modes draw a vertical guide + horizontal bars; vertical modes
+ * are the 90°-rotated counterpart.
+ */
+function AlignIcon({ mode }: { mode: AlignMode }) {
+  const common = { stroke: 'currentColor', strokeWidth: 1.6, strokeLinecap: 'round' as const };
+  let guide: React.ReactNode;
+  let bars: React.ReactNode;
+
+  if (mode === 'left' || mode === 'hcenter' || mode === 'right') {
+    const guideX = mode === 'left' ? 4 : mode === 'right' ? 16 : 10;
+    // Two bars sharing the guide edge/center; widths differ to read as distinct.
+    const bar = (y: number, len: number) => {
+      const x1 = mode === 'left' ? guideX : mode === 'right' ? guideX - len : guideX - len / 2;
+      return <path d={`M${x1} ${y}h${len}`} {...common} />;
+    };
+    guide = <path d={`M${guideX} 4v12`} {...common} />;
+    bars = (
+      <>
+        {bar(8, 10)}
+        {bar(12, 6)}
+      </>
+    );
+  } else {
+    const guideY = mode === 'top' ? 4 : mode === 'bottom' ? 16 : 10;
+    const bar = (x: number, len: number) => {
+      const y1 = mode === 'top' ? guideY : mode === 'bottom' ? guideY - len : guideY - len / 2;
+      return <path d={`M${x} ${y1}v${len}`} {...common} />;
+    };
+    guide = <path d={`M4 ${guideY}h12`} {...common} />;
+    bars = (
+      <>
+        {bar(8, 10)}
+        {bar(12, 6)}
+      </>
+    );
+  }
+
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+      {guide}
+      {bars}
     </svg>
   );
 }
