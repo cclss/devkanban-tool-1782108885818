@@ -203,6 +203,10 @@ export class SigningService {
         width: f.width,
         height: f.height,
         filled: f.value != null && f.value.length > 0,
+        // The persisted string value (signature dataURL / ISO date / text), so a
+        // resumed session can rehydrate the field to its real value rather than a
+        // "작성됨" placeholder. `null` when nothing has been saved for this field.
+        value: f.value != null && f.value.length > 0 ? f.value : null,
       })),
     };
   }
@@ -599,6 +603,8 @@ export interface SigningPayloadField {
   width: number;
   height: number;
   filled: boolean;
+  /** Persisted value (signature dataURL / ISO date / text); null if unfilled. */
+  value: string | null;
 }
 
 export interface SigningPayload {

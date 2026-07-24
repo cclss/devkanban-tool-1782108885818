@@ -502,6 +502,8 @@ describe('SharingService — fill & submit (reuses the completion machine)', () 
     expect(payload.pdfPath).toBe(`/api/share/${link.token}/pdf`);
     expect(payload.fields).toHaveLength(2);
     expect(payload.fields.every((f) => !f.filled)).toBe(true);
+    // Unfilled fields expose a null value (nothing persisted yet).
+    expect(payload.fields.every((f) => f.value === null)).toBe(true);
 
     await h.sharing.saveFields(signRequestId, {
       fields: [
@@ -509,6 +511,15 @@ describe('SharingService — fill & submit (reuses the completion machine)', () 
         { fieldId: 'f2', value: '홍길동' },
       ],
     });
+
+    // A resumed session re-fetches the payload and now sees the persisted values
+    // (the client rehydrates each filled field to its real value).
+    const resumed = await h.sharing.payload(signRequestId, link.token);
+    const byId = Object.fromEntries(resumed.fields.map((f) => [f.id, f]));
+    expect(byId.f1.filled).toBe(true);
+    expect(byId.f1.value).toBe(PNG_1x1);
+    expect(byId.f2.filled).toBe(true);
+    expect(byId.f2.value).toBe('홍길동');
 
     const result = await h.sharing.submit(signRequestId, '203.0.113.5', 'jest');
     expect(result.status).toBe('SIGNED');

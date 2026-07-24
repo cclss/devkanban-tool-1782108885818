@@ -23,6 +23,9 @@ import {
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
+// Type-only (erased at build): the flow-neutral captured-value union the viewer
+// reflects inline. Both import directions are type-only, so no runtime cycle.
+import type { FillFieldValue } from '@/components/signer/fill-context';
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -69,6 +72,8 @@ export interface SigningPayloadField {
   width: number;
   height: number;
   filled: boolean;
+  /** Persisted value (signature dataURL / ISO date / text); null if unfilled. */
+  value: string | null;
 }
 
 export interface SigningPayload {
@@ -405,4 +410,41 @@ export function serializeFieldValue(value: {
   if (value.type === 'SIGNATURE') return value.dataUrl ?? null;
   const text = value.text?.trim();
   return text ? text : null;
+}
+
+/**
+ * Inverse of {@link serializeFieldValue}: turn a server-persisted string back into
+ * a {@link FillFieldValue} so a resumed session rehydrates each filled field to
+ * its real value (signature image / text / date) instead of a "작성됨" placeholder.
+ * SIGNATURE → the PNG data URL; TEXT/DATE → the raw text. Returns `null` when the
+ * value is genuinely absent (unsaved/empty) so the caller leaves it unhydrated.
+ *
+ * A rehydrated TEXT value carries no `fontFamily` — the chosen signature font is
+ * not persisted (out of scope), so the viewer renders it in the default face.
+ */
+export function deserializeFieldValue(
+  type: SignFieldType,
+  value: string | null | undefined,
+): FillFieldValue | null {
+  if (value == null || value.length === 0) return null;
+  if (type === 'SIGNATURE') return { type: 'SIGNATURE', dataUrl: value };
+  if (type === 'DATE') return { type: 'DATE', text: value };
+  return { type: 'TEXT', text: value };
+}
+
+/**
+ * Seed the `fieldValues` map from a freshly-fetched payload: any field the server
+ * reports with a saved value is rehydrated (via {@link deserializeFieldValue});
+ * unfilled fields are omitted. Both flows call this when the payload lands on a
+ * resumed session so already-captured fields render their real value inline.
+ */
+export function seedFieldValues(
+  fields: readonly { id: string; type: SignFieldType; value: string | null }[],
+): Record<string, FillFieldValue> {
+  const seeded: Record<string, FillFieldValue> = {};
+  for (const field of fields) {
+    const value = deserializeFieldValue(field.type, field.value);
+    if (value) seeded[field.id] = value;
+  }
+  return seeded;
 }

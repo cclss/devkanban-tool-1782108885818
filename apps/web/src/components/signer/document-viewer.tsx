@@ -635,7 +635,9 @@ function FieldValueContent({
   field: FillField;
   value: FillFieldValue | undefined;
 }) {
-  // Server-saved on a resumed session but not re-fetched into the client.
+  // `filled` but no rehydrated value: the server marks it filled yet the value is
+  // genuinely unavailable to the client (e.g. an unreadable/empty stored value).
+  // Resumed sessions normally seed the real value, so this stays a rare fallback.
   if (!value) {
     return <span className="truncate px-2xs text-2xs font-semibold text-success">작성됨</span>;
   }

@@ -53,6 +53,8 @@ export interface SharePayloadField {
   width: number;
   height: number;
   filled: boolean;
+  /** Persisted value (signature dataURL / ISO date / text); null if unfilled. */
+  value: string | null;
 }
 
 export interface SharePayload {

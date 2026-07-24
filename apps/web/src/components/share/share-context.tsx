@@ -22,7 +22,7 @@
 
 import * as React from 'react';
 import { ApiError } from '@/lib/api';
-import { SIGNER_COPY } from '@/lib/signing';
+import { seedFieldValues, SIGNER_COPY } from '@/lib/signing';
 import {
   fetchShareMeta,
   fetchSharePayload,
@@ -99,7 +99,14 @@ function reducer(state: ShareState, action: ShareAction): ShareState {
     case 'BLOCK':
       return { ...state, phase: 'blocked', blockReason: action.reason };
     case 'UNLOCKED':
-      return { ...state, phase: 'viewing', payload: action.payload };
+      return {
+        ...state,
+        phase: 'viewing',
+        payload: action.payload,
+        // Rehydrate any server-persisted values so a resumed session shows the
+        // real signature/text/date rather than a "작성됨" placeholder.
+        fieldValues: seedFieldValues(action.payload.fields),
+      };
     case 'DONE':
       return {
         ...state,

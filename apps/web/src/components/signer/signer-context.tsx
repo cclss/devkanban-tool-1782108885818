@@ -30,6 +30,7 @@ import {
   fetchPayload,
   getSignerSession,
   saveFields,
+  seedFieldValues,
   setSignerSession,
   signerPdfUrl,
   verifyCode,
@@ -122,7 +123,14 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         blockReason: action.reason,
       };
     case 'VERIFIED':
-      return { ...state, phase: 'viewing', payload: action.payload };
+      return {
+        ...state,
+        phase: 'viewing',
+        payload: action.payload,
+        // Rehydrate any server-persisted values so a resumed session shows the
+        // real signature/text/date rather than a "작성됨" placeholder.
+        fieldValues: seedFieldValues(action.payload.fields),
+      };
     case 'HIGHLIGHTS':
       return { ...state, highlights: action.highlights };
     case 'GO_SIGNING':
