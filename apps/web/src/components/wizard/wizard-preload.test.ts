@@ -4,8 +4,10 @@ import {
   wizardReducer,
   currentStepKey,
   canProceed,
+  isLastStep,
   type WizardPreload,
   type SignFieldDraft,
+  type RecipientDraft,
 } from './wizard-context';
 import type { DocumentSummary } from '@/lib/documents';
 
@@ -62,6 +64,49 @@ describe('preloadedWizardState', () => {
     state = wizardReducer(state, { type: 'SET_DELIVERY_METHOD', method: 'email' });
     state = wizardReducer(state, { type: 'GO_NEXT' });
     expect(currentStepKey(state)).toBe('recipients');
+  });
+
+  it('runs the email tail recipients → review exactly like the from-scratch path', () => {
+    let state = preloadedWizardState(preload());
+    // Pick email at the (now shared) delivery step and step into 받는 분.
+    state = wizardReducer(state, { type: 'SET_DELIVERY_METHOD', method: 'email' });
+    state = wizardReducer(state, { type: 'GO_NEXT' });
+    expect(currentStepKey(state)).toBe('recipients');
+    // 받는 분 is not terminal and "다음" stays locked until a valid recipient exists.
+    expect(isLastStep(state)).toBe(false);
+    expect(canProceed(state)).toBe(false);
+
+    // An incomplete recipient (no email) still can't proceed…
+    const blank: RecipientDraft = { id: 'r1', email: '', name: '' };
+    state = wizardReducer(state, { type: 'SET_RECIPIENTS', recipients: [blank] });
+    expect(canProceed(state)).toBe(false);
+
+    // …a well-formed recipient unlocks it.
+    const valid: RecipientDraft = { id: 'r1', email: 'signer@example.com', name: '홍길동' };
+    state = wizardReducer(state, { type: 'SET_RECIPIENTS', recipients: [valid] });
+    expect(canProceed(state)).toBe(true);
+
+    // Advancing lands on the terminal review/send step, which owns its own CTA.
+    state = wizardReducer(state, { type: 'GO_NEXT' });
+    expect(currentStepKey(state)).toBe('review');
+    expect(isLastStep(state)).toBe(true);
+    // The send tail is gated by the ReviewStep CTA, not the footer, so nothing
+    // to gate here — and the review state still carries everything send needs.
+    expect(canProceed(state)).toBe(true);
+    expect(state.document).toBe(doc);
+    expect(state.fields).toEqual(fields);
+    expect(state.recipients).toEqual([valid]);
+  });
+
+  it('honors an explicit email override by opening on the shared delivery step', () => {
+    const state = preloadedWizardState(preload({ deliveryMethod: 'email' }));
+    // A pre-selected email branch still opens on the delivery step (present in
+    // every branch) rather than skipping ahead to 받는 분.
+    expect(state.deliveryMethod).toBe('email');
+    expect(state.step).toBe(stepIndexOf('email', 'delivery'));
+    expect(currentStepKey(state)).toBe('delivery');
+    // "다음" is already unlocked because the branch is chosen.
+    expect(canProceed(state)).toBe(true);
   });
 
   it('lets the user step back through the pre-filled common steps', () => {
