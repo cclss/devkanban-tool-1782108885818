@@ -67,6 +67,12 @@ export interface ShareSubmitResult {
   /** True when this submission completed the document as a whole. */
   documentCompleted: boolean;
   message: string;
+  /** ISO timestamp the submission was sealed — the completion "제출 완료 시각". */
+  signedAt: string;
+  /** Contract date pulled from the PDF ("2026년 1월 1일"), or null if not found. */
+  contractDate: string | null;
+  /** Contract amount pulled from the PDF ("5,000,000원"), or null if not found. */
+  contractAmount: string | null;
 }
 
 // --- session token persistence (tab-scoped, `esign.share.` namespace) --------
@@ -233,6 +239,10 @@ export const SHARE_RECIPIENT_COPY = {
     title: '제출이 완료되었습니다!',
     body: '작성하신 내용이 안전하게 전달됐어요.',
     documentLabel: '제출한 문서',
+    /** Summary-card row labels: the concrete contract facts shown under the title. */
+    dateLabel: '계약 날짜',
+    amountLabel: '계약 금액',
+    signedAtLabel: '제출 완료 시각',
     next: '보낸 분이 확인할 수 있도록 전달했어요. 이제 창을 닫으셔도 돼요.',
   },
 } as const;

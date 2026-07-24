@@ -211,6 +211,10 @@ export const SIGNER_COPY = {
     body: '작성하신 서명이 안전하게 전달됐어요.',
     /** Calm post-summary: which document was signed. */
     documentLabel: '서명한 문서',
+    /** Summary-card row labels: the concrete contract facts shown under the title. */
+    dateLabel: '계약 날짜',
+    amountLabel: '계약 금액',
+    signedAtLabel: '서명 완료 시각',
     /** What happens next, by whether the whole document is now complete. */
     nextAllDone: '모든 서명이 끝났어요. 완료된 계약서를 메일로 보내 드릴게요.',
     nextWaiting: '다른 분들의 서명이 끝나면 완료된 계약서를 메일로 보내 드릴게요.',
@@ -343,6 +347,12 @@ export interface CompleteResult {
   /** True when this was the last outstanding signer — the whole doc is now done. */
   documentCompleted: boolean;
   message: string;
+  /** ISO timestamp the signature was sealed — the completion "서명 완료 시각". */
+  signedAt: string;
+  /** Contract date pulled from the PDF ("2026년 1월 1일"), or null if not found. */
+  contractDate: string | null;
+  /** Contract amount pulled from the PDF ("5,000,000원"), or null if not found. */
+  contractAmount: string | null;
 }
 
 /**

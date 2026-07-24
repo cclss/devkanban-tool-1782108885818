@@ -7,8 +7,11 @@
  * full-viewport takeover owns the moment: the SuccessCheck ring/tick stroke-draw
  * with a Confetti burst fanning out of the mark, then the text fades in staggered
  * (headline → body → post-summary → what-happens-next) via the `motion-stagger`
- * token. A calm summary names the finished document and explains what happens
- * next — no further action is required.
+ * token. A calm summary card lists the finished document plus the concrete
+ * contract facts the finalize response carried — 계약 날짜, 계약 금액, and the
+ * 서명 완료 시각 — then explains what happens next. Rows with no value (a scanned
+ * PDF, or the share flow before facts resolve) are omitted, so the card never
+ * shows a blank line; no further action is required.
  *
  * Flow-neutral: all copy and the optional artifact download come from the
  * {@link useFill} adapter, so the OTP signer flow (with a download area) and the
@@ -26,13 +29,22 @@ import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { Confetti, SuccessCheck } from '@repo/ui';
 import { brandStyle } from '@/lib/branding';
+import { formatSignedAt } from '@/lib/completion-facts';
 import { CompletionDownload } from '@/components/completion-download';
 import { CompletionSummary } from './completion-summary';
 import { useFill } from './fill-context';
 
 export function CompletionScreen() {
-  const { brandColor, documentTitle, payload, documentCompleted, copy, download, highlights } =
-    useFill();
+  const {
+    brandColor,
+    documentTitle,
+    payload,
+    documentCompleted,
+    copy,
+    download,
+    highlights,
+    completion,
+  } = useFill();
   const done = copy.done;
 
   // The finish-screen recap reuses the pre-read key-clause cards (grain-5 data).
@@ -48,6 +60,23 @@ export function CompletionScreen() {
 
   const title = payload?.documentTitle ?? documentTitle;
   const nextStep = documentCompleted ? done.nextAllDone : done.nextWaiting;
+
+  // The summary card lists the finished document plus the concrete contract facts
+  // the finalize response carried. The title row is always present; date/amount
+  // rows appear only when the PDF yielded a value, and the sealed-at row only once
+  // `completion` is projected (and its ISO stamp parses) — null/empty rows are
+  // omitted so a scanned PDF or the share flow simply shows fewer lines.
+  const signedAtText = formatSignedAt(completion?.signedAt);
+  const summaryItems: { label: string; value: string }[] = [
+    { label: done.documentLabel, value: title },
+    ...(completion?.contractDate
+      ? [{ label: done.dateLabel, value: completion.contractDate }]
+      : []),
+    ...(completion?.contractAmount
+      ? [{ label: done.amountLabel, value: completion.contractAmount }]
+      : []),
+    ...(signedAtText ? [{ label: done.signedAtLabel, value: signedAtText }] : []),
+  ];
 
   return createPortal(
     <div
@@ -71,10 +100,16 @@ export function CompletionScreen() {
         <h1 className="text-2xl font-bold text-foreground">{done.title}</h1>
         <p className="text-base text-foreground-subtle">{done.body}</p>
 
-        <div className="mt-xs w-full rounded-md border border-border bg-surface-muted px-md py-sm text-left">
-          <p className="text-2xs font-medium text-foreground-subtle">{done.documentLabel}</p>
-          <p className="mt-2xs truncate text-sm font-semibold text-foreground">{title}</p>
-        </div>
+        <dl className="mt-xs flex w-full flex-col gap-sm rounded-md border border-border bg-surface-muted px-md py-sm text-left">
+          {summaryItems.map((item) => (
+            <div key={item.label}>
+              <dt className="text-2xs font-medium text-foreground-subtle">{item.label}</dt>
+              <dd className="mt-2xs truncate text-sm font-semibold text-foreground">
+                {item.value}
+              </dd>
+            </div>
+          ))}
+        </dl>
 
         <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
 

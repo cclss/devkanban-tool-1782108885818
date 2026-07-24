@@ -128,6 +128,15 @@ export interface DoneCopy {
   title: string;
   body: string;
   documentLabel: string;
+  /** Summary-card row label: the contract's calendar date. */
+  dateLabel: string;
+  /** Summary-card row label: the contract amount. */
+  amountLabel: string;
+  /**
+   * Summary-card row label for when the finalize was sealed. The OTP flow says
+   * "서명 완료 시각"; the share flow says "제출 완료 시각".
+   */
+  signedAtLabel: string;
   /** Next-step note when the whole document is now complete. */
   nextAllDone: string;
   /** Next-step note when other participants are still pending. */
@@ -143,6 +152,22 @@ export interface DoneCopy {
 /** Optional completed-artifact download (OTP only; the share flow omits it). */
 export interface FillDownload {
   onDownload: (kind: CompletionArtifact) => Promise<void>;
+}
+
+/**
+ * Concrete contract facts for the completion summary card, projected by the flow
+ * once finalize (complete / submit) succeeds. `signedAt` is always present (the
+ * server stamps it); `contractDate`/`contractAmount` are the verbatim PDF strings
+ * or `null` when the contract has no machine-readable value for that fact (a
+ * scanned/image-only PDF, or simply absent) — the screen omits null rows.
+ */
+export interface FillCompletionFacts {
+  /** ISO timestamp the signature/submission was sealed. */
+  signedAt: string;
+  /** Contract date verbatim from the PDF ("2026년 1월 1일"), or null. */
+  contractDate: string | null;
+  /** Contract amount verbatim from the PDF ("5,000,000원"), or null. */
+  contractAmount: string | null;
 }
 
 /**
@@ -219,6 +244,12 @@ export interface FillContextValue {
    * highlights endpoint), so it stays undefined and no summary shows.
    */
   highlights?: FillHighlights | null;
+  /**
+   * Concrete contract facts for the completion summary card, projected once
+   * finalize succeeds. `undefined` before completion / on flows that don't carry
+   * them, in which case the summary card shows only the document title.
+   */
+  completion?: FillCompletionFacts;
 }
 
 const FillContext = React.createContext<FillContextValue | null>(null);

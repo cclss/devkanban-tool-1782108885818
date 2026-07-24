@@ -43,6 +43,7 @@ import {
 export type { ShareBlockReason };
 import {
   FillProvider,
+  type FillCompletionFacts,
   type FillContextValue,
   type FillCopy,
   type FillFieldValue,
@@ -58,6 +59,8 @@ export interface ShareState {
   fieldValues: Record<string, FillFieldValue>;
   activeFieldId: string | null;
   documentCompleted: boolean;
+  /** Contract facts (date/amount/signedAt) echoed by `submit`; null until then. */
+  completion: FillCompletionFacts | null;
 }
 
 const initialState: ShareState = {
@@ -68,13 +71,14 @@ const initialState: ShareState = {
   fieldValues: {},
   activeFieldId: null,
   documentCompleted: false,
+  completion: null,
 };
 
 type ShareAction =
   | { type: 'META'; meta: ShareMeta }
   | { type: 'BLOCK'; reason: ShareBlockReason }
   | { type: 'UNLOCKED'; payload: SharePayload }
-  | { type: 'DONE'; documentCompleted: boolean }
+  | { type: 'DONE'; documentCompleted: boolean; completion: FillCompletionFacts }
   | { type: 'OPEN_FIELD'; fieldId: string }
   | { type: 'CLOSE_FIELD' }
   | { type: 'SET_FIELD_VALUE'; fieldId: string; value: FillFieldValue };
@@ -97,7 +101,12 @@ function reducer(state: ShareState, action: ShareAction): ShareState {
     case 'UNLOCKED':
       return { ...state, phase: 'viewing', payload: action.payload };
     case 'DONE':
-      return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
+      return {
+        ...state,
+        phase: 'done',
+        documentCompleted: action.documentCompleted,
+        completion: action.completion,
+      };
     case 'OPEN_FIELD':
       return { ...state, activeFieldId: action.fieldId };
     case 'CLOSE_FIELD':
@@ -212,7 +221,15 @@ export function ShareProvider({
       throw new ApiError(SHARE_RECIPIENT_COPY.viewer.completeError, 401);
     }
     const result = await submitShare(token, session);
-    dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
+    dispatch({
+      type: 'DONE',
+      documentCompleted: result.documentCompleted,
+      completion: {
+        signedAt: result.signedAt,
+        contractDate: result.contractDate,
+        contractAmount: result.contractAmount,
+      },
+    });
   }, [token]);
 
   const value = React.useMemo<ShareContextValue>(
@@ -246,6 +263,9 @@ export function ShareProvider({
       complete,
       copy: SHARE_FILL_COPY,
       // No download: a fill link has no completed artifact to hand back.
+      // Present only after `submit` echoes the facts; the completion summary card
+      // falls back to the title-only row until then.
+      completion: state.completion ?? undefined,
     };
   }, [state, token, persistFields, openField, closeField, setFieldValue, complete]);
 
@@ -293,6 +313,9 @@ const SHARE_FILL_COPY: FillCopy = {
     title: SHARE_RECIPIENT_COPY.done.title,
     body: SHARE_RECIPIENT_COPY.done.body,
     documentLabel: SHARE_RECIPIENT_COPY.done.documentLabel,
+    dateLabel: SHARE_RECIPIENT_COPY.done.dateLabel,
+    amountLabel: SHARE_RECIPIENT_COPY.done.amountLabel,
+    signedAtLabel: SHARE_RECIPIENT_COPY.done.signedAtLabel,
     // A share submission shows one next-step line regardless of other participants.
     nextAllDone: SHARE_RECIPIENT_COPY.done.next,
     nextWaiting: SHARE_RECIPIENT_COPY.done.next,

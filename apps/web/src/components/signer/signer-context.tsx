@@ -40,6 +40,7 @@ import {
 } from '@/lib/signing';
 import {
   FillProvider,
+  type FillCompletionFacts,
   type FillContextValue,
   type FillCopy,
   type FillFieldValue,
@@ -82,6 +83,8 @@ export interface SignerState {
   activeFieldId: string | null;
   /** Set once `complete` succeeds: whether the whole document is now finalized. */
   documentCompleted: boolean;
+  /** Contract facts (date/amount/signedAt) echoed by `complete`; null until then. */
+  completion: FillCompletionFacts | null;
 }
 
 const initialState: SignerState = {
@@ -93,6 +96,7 @@ const initialState: SignerState = {
   fieldValues: {},
   activeFieldId: null,
   documentCompleted: false,
+  completion: null,
 };
 
 type SignerAction =
@@ -101,7 +105,7 @@ type SignerAction =
   | { type: 'VERIFIED'; payload: SigningPayload }
   | { type: 'HIGHLIGHTS'; highlights: HighlightsResult }
   | { type: 'GO_SIGNING' }
-  | { type: 'DONE'; documentCompleted: boolean }
+  | { type: 'DONE'; documentCompleted: boolean; completion: FillCompletionFacts }
   | { type: 'OPEN_FIELD'; fieldId: string }
   | { type: 'CLOSE_FIELD' }
   | { type: 'SET_FIELD_VALUE'; fieldId: string; value: SignerFieldValue };
@@ -124,7 +128,12 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
-      return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
+      return {
+        ...state,
+        phase: 'done',
+        documentCompleted: action.documentCompleted,
+        completion: action.completion,
+      };
     case 'OPEN_FIELD':
       return { ...state, activeFieldId: action.fieldId };
     case 'CLOSE_FIELD':
@@ -236,7 +245,15 @@ export function SignerProvider({
       throw new ApiError(SIGNER_COPY.completeError, 401);
     }
     const result = await completeSigning(token, session);
-    dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
+    dispatch({
+      type: 'DONE',
+      documentCompleted: result.documentCompleted,
+      completion: {
+        signedAt: result.signedAt,
+        contractDate: result.contractDate,
+        contractAmount: result.contractAmount,
+      },
+    });
   }, [token]);
   const openField = React.useCallback(
     (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
@@ -305,6 +322,9 @@ export function SignerProvider({
       download: {
         onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
       },
+      // Present only after `complete` echoes the facts; the completion summary
+      // card falls back to the title-only row until then.
+      completion: state.completion ?? undefined,
     };
   }, [state, token, persistFields, openField, closeField, setFieldValue, complete]);
 
