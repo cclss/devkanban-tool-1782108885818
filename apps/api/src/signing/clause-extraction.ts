@@ -296,6 +296,60 @@ export function extractHighlights(pages: PageText[]): ContractHighlight[] {
   return cards.slice(0, MAX_HIGHLIGHTS);
 }
 
+// --- completion summary facts (grain-1) -------------------------------------
+
+/**
+ * The concrete contract facts the completion summary card shows next to the
+ * document title: the contract's calendar date and its money amount. Both are the
+ * verbatim strings found in the PDF (non-destructive — the same wording the
+ * money/term highlight cards surface), or `null` when the contract has no
+ * machine-readable text for that fact (scanned/image-only PDF) or the pattern is
+ * simply absent.
+ */
+export interface ContractFacts {
+  /** e.g. "2026년 1월 1일" / "2026-01-01"; null when no calendar date is found. */
+  contractDate: string | null;
+  /** e.g. "5,000,000원"; null when no amount is found. */
+  contractAmount: string | null;
+}
+
+/**
+ * The calendar-date branch of {@link TERM_RE}, isolated so the completion summary
+ * can pull a concrete contract *date* ("2026년 1월 1일", "2026-01-01") rather than a
+ * duration ("12개월") — durations are useful on the term highlight card but read
+ * as noise on a "계약 날짜" line. Kept byte-for-byte in sync with TERM_RE's date
+ * alternative.
+ */
+const CONTRACT_DATE_RE = /\d{4}\s*[.\-년]\s*\d{1,2}\s*[.\-월]\s*\d{1,2}\s*일?/;
+
+/**
+ * Extract the contract's date and money amount from a PDF's page texts for the
+ * completion summary card. Pure and best-effort: reuses the exact `MONEY_RE`
+ * detection of the money highlight card and the calendar-date branch of
+ * `TERM_RE`, returning the first match of each verbatim (whitespace-collapsed).
+ * Anything not present — including an empty `pages` (scanned/image-only PDF) —
+ * yields `null` for that field, never an error.
+ */
+export function extractContractFacts(pages: PageText[]): ContractFacts {
+  const sentences = splitSentences(pages);
+  return {
+    contractDate: firstMatchValue(sentences, CONTRACT_DATE_RE),
+    contractAmount: firstMatchValue(sentences, MONEY_RE),
+  };
+}
+
+/** First `re` match across sentences (earlier pages first), collapsed; null if none. */
+function firstMatchValue(
+  sentences: Array<{ page: number; text: string }>,
+  re: RegExp,
+): string | null {
+  for (const s of sentences) {
+    const m = s.text.match(re);
+    if (m) return collapseWhitespace(m[0]);
+  }
+  return null;
+}
+
 /**
  * Build the single most important caution card: scan for the highest-priority
  * risky term present and translate it. Kept separate so the caution tone/logic

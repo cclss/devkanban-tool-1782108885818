@@ -1,4 +1,5 @@
 import {
+  extractContractFacts,
   extractHighlights,
   translateLegalTerms,
   splitSentences,
@@ -132,5 +133,50 @@ describe('extractHighlights', () => {
 
   it('is deterministic', () => {
     expect(extractHighlights(CONTRACT)).toEqual(extractHighlights(CONTRACT));
+  });
+});
+
+describe('extractContractFacts', () => {
+  it('pulls the concrete date and amount from a normal contract', () => {
+    const facts = extractContractFacts(CONTRACT);
+    expect(facts.contractAmount).toBe('5,000,000원');
+    // A calendar date, not a duration ("12개월").
+    expect(facts.contractDate).toBe('2026년 1월 1일');
+  });
+
+  it('reuses the money card wording for the amount', () => {
+    const money = extractHighlights(CONTRACT).find((c) => c.category === 'money');
+    expect(money!.summary).toContain(extractContractFacts(CONTRACT).contractAmount!);
+  });
+
+  it('reads an ISO-style calendar date too', () => {
+    const facts = extractContractFacts([
+      { page: 1, text: '계약 체결일: 2026-03-15. 대금 1,200,000원.' },
+    ]);
+    expect(facts.contractDate).toBe('2026-03-15');
+    expect(facts.contractAmount).toBe('1,200,000원');
+  });
+
+  it('returns null for facts a contract does not state', () => {
+    const facts = extractContractFacts([
+      { page: 1, text: '본 계약은 성실히 이행한다.' },
+    ]);
+    expect(facts.contractDate).toBeNull();
+    expect(facts.contractAmount).toBeNull();
+  });
+
+  it('returns null/null for a scanned (no-text) PDF', () => {
+    expect(extractContractFacts([])).toEqual({
+      contractDate: null,
+      contractAmount: null,
+    });
+    expect(extractContractFacts([{ page: 1, text: '   ' }])).toEqual({
+      contractDate: null,
+      contractAmount: null,
+    });
+  });
+
+  it('is deterministic', () => {
+    expect(extractContractFacts(CONTRACT)).toEqual(extractContractFacts(CONTRACT));
   });
 });

@@ -481,6 +481,11 @@ export class SharingService {
       status: result.status,
       documentCompleted: result.documentCompleted,
       message: MESSAGES.share.submitted,
+      // Mirror the signer flow's completion facts so the share recipient's
+      // completion screen shows the same date/amount/signed-at summary.
+      signedAt: result.signedAt,
+      contractDate: result.contractDate,
+      contractAmount: result.contractAmount,
     };
   }
 
@@ -679,4 +684,10 @@ export interface SubmitResult {
   status: SignRequestStatus;
   documentCompleted: boolean;
   message: string;
+  /** ISO timestamp the submission was sealed — the completion "서명 완료 시각". */
+  signedAt: string;
+  /** Contract date pulled from the PDF ("2026년 1월 1일"), or null if not found. */
+  contractDate: string | null;
+  /** Contract amount pulled from the PDF ("5,000,000원"), or null if not found. */
+  contractAmount: string | null;
 }

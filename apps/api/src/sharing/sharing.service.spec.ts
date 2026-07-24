@@ -5,6 +5,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Readable } from 'stream';
 import * as bcrypt from 'bcryptjs';
 import { SharingService } from './sharing.service';
 import { ShareSessionService } from './share-session.service';
@@ -202,6 +203,8 @@ interface Harness {
   completionEnqueue: jest.Mock;
   shareSessions: ShareSessionService;
   linkPassword: LinkPasswordCipher;
+  storage: { openStream: jest.Mock };
+  pdfText: { extract: jest.Mock };
   ownerId: string;
   documentId: string;
 }
@@ -215,15 +218,15 @@ function setup(): Harness {
   const completionQueue = { enqueue: completionEnqueue } as never;
   const storage = {
     openStream: jest.fn().mockResolvedValue({ on: jest.fn(), pipe: jest.fn() }),
-  } as never;
+  };
   const signerSessions = {} as never;
-  const pdfText = { extract: jest.fn().mockResolvedValue([]) } as never;
+  const pdfText = { extract: jest.fn().mockResolvedValue([]) };
   const signing = new SigningService(
     prisma as never,
-    storage,
+    storage as never,
     signerSessions,
     completionQueue,
-    pdfText,
+    pdfText as never,
   );
 
   const sendQuota = new SendQuotaService(prisma as never);
@@ -260,6 +263,8 @@ function setup(): Harness {
     completionEnqueue,
     shareSessions,
     linkPassword,
+    storage,
+    pdfText,
     ownerId: owner.id,
     documentId: document.id,
   };
@@ -537,6 +542,61 @@ describe('SharingService — fill & submit (reuses the completion machine)', () 
     await expect(h.sharing.payload(signRequestId, link.token)).rejects.toBeInstanceOf(
       ForbiddenException,
     );
+  });
+});
+
+describe('SharingService — completion summary facts (grain-1)', () => {
+  /** A representative contract's extracted page text (date + amount present). */
+  const CONTRACT_PAGES = [
+    {
+      page: 1,
+      text: `용역 계약서
+제1조 (계약 금액) 갑은 을에게 용역 대금으로 금 5,000,000원을 지급한다.
+제2조 (계약 기간) 본 계약의 기간은 2026년 1월 1일부터 12개월간으로 한다.`,
+    },
+  ];
+
+  async function fillAndSubmit(h: ReturnType<typeof setup>) {
+    const link = await h.sharing.createLink(h.ownerId, h.documentId, {});
+    const { sessionToken } = await h.sharing.unlock(link.token, undefined);
+    const signRequestId = h.shareSessions.verify(sessionToken).signRequestId;
+    await h.sharing.saveFields(signRequestId, {
+      fields: [
+        { fieldId: 'f1', value: PNG_1x1 },
+        { fieldId: 'f2', value: '홍길동' },
+      ],
+    });
+    return h.sharing.submit(signRequestId, '203.0.113.5', 'jest');
+  }
+
+  it('mirrors signedAt + the extracted date & amount onto the submit result', async () => {
+    const h = setup();
+    // A readable PDF whose extracted text carries a date and an amount.
+    h.storage.openStream.mockResolvedValue(Readable.from([Buffer.from('%PDF-')]));
+    h.pdfText.extract.mockResolvedValue(CONTRACT_PAGES);
+
+    const before = Date.now();
+    const result = await fillAndSubmit(h);
+    const after = Date.now();
+
+    // signedAt is a real ISO timestamp stamped at completion.
+    expect(new Date(result.signedAt).toISOString()).toBe(result.signedAt);
+    const signedMs = new Date(result.signedAt).getTime();
+    expect(signedMs).toBeGreaterThanOrEqual(before);
+    expect(signedMs).toBeLessThanOrEqual(after);
+    // The concrete contract facts are surfaced for the summary card.
+    expect(result.contractAmount).toBe('5,000,000원');
+    expect(result.contractDate).toBe('2026년 1월 1일');
+  });
+
+  it('stamps signedAt but returns null facts for a scanned (no-text) PDF', async () => {
+    const h = setup(); // default pdfText.extract → []
+    const result = await fillAndSubmit(h);
+
+    expect(typeof result.signedAt).toBe('string');
+    expect(new Date(result.signedAt).toISOString()).toBe(result.signedAt);
+    expect(result.contractDate).toBeNull();
+    expect(result.contractAmount).toBeNull();
   });
 });
 

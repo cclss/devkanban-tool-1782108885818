@@ -24,7 +24,12 @@ import { SignerSessionService } from './signer-session.service';
 import { CompletionQueue } from '../completion/completion.queue';
 import { artifactFilename, type CompletionArtifact } from '../completion/artifact';
 import { PdfTextService } from './pdf-text.service';
-import { extractHighlights, type HighlightsResult } from './clause-extraction';
+import {
+  extractContractFacts,
+  extractHighlights,
+  type ContractFacts,
+  type HighlightsResult,
+} from './clause-extraction';
 import type { SaveFieldValuesDto } from './dto/signing.dto';
 
 /** Audit-log action names for the signer flow. */
@@ -353,7 +358,7 @@ export class SigningService {
         id: true,
         status: true,
         documentId: true,
-        document: { select: { status: true } },
+        document: { select: { status: true, storageKey: true } },
         signFields: { select: { id: true, value: true } },
       },
     });
@@ -372,10 +377,14 @@ export class SigningService {
       throw new BadRequestException(MESSAGES.signing.fieldsIncomplete);
     }
 
+    // The moment the signature is sealed — echoed back so the completion screen
+    // can show "서명 완료 시각" without a follow-up round-trip.
+    const signedAt = new Date();
+
     const documentCompleted = await this.prisma.$transaction(async (tx) => {
       await tx.signRequest.update({
         where: { id: signRequest.id },
-        data: { status: SignRequestStatus.SIGNED, signedAt: new Date() },
+        data: { status: SignRequestStatus.SIGNED, signedAt },
       });
       await tx.auditLog.create({
         data: {
@@ -415,11 +424,43 @@ export class SigningService {
       await this.completionQueue.enqueue(signRequest.documentId);
     }
 
+    // Pull the contract's date & amount from the PDF text for the completion
+    // summary card. Best-effort and non-blocking: reuses the same
+    // openStream→buffer→extract pipeline as `highlights`, and a scanned/image-only
+    // PDF (or any read failure) simply yields nulls — never breaks completion.
+    const facts = await this.readContractFacts(signRequest.document.storageKey);
+
     return {
       status: SignRequestStatus.SIGNED,
       documentCompleted,
       message: MESSAGES.signing.completed,
+      signedAt: signedAt.toISOString(),
+      contractDate: facts.contractDate,
+      contractAmount: facts.contractAmount,
     };
+  }
+
+  /**
+   * Best-effort contract-facts read for the completion summary. Mirrors the
+   * `highlights` extraction pipeline (openStream → buffer → pdfText.extract) then
+   * runs the pure {@link extractContractFacts} helper. Any failure — a scanned
+   * PDF, a storage hiccup, a parse error — degrades to `{ null, null }` so a
+   * finalized signature is never lost to a summarization problem.
+   */
+  private async readContractFacts(storageKey: string): Promise<ContractFacts> {
+    try {
+      const stream = await this.storage.openStream(storageKey);
+      const bytes = await streamToBuffer(stream);
+      const pages = await this.pdfText.extract(bytes);
+      return extractContractFacts(pages);
+    } catch (err) {
+      this.logger.warn(
+        `contract-facts extraction failed; completion summary omits date/amount: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return { contractDate: null, contractAmount: null };
+    }
   }
 
   // --- internals -----------------------------------------------------------
@@ -571,4 +612,10 @@ export interface CompleteResult {
   status: SignRequestStatus;
   documentCompleted: boolean;
   message: string;
+  /** ISO timestamp the signature was sealed — the completion "서명 완료 시각". */
+  signedAt: string;
+  /** Contract date pulled from the PDF ("2026년 1월 1일"), or null if not found. */
+  contractDate: string | null;
+  /** Contract amount pulled from the PDF ("5,000,000원"), or null if not found. */
+  contractAmount: string | null;
 }
