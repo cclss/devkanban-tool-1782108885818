@@ -240,6 +240,31 @@ export function distributeNormRects(
 }
 
 /**
+ * Translate a selection of normalized rects by one shared delta, then keep each
+ * inside the page.
+ *
+ * Applying the *same* `(dx, dy)` to every rect is what preserves the selection's
+ * relative layout — the gaps between fields are unchanged, so duplicating a group
+ * reproduces its exact arrangement, just shifted. Sizes are never touched.
+ *
+ * Axis convention is normalized/bottom-left origin (see file header), so a delta
+ * is a literal vector add: `x + dx`, `y + dy`. To drop the copy at the spec's
+ * "slightly down-right" of the original, the caller passes `dx > 0` (rightward)
+ * and `dy < 0` (downward) — i.e. down-right is `x + dx, y − dy`.
+ *
+ * Each result is passed through {@link clampNormRect} so a copy pushed past a page
+ * edge is pulled back to a valid in-page box (0..1). Clamping is per-rect: in the
+ * ordinary case (small offset, interior fields) it's a no-op and the arrangement
+ * is exact; only a field already at the far edge is nudged in, where staying
+ * on-page takes priority over reproducing the offset to the pixel.
+ *
+ * Empty input returns `[]`; otherwise fresh rects are returned (input untouched).
+ */
+export function offsetNormRects(rects: readonly NormRect[], dx: number, dy: number): NormRect[] {
+  return rects.map((r) => clampNormRect({ ...r, x: r.x + dx, y: r.y + dy }));
+}
+
+/**
  * Clamp a pixel rect to stay fully within the page raster, preserving size where
  * possible (used for live drag/resize feedback before normalizing on commit).
  */

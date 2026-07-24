@@ -21,6 +21,7 @@ import {
   marqueeHitTest,
   alignNormRects,
   distributeNormRects,
+  offsetNormRects,
   FIELD_TYPE_META,
   MIN_NORM_WIDTH,
   MIN_NORM_HEIGHT,
@@ -481,5 +482,93 @@ describe('distributeNormRects', () => {
     const two = distributeNormRects(outer, 'horizontal');
     expect(two).toEqual(outer);
     expect(two[0]).not.toBe(outer[0]);
+  });
+});
+
+describe('offsetNormRects', () => {
+  // Down-right in bottom-left space = rightward (+x) and downward (−y).
+  const DX = 0.03;
+  const DY = -0.04;
+
+  it('single: shifts a copy by the delta, size unchanged', () => {
+    const src: NormRect = { x: 0.2, y: 0.6, width: 0.26, height: 0.08 };
+    const [out] = offsetNormRects([src], DX, DY);
+    expect(out!.x).toBeCloseTo(0.23, 9); // x + dx (rightward)
+    expect(out!.y).toBeCloseTo(0.56, 9); // y + dy (downward, dy < 0)
+    expect(out!.width).toBeCloseTo(src.width, 9); // size preserved
+    expect(out!.height).toBeCloseTo(src.height, 9);
+  });
+
+  it('applies a literal vector add (down-right is x+dx, y−dy)', () => {
+    const src: NormRect = { x: 0.4, y: 0.4, width: 0.1, height: 0.1 };
+    const [out] = offsetNormRects([src], 0.05, -0.07);
+    expect(out!.x).toBeCloseTo(0.45, 9);
+    expect(out!.y).toBeCloseTo(0.33, 9);
+  });
+
+  it('multi: applies the same delta so relative layout is preserved', () => {
+    const sel: NormRect[] = [
+      { x: 0.1, y: 0.7, width: 0.2, height: 0.08 },
+      { x: 0.5, y: 0.5, width: 0.15, height: 0.1 },
+      { x: 0.3, y: 0.2, width: 0.1, height: 0.06 },
+    ];
+    const out = offsetNormRects(sel, DX, DY);
+    // Every field moved by the identical delta…
+    out.forEach((r, i) => {
+      expect(r.x).toBeCloseTo(sel[i]!.x + DX, 9);
+      expect(r.y).toBeCloseTo(sel[i]!.y + DY, 9);
+    });
+    // …so pairwise offsets between fields are unchanged (arrangement kept).
+    const dOrig = { x: sel[1]!.x - sel[0]!.x, y: sel[1]!.y - sel[0]!.y };
+    const dOut = { x: out[1]!.x - out[0]!.x, y: out[1]!.y - out[0]!.y };
+    expect(dOut.x).toBeCloseTo(dOrig.x, 9);
+    expect(dOut.y).toBeCloseTo(dOrig.y, 9);
+  });
+
+  it('multi: preserves every field size', () => {
+    const sel: NormRect[] = [
+      { x: 0.1, y: 0.7, width: 0.2, height: 0.08 },
+      { x: 0.5, y: 0.5, width: 0.15, height: 0.1 },
+    ];
+    const out = offsetNormRects(sel, DX, DY);
+    out.forEach((r, i) => {
+      expect(r.width).toBeCloseTo(sel[i]!.width, 9);
+      expect(r.height).toBeCloseTo(sel[i]!.height, 9);
+    });
+  });
+
+  it('clamps a copy pushed past the right/bottom edge back into the page', () => {
+    // Field flush to the right edge; offsetting right would overflow.
+    const src: NormRect = { x: 1 - 0.26, y: 0.02, width: 0.26, height: 0.08 };
+    const [out] = offsetNormRects([src], 0.1, -0.1);
+    expect(out!.x + out!.width).toBeLessThanOrEqual(1 + 1e-9);
+    expect(out!.y).toBeGreaterThanOrEqual(0);
+    expect(out!.width).toBeCloseTo(src.width, 9); // size still preserved through clamp
+    expect(out!.height).toBeCloseTo(src.height, 9);
+  });
+
+  it('keeps every result a valid in-page normalized rect', () => {
+    const sel: NormRect[] = [
+      { x: 0.9, y: 0.05, width: 0.08, height: 0.05 },
+      { x: 0.02, y: 0.95, width: 0.1, height: 0.06 },
+    ];
+    for (const r of offsetNormRects(sel, 0.2, -0.2)) {
+      expect(r.x).toBeGreaterThanOrEqual(0);
+      expect(r.y).toBeGreaterThanOrEqual(0);
+      expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-9);
+      expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-9);
+    }
+  });
+
+  it('does not mutate the input and returns fresh copies', () => {
+    const sel: NormRect[] = [{ x: 0.3, y: 0.4, width: 0.2, height: 0.1 }];
+    const before = sel.map((r) => ({ ...r }));
+    const out = offsetNormRects(sel, DX, DY);
+    sel.forEach((r, i) => expect(r).toEqual(before[i]));
+    expect(out[0]).not.toBe(sel[0]);
+  });
+
+  it('is a no-op returning [] for an empty selection', () => {
+    expect(offsetNormRects([], DX, DY)).toEqual([]);
   });
 });
