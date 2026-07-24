@@ -115,6 +115,60 @@ export function clampNormRect(rect: NormRect): NormRect {
 }
 
 /**
+ * How to line up a set of fields. Horizontal modes touch only `x`; vertical
+ * modes touch only `y`. The two "center" cases are per-axis, hence distinct
+ * names (`hcenter` = shared vertical center-line, `vcenter` = shared horizontal
+ * center-line).
+ */
+export type AlignMode = 'left' | 'hcenter' | 'right' | 'top' | 'vcenter' | 'bottom';
+
+/**
+ * Line up a selection of normalized rects against their shared bounding box.
+ *
+ * The reference is the group's bounding box — the min/max edges across the whole
+ * selection (leftmost `x`, rightmost `x+width`, bottom `y`, top `y+height`) —
+ * not the last-picked field. This matches the keynote/slides convention where
+ * "align left" pins everything to the group's leftmost edge, and it's
+ * order-independent, so re-running any align is idempotent.
+ *
+ * Only the affected axis moves; the other axis, and every field's size, are left
+ * untouched. Because targets are derived from the selection's own edges (all in
+ * 0..1), the results stay valid normalized rects — no clamping needed.
+ *
+ * The Y axis is bottom-left origin: `top` pins the box's upper edge, so a field's
+ * new `y` is `maxTop - height`; `bottom` pins the lower edge, so `y = minBottom`.
+ * Fewer than two rects is a no-op (each is already aligned to itself), returned
+ * as fresh copies for caller-safety.
+ */
+export function alignNormRects(rects: readonly NormRect[], mode: AlignMode): NormRect[] {
+  if (rects.length === 0) return [];
+
+  const minLeft = Math.min(...rects.map((r) => r.x));
+  const maxRight = Math.max(...rects.map((r) => r.x + r.width));
+  const minBottom = Math.min(...rects.map((r) => r.y));
+  const maxTop = Math.max(...rects.map((r) => r.y + r.height));
+  const midX = (minLeft + maxRight) / 2;
+  const midY = (minBottom + maxTop) / 2;
+
+  return rects.map((r) => {
+    switch (mode) {
+      case 'left':
+        return { ...r, x: minLeft };
+      case 'right':
+        return { ...r, x: maxRight - r.width };
+      case 'hcenter':
+        return { ...r, x: midX - r.width / 2 };
+      case 'top':
+        return { ...r, y: maxTop - r.height };
+      case 'bottom':
+        return { ...r, y: minBottom };
+      case 'vcenter':
+        return { ...r, y: midY - r.height / 2 };
+    }
+  });
+}
+
+/**
  * Clamp a pixel rect to stay fully within the page raster, preserving size where
  * possible (used for live drag/resize feedback before normalizing on commit).
  */

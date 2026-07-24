@@ -19,11 +19,13 @@ import {
   rectsIntersect,
   rectFromPoints,
   marqueeHitTest,
+  alignNormRects,
   FIELD_TYPE_META,
   MIN_NORM_WIDTH,
   MIN_NORM_HEIGHT,
   type PageSize,
   type PxRect,
+  type NormRect,
 } from './field-geometry';
 
 const A4: PageSize = { width: 595, height: 842 };
@@ -253,5 +255,112 @@ describe('marqueeHitTest', () => {
   it('includes a field the marquee fully encloses', () => {
     const hits = marqueeHitTest({ left: 90, top: 90, width: 80, height: 80 }, items);
     expect(hits).toEqual(['b']);
+  });
+});
+
+describe('alignNormRects', () => {
+  // A spread-out selection whose bounding box edges are all distinct, so each
+  // mode's target line is unambiguous:
+  //   left edges:   0.10, 0.30, 0.60   → minLeft   = 0.10
+  //   right edges:  0.30, 0.50, 0.80   → maxRight  = 0.80
+  //   bottom edges: 0.20, 0.50, 0.70   → minBottom = 0.20
+  //   top edges:    0.30, 0.70, 0.85   → maxTop    = 0.85
+  const sel: NormRect[] = [
+    { x: 0.1, y: 0.2, width: 0.2, height: 0.1 },
+    { x: 0.3, y: 0.5, width: 0.2, height: 0.2 },
+    { x: 0.6, y: 0.7, width: 0.2, height: 0.15 },
+  ];
+
+  it('left: pins every left edge to the bounding box left', () => {
+    const out = alignNormRects(sel, 'left');
+    for (const r of out) expect(r.x).toBeCloseTo(0.1, 9);
+  });
+
+  it('right: pins every right edge to the bounding box right', () => {
+    const out = alignNormRects(sel, 'right');
+    for (const r of out) expect(r.x + r.width).toBeCloseTo(0.8, 9);
+  });
+
+  it('hcenter: shares the bounding box vertical center-line', () => {
+    const out = alignNormRects(sel, 'hcenter');
+    const center = (0.1 + 0.8) / 2; // 0.45
+    for (const r of out) expect(r.x + r.width / 2).toBeCloseTo(center, 9);
+  });
+
+  it('bottom: pins every bottom edge to the bounding box bottom', () => {
+    const out = alignNormRects(sel, 'bottom');
+    for (const r of out) expect(r.y).toBeCloseTo(0.2, 9);
+  });
+
+  it('top: pins every top edge (y+height) to the bounding box top (y-flip aware)', () => {
+    const out = alignNormRects(sel, 'top');
+    for (const r of out) expect(r.y + r.height).toBeCloseTo(0.85, 9);
+  });
+
+  it('vcenter: shares the bounding box horizontal center-line', () => {
+    const out = alignNormRects(sel, 'vcenter');
+    const center = (0.2 + 0.85) / 2; // 0.525
+    for (const r of out) expect(r.y + r.height / 2).toBeCloseTo(center, 9);
+  });
+
+  it('takes the bounding box (not the last-picked field) as the reference', () => {
+    // Last field's left edge is 0.60; a last-field reference would pin to 0.60.
+    // Bounding-box reference pins to the leftmost edge, 0.10.
+    const out = alignNormRects(sel, 'left');
+    expect(out.every((r) => Math.abs(r.x - 0.6) < 1e-9)).toBe(false);
+    for (const r of out) expect(r.x).toBeCloseTo(0.1, 9);
+  });
+
+  it('moves only the aligned axis, preserving size and the other axis', () => {
+    const out = alignNormRects(sel, 'left');
+    out.forEach((r, i) => {
+      const src = sel[i]!;
+      expect(r.width).toBeCloseTo(src.width, 9); // size unchanged
+      expect(r.height).toBeCloseTo(src.height, 9);
+      expect(r.y).toBeCloseTo(src.y, 9); // untouched axis unchanged
+    });
+
+    const outV = alignNormRects(sel, 'top');
+    outV.forEach((r, i) => {
+      const src = sel[i]!;
+      expect(r.width).toBeCloseTo(src.width, 9);
+      expect(r.height).toBeCloseTo(src.height, 9);
+      expect(r.x).toBeCloseTo(src.x, 9); // horizontal untouched by a vertical align
+    });
+  });
+
+  it('keeps every result a valid normalized rect (0..1, in-page)', () => {
+    for (const mode of ['left', 'hcenter', 'right', 'top', 'vcenter', 'bottom'] as const) {
+      for (const r of alignNormRects(sel, mode)) {
+        expect(r.x).toBeGreaterThanOrEqual(0);
+        expect(r.y).toBeGreaterThanOrEqual(0);
+        expect(r.x + r.width).toBeLessThanOrEqual(1 + 1e-9);
+        expect(r.y + r.height).toBeLessThanOrEqual(1 + 1e-9);
+      }
+    }
+  });
+
+  it('is idempotent — re-aligning an aligned selection is a no-op', () => {
+    const once = alignNormRects(sel, 'left');
+    const twice = alignNormRects(once, 'left');
+    twice.forEach((r, i) => {
+      const prev = once[i]!;
+      expect(r.x).toBeCloseTo(prev.x, 9);
+      expect(r.y).toBeCloseTo(prev.y, 9);
+    });
+  });
+
+  it('does not mutate the input rects', () => {
+    const before = sel.map((r) => ({ ...r }));
+    alignNormRects(sel, 'right');
+    sel.forEach((r, i) => expect(r).toEqual(before[i]));
+  });
+
+  it('returns fresh copies and is a no-op for < 2 rects', () => {
+    expect(alignNormRects([], 'left')).toEqual([]);
+    const one: NormRect = { x: 0.3, y: 0.4, width: 0.2, height: 0.1 };
+    const out = alignNormRects([one], 'left');
+    expect(out[0]).toEqual(one);
+    expect(out[0]).not.toBe(one); // fresh copy, safe to mutate downstream
   });
 });
