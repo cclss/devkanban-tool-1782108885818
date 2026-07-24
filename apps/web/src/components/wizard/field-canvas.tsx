@@ -21,7 +21,8 @@
  *   • marquee — pointer-drag on empty canvas draws a selection box; every field
  *     it crosses is selected on release (union with the current selection when a
  *     modifier is held). A drag under a few px is treated as an empty click.
- *   • keyboard — focus a field, arrows move, Shift+arrows resize, Delete removes
+ *   • keyboard — focus a field, arrows move, Shift+arrows resize, Delete removes,
+ *     Cmd/Ctrl+D duplicates the current selection (parent owns the geometry).
  */
 
 import * as React from 'react';
@@ -76,6 +77,8 @@ interface FieldCanvasProps {
   onSelectionChange: (ids: string[]) => void;
   /** Replace the full field list (single source lives in wizard state). */
   onFieldsChange: (fields: SignFieldDraft[]) => void;
+  /** Duplicate the current selection (Cmd/Ctrl+D). Parent owns the geometry. */
+  onDuplicate?: () => void;
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
@@ -109,6 +112,7 @@ export function FieldCanvas({
   selectedIds,
   onSelectionChange,
   onFieldsChange,
+  onDuplicate,
   onPageCount,
   className,
 }: FieldCanvasProps) {
@@ -428,6 +432,14 @@ export function FieldCanvas({
   const onFieldKeyDown = React.useCallback(
     (event: React.KeyboardEvent, field: SignFieldDraft) => {
       const step = event.shiftKey ? NUDGE_PX_LARGE : NUDGE_PX;
+      // Cmd/Ctrl+D duplicates the current selection (browser's bookmark default
+      // is suppressed). The focused field is always part of the selection, so
+      // single- and multi-select both flow through the parent's duplicator.
+      if ((event.metaKey || event.ctrlKey) && (event.key === 'd' || event.key === 'D')) {
+        event.preventDefault();
+        onDuplicate?.();
+        return;
+      }
       if (event.key === 'Escape') {
         event.preventDefault();
         clearSelection();
@@ -457,7 +469,7 @@ export function FieldCanvas({
       }
       updateField(field.id, clampNormRect(pxToNorm(clampPxRect(next, pageSize), pageSize)));
     },
-    [pageSize, removeField, updateField, clearSelection],
+    [pageSize, removeField, updateField, clearSelection, onDuplicate],
   );
 
   const rectFor = (field: SignFieldDraft): PxRect =>

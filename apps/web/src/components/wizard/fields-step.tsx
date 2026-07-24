@@ -24,6 +24,7 @@ import {
   alignNormRects,
   clampNormRect,
   distributeNormRects,
+  offsetNormRects,
   type AlignMode,
   type DistributeAxis,
   type SignFieldType,
@@ -37,6 +38,14 @@ const ZOOM_MAX = 2;
 const ZOOM_STEP = 0.25;
 /** Page fits comfortably in the 760px wizard column at zoom 1. */
 const BASE_FIT_WIDTH = 640;
+/**
+ * Duplicate drop offset — "slightly down-right" of the original, in normalized
+ * space (bottom-left origin, so down = −y). This is an implementation setting
+ * (how far the copy lands), not a design token: nudging it changes placement,
+ * not any visual style. Matches the offset the geometry unit test exercises.
+ */
+const DUPLICATE_DX = 0.03;
+const DUPLICATE_DY = -0.04;
 
 export function FieldsStep() {
   const isDesktop = useIsDesktop();
@@ -129,6 +138,27 @@ export function FieldsStep() {
     [fields, page, selectedIds, setFields],
   );
 
+  const duplicateSelected = React.useCallback(() => {
+    // Page-scoped, defensive filter matches align/distribute — only selected
+    // fields on the current page are copied; cross-page ids never participate.
+    const selected = new Set(selectedIds);
+    const targets = fields.filter((f) => f.page === page && selected.has(f.id));
+    if (targets.length < 1) return;
+
+    // One shared delta keeps the group's relative layout (offsetNormRects also
+    // clamps each copy back inside the page). Sizes/types/props are preserved;
+    // only a fresh id and the shifted geometry change.
+    const shifted = offsetNormRects(
+      targets.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })),
+      DUPLICATE_DX,
+      DUPLICATE_DY,
+    );
+    const copies = targets.map((f, i) => ({ ...f, id: nextFieldId(), ...shifted[i]! }));
+    setFields([...fields, ...copies]);
+    // Move the selection onto the copies so a repeat action stacks new copies.
+    setSelectedIds(copies.map((c) => c.id));
+  }, [fields, page, selectedIds, setFields]);
+
   if (!file) {
     // Defensive: the upload gate prevents reaching here without a document.
     return null;
@@ -182,37 +212,55 @@ export function FieldsStep() {
         </span>
       </div>
 
-      {/* Alignment toolbar — appears once 2+ fields are selected. */}
-      {selectedIds.length >= 2 ? (
+      {/* Selection toolbar — duplicate from 1+, align from 2+, distribute from 3+. */}
+      {selectedIds.length >= 1 ? (
         <div className="flex flex-wrap items-center gap-sm rounded-md border border-border bg-surface px-sm py-2xs">
           <span className="text-xs font-medium text-foreground-subtle">
-            {selectedIds.length}개 필드 정렬
+            {selectedIds.length}개 필드 선택
           </span>
           <div className="flex items-center gap-2xs">
-            {(['left', 'hcenter', 'right'] as const).map((mode) => (
-              <IconButton key={mode} label={ALIGN_LABELS[mode]} onClick={() => alignSelected(mode)}>
-                <AlignIcon mode={mode} />
-              </IconButton>
-            ))}
-            <span aria-hidden="true" className="mx-2xs h-5 w-px bg-border" />
-            {(['top', 'vcenter', 'bottom'] as const).map((mode) => (
-              <IconButton key={mode} label={ALIGN_LABELS[mode]} onClick={() => alignSelected(mode)}>
-                <AlignIcon mode={mode} />
-              </IconButton>
-            ))}
-            {/* Distribute tools — only meaningful with a field between two ends. */}
-            {selectedIds.length >= 3 ? (
+            {/* Duplicate — available from a single selection (Cmd/Ctrl+D). */}
+            <IconButton label="복제 (Cmd/Ctrl+D)" onClick={duplicateSelected}>
+              <DuplicateIcon />
+            </IconButton>
+            {/* Alignment — needs a second field to line up against. */}
+            {selectedIds.length >= 2 ? (
               <>
                 <span aria-hidden="true" className="mx-2xs h-5 w-px bg-border" />
-                {(['horizontal', 'vertical'] as const).map((axis) => (
+                {(['left', 'hcenter', 'right'] as const).map((mode) => (
                   <IconButton
-                    key={axis}
-                    label={DISTRIBUTE_LABELS[axis]}
-                    onClick={() => distributeSelected(axis)}
+                    key={mode}
+                    label={ALIGN_LABELS[mode]}
+                    onClick={() => alignSelected(mode)}
                   >
-                    <DistributeIcon axis={axis} />
+                    <AlignIcon mode={mode} />
                   </IconButton>
                 ))}
+                <span aria-hidden="true" className="mx-2xs h-5 w-px bg-border" />
+                {(['top', 'vcenter', 'bottom'] as const).map((mode) => (
+                  <IconButton
+                    key={mode}
+                    label={ALIGN_LABELS[mode]}
+                    onClick={() => alignSelected(mode)}
+                  >
+                    <AlignIcon mode={mode} />
+                  </IconButton>
+                ))}
+                {/* Distribute — only meaningful with a field between two ends. */}
+                {selectedIds.length >= 3 ? (
+                  <>
+                    <span aria-hidden="true" className="mx-2xs h-5 w-px bg-border" />
+                    {(['horizontal', 'vertical'] as const).map((axis) => (
+                      <IconButton
+                        key={axis}
+                        label={DISTRIBUTE_LABELS[axis]}
+                        onClick={() => distributeSelected(axis)}
+                      >
+                        <DistributeIcon axis={axis} />
+                      </IconButton>
+                    ))}
+                  </>
+                ) : null}
               </>
             ) : null}
           </div>
@@ -279,6 +327,7 @@ export function FieldsStep() {
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
           onFieldsChange={setFields}
+          onDuplicate={duplicateSelected}
           onPageCount={setPageCount}
           className="max-h-[60vh]"
         />
@@ -295,6 +344,7 @@ export function FieldsStep() {
         Shift 또는 Cmd(Ctrl)+클릭으로 여러 필드를 함께 선택하고, 빈 곳 클릭이나 Esc로 선택을 해제해요.
         2개 이상 선택하면 정렬 도구로 좌·가운데·우, 상·가운데·하 줄맞춤을 할 수 있어요.
         3개 이상 선택하면 가로·세로 균등 분배로 바깥 두 필드는 고정한 채 사이 간격을 고르게 맞출 수 있어요.
+        복제 버튼이나 Cmd(Ctrl)+D로 선택한 필드를 원본 근처에 그대로 복제할 수 있어요.
       </p>
     </div>
   );
@@ -497,6 +547,26 @@ function DistributeIcon({ axis }: { axis: DistributeAxis }) {
       {bars.map((d) => (
         <path key={d} d={d} {...common} />
       ))}
+    </svg>
+  );
+}
+
+/**
+ * Glyph for duplicate: two offset rounded squares (a copy nudged down-right of
+ * the original), echoing the "slightly down-right" drop the action performs.
+ * Pure SVG, `currentColor` — inherits the IconButton foreground, no color of
+ * its own.
+ */
+function DuplicateIcon() {
+  return (
+    <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
+      <rect x="4" y="4" width="9" height="9" rx="2" stroke="currentColor" strokeWidth="1.6" />
+      <path
+        d="M8 15.5h5a2.5 2.5 0 0 0 2.5-2.5V8"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+      />
     </svg>
   );
 }
