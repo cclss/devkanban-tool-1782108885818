@@ -44,10 +44,12 @@ import {
   snapMove,
   rectFromPoints,
   marqueeHitTest,
+  translateNormRects,
   FIELD_TYPE_META,
   RESIZE_HANDLES,
   type PageSize,
   type PxRect,
+  type NormRect,
   type SignFieldType,
   type ResizeHandle,
   type SnapLine,
@@ -95,6 +97,17 @@ export function nextFieldId(): string {
 type Gesture =
   | { kind: 'move'; id: string; startRect: PxRect; startX: number; startY: number }
   | {
+      // Group move: drag one field of a multi-selection and every selected field
+      // on this page follows by the SAME delta (relative layout preserved). Start
+      // geometry is kept in normalized space so the group can be clamped as one
+      // rigid box via `translateNormRects` (see field-box「이동/삭제 모델」).
+      kind: 'move-group';
+      ids: string[];
+      startNorm: NormRect[];
+      startX: number;
+      startY: number;
+    }
+  | {
       kind: 'resize';
       id: string;
       handle: ResizeHandle;
@@ -125,8 +138,10 @@ export function FieldCanvas({
   const [error, setError] = React.useState<string | null>(null);
   const [pageSize, setPageSize] = React.useState<PageSize>({ width: fitWidth, height: fitWidth * 1.414 });
   const [hoverId, setHoverId] = React.useState<string | null>(null);
-  // Live gesture rect + guides, kept local so dragging re-renders cheaply.
-  const [liveRect, setLiveRect] = React.useState<{ id: string; rect: PxRect } | null>(null);
+  // Live gesture rects + guides, kept local so dragging re-renders cheaply. Maps
+  // field id → its in-flight px rect: one entry for a single move/resize, one per
+  // selected field for a group move.
+  const [liveRects, setLiveRects] = React.useState<Record<string, PxRect> | null>(null);
   const [guides, setGuides] = React.useState<SnapLine[]>([]);
   const gestureRef = React.useRef<Gesture | null>(null);
   // Marquee (rubber-band) selection: anchor + whether it unions the prior set.
@@ -283,10 +298,23 @@ export function FieldCanvas({
         const snapped = snapMove(moved, pageSize, peerRects(g.id), SNAP_THRESHOLD);
         const final = clampPxRect(snapped.rect, pageSize);
         setGuides(snapped.guides);
-        setLiveRect({ id: g.id, rect: final });
+        setLiveRects({ [g.id]: final });
+      } else if (g.kind === 'move-group') {
+        // Translate the pixel drag into a normalized delta (y flips: canvas-down is
+        // norm-down), clamp the whole group as one box, then re-project to px for
+        // live feedback. Snap guides are skipped for group moves by design.
+        const dxNorm = dx / (pageSize.width || 1);
+        const dyNorm = -dy / (pageSize.height || 1);
+        const moved = translateNormRects(g.startNorm, dxNorm, dyNorm);
+        const rects: Record<string, PxRect> = {};
+        g.ids.forEach((id, i) => {
+          rects[id] = normToPx(moved[i]!, pageSize);
+        });
+        setGuides([]);
+        setLiveRects(rects);
       } else {
         const resized = clampPxRect(resizePxRect(g.startRect, g.handle, dx, dy), pageSize);
-        setLiveRect({ id: g.id, rect: resized });
+        setLiveRects({ [g.id]: resized });
         setGuides([]);
       }
     },
@@ -297,20 +325,34 @@ export function FieldCanvas({
     (event: React.PointerEvent) => {
       const g = gestureRef.current;
       if (!g) return;
-      const live = liveRect;
+      const live = liveRects;
       gestureRef.current = null;
       setGuides([]);
-      setLiveRect(null);
+      setLiveRects(null);
       try {
         (event.target as Element).releasePointerCapture?.(event.pointerId);
       } catch {
         /* capture may already be gone */
       }
-      if (live && live.id === g.id) {
-        updateField(g.id, clampNormRect(pxToNorm(live.rect, pageSize)));
+      if (!live) return;
+      if (g.kind === 'move-group') {
+        // Commit all selected fields in one `onFieldsChange` pass so the group
+        // moves as a single edit. Per-rect clamp here is a no-op (the group clamp
+        // already kept every rect in-page), so relative layout survives the commit.
+        const patches = new Map<string, NormRect>();
+        for (const id of g.ids) {
+          const px = live[id];
+          if (px) patches.set(id, clampNormRect(pxToNorm(px, pageSize)));
+        }
+        if (patches.size > 0) {
+          onFieldsChange(fields.map((f) => ({ ...f, ...(patches.get(f.id) ?? {}) })));
+        }
+        return;
       }
+      const px = live[g.id];
+      if (px) updateField(g.id, clampNormRect(pxToNorm(px, pageSize)));
     },
-    [liveRect, pageSize, updateField],
+    [liveRects, pageSize, updateField, fields, onFieldsChange],
   );
 
   const startMove = React.useCallback(
@@ -322,14 +364,33 @@ export function FieldCanvas({
         toggleSelect(field.id);
         return;
       }
-      // Plain click: collapse to a single selection and start dragging it.
+      // Dragging a field that is part of a multi-selection moves the whole group
+      // (relative layout preserved) without collapsing the selection. Only fields
+      // on this page participate.
+      if (selectedIds.length > 1 && selectedIds.includes(field.id)) {
+        const groupFields = pageFields.filter((f) => selectedIds.includes(f.id));
+        const rects: Record<string, PxRect> = {};
+        for (const gf of groupFields) rects[gf.id] = normToPx(gf, pageSize);
+        gestureRef.current = {
+          kind: 'move-group',
+          ids: groupFields.map((f) => f.id),
+          startNorm: groupFields.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })),
+          startX: event.clientX,
+          startY: event.clientY,
+        };
+        setLiveRects(rects);
+        (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+        return;
+      }
+      // Plain click on an unselected/single field: collapse to a single selection
+      // and start dragging it.
       selectOnly(field.id);
       const startRect = normToPx(field, pageSize);
       gestureRef.current = { kind: 'move', id: field.id, startRect, startX: event.clientX, startY: event.clientY };
-      setLiveRect({ id: field.id, rect: startRect });
+      setLiveRects({ [field.id]: startRect });
       (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     },
-    [selectOnly, toggleSelect, pageSize],
+    [selectOnly, toggleSelect, pageSize, pageFields, selectedIds],
   );
 
   const startResize = React.useCallback(
@@ -346,7 +407,7 @@ export function FieldCanvas({
         startX: event.clientX,
         startY: event.clientY,
       };
-      setLiveRect({ id: field.id, rect: startRect });
+      setLiveRects({ [field.id]: startRect });
       (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     },
     [selectOnly, pageSize],
@@ -473,7 +534,7 @@ export function FieldCanvas({
   );
 
   const rectFor = (field: SignFieldDraft): PxRect =>
-    liveRect && liveRect.id === field.id ? liveRect.rect : normToPx(field, pageSize);
+    liveRects?.[field.id] ?? normToPx(field, pageSize);
 
   return (
     <div className={cn('relative w-full overflow-auto', className)}>
@@ -551,7 +612,7 @@ export function FieldCanvas({
             const rect = rectFor(field);
             const selected = selectedIds.includes(field.id);
             const hovered = hoverId === field.id;
-            const dragging = liveRect?.id === field.id;
+            const dragging = liveRects?.[field.id] != null;
             return (
               <FieldBox
                 key={field.id}
