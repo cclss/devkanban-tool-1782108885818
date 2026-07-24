@@ -23,6 +23,9 @@
  *     modifier is held). A drag under a few px is treated as an empty click.
  *   • keyboard — focus a field, arrows move, Shift+arrows resize, Delete removes,
  *     Cmd/Ctrl+D duplicates the current selection (parent owns the geometry).
+ *     A plain arrow nudges the WHOLE current-page selection together (group
+ *     clamp, relative layout preserved); Delete/Backspace removes every selected
+ *     field at once. Single-select flows through the same group path (size 1).
  */
 
 import * as React from 'react';
@@ -81,6 +84,14 @@ interface FieldCanvasProps {
   onFieldsChange: (fields: SignFieldDraft[]) => void;
   /** Duplicate the current selection (Cmd/Ctrl+D). Parent owns the geometry. */
   onDuplicate?: () => void;
+  /**
+   * Nudge the whole current-page selection by one shared normalized delta (plain
+   * arrow keys). Parent owns the geometry (group clamp via `translateNormRects`),
+   * so relative layout is preserved; single-select is the size-1 case.
+   */
+  onNudgeSelected?: (dxNorm: number, dyNorm: number) => void;
+  /** Delete every selected field at once, then clear the selection (Delete/Backspace). */
+  onDeleteSelected?: () => void;
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
@@ -126,6 +137,8 @@ export function FieldCanvas({
   onSelectionChange,
   onFieldsChange,
   onDuplicate,
+  onNudgeSelected,
+  onDeleteSelected,
   onPageCount,
   className,
 }: FieldCanvasProps) {
@@ -508,7 +521,14 @@ export function FieldCanvas({
       }
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
-        removeField(field.id);
+        // Delete removes the WHOLE selection at once when the focused field is
+        // part of it (single- and multi-select share this path); a focused but
+        // unselected field falls back to removing just itself (no regression).
+        if (onDeleteSelected && selectedIds.includes(field.id)) {
+          onDeleteSelected();
+        } else {
+          removeField(field.id);
+        }
         return;
       }
       const arrows: Record<string, [number, number]> = {
@@ -520,17 +540,29 @@ export function FieldCanvas({
       const delta = arrows[event.key];
       if (!delta) return;
       event.preventDefault();
-      const base = normToPx(field, pageSize);
-      let next: PxRect;
+      // Shift+arrow = resize the focused field's bottom-right corner. This stays a
+      // single-field op (group resize is out of scope), so it commits directly.
       if (event.shiftKey) {
-        // Shift = resize the bottom-right corner.
-        next = resizePxRect(base, 'se', delta[0], delta[1]);
-      } else {
-        next = { ...base, left: base.left + delta[0], top: base.top + delta[1] };
+        const base = normToPx(field, pageSize);
+        const next = resizePxRect(base, 'se', delta[0], delta[1]);
+        updateField(field.id, clampNormRect(pxToNorm(clampPxRect(next, pageSize), pageSize)));
+        return;
       }
+      // Plain arrow = move the whole current-page selection together by one nudge.
+      // Convert the px step to a normalized delta (y flips: canvas-down = norm-down)
+      // and hand it to the parent, which group-clamps via `translateNormRects` so
+      // the selection moves as one rigid box (relative layout preserved). Single-
+      // select is the size-1 case. A focused-but-unselected field falls back to a
+      // lone move so keyboard focus without a selection still nudges (no regression).
+      if (onNudgeSelected && selectedIds.includes(field.id)) {
+        onNudgeSelected(delta[0] / (pageSize.width || 1), -delta[1] / (pageSize.height || 1));
+        return;
+      }
+      const base = normToPx(field, pageSize);
+      const next = { ...base, left: base.left + delta[0], top: base.top + delta[1] };
       updateField(field.id, clampNormRect(pxToNorm(clampPxRect(next, pageSize), pageSize)));
     },
-    [pageSize, removeField, updateField, clearSelection, onDuplicate],
+    [pageSize, removeField, updateField, clearSelection, onDuplicate, onNudgeSelected, onDeleteSelected, selectedIds],
   );
 
   const rectFor = (field: SignFieldDraft): PxRect =>

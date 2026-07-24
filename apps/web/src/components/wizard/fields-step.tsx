@@ -25,6 +25,7 @@ import {
   clampNormRect,
   distributeNormRects,
   offsetNormRects,
+  translateNormRects,
   type AlignMode,
   type DistributeAxis,
   type SignFieldType,
@@ -158,6 +159,46 @@ export function FieldsStep() {
     // Move the selection onto the copies so a repeat action stacks new copies.
     setSelectedIds(copies.map((c) => c.id));
   }, [fields, page, selectedIds, setFields]);
+
+  const nudgeSelected = React.useCallback(
+    (dxNorm: number, dyNorm: number) => {
+      // Same page-scoped, defensive filter as align/distribute — only selected
+      // fields on the current page move; cross-page ids can never participate.
+      const selected = new Set(selectedIds);
+      const targets = fields.filter((f) => f.page === page && selected.has(f.id));
+      if (targets.length < 1) return;
+
+      // Group clamp: the selection's bounding box stops together at a page edge,
+      // so relative layout (gaps + sizes) is preserved even when one field is
+      // already flush. No per-rect clamp needed — the group clamp keeps each in 0..1.
+      const moved = translateNormRects(
+        targets.map((f) => ({ x: f.x, y: f.y, width: f.width, height: f.height })),
+        dxNorm,
+        dyNorm,
+      );
+      const nextById = new Map<string, (typeof moved)[number]>();
+      moved.forEach((rect, i) => {
+        const f = targets[i];
+        if (f) nextById.set(f.id, rect);
+      });
+      setFields(
+        fields.map((f) => {
+          const next = nextById.get(f.id);
+          return next ? { ...f, ...next } : f;
+        }),
+      );
+    },
+    [fields, page, selectedIds, setFields],
+  );
+
+  const deleteSelected = React.useCallback(() => {
+    // Delete every selected field in one pass, then clear the selection. Deleting
+    // is page-agnostic (removal is safe cross-page; selection is page-scoped anyway).
+    if (selectedIds.length === 0) return;
+    const selected = new Set(selectedIds);
+    setFields(fields.filter((f) => !selected.has(f.id)));
+    setSelectedIds([]);
+  }, [fields, selectedIds, setFields]);
 
   if (!file) {
     // Defensive: the upload gate prevents reaching here without a document.
@@ -328,6 +369,8 @@ export function FieldsStep() {
           onSelectionChange={setSelectedIds}
           onFieldsChange={setFields}
           onDuplicate={duplicateSelected}
+          onNudgeSelected={nudgeSelected}
+          onDeleteSelected={deleteSelected}
           onPageCount={setPageCount}
           className="max-h-[60vh]"
         />
@@ -345,6 +388,7 @@ export function FieldsStep() {
         2개 이상 선택하면 정렬 도구로 좌·가운데·우, 상·가운데·하 줄맞춤을 할 수 있어요.
         3개 이상 선택하면 가로·세로 균등 분배로 바깥 두 필드는 고정한 채 사이 간격을 고르게 맞출 수 있어요.
         복제 버튼이나 Cmd(Ctrl)+D로 선택한 필드를 원본 근처에 그대로 복제할 수 있어요.
+        여러 필드를 선택한 상태에서도 방향키로 상대 위치를 유지한 채 함께 이동하고, Delete로 선택한 필드를 한 번에 삭제해요.
       </p>
     </div>
   );
