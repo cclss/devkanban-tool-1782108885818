@@ -41,7 +41,7 @@ export function FieldsStep() {
 
   const [page, setPage] = React.useState(1);
   const [zoom, setZoom] = React.useState(1);
-  const [selectedId, setSelectedId] = React.useState<string | null>(null);
+  const [selectedIds, setSelectedIds] = React.useState<string[]>([]);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
   const [saveOpen, setSaveOpen] = React.useState(false);
 
@@ -62,7 +62,7 @@ export function FieldsStep() {
       });
       const id = nextFieldId();
       setFields([...fields, { id, type, page, ...norm }]);
-      setSelectedId(id);
+      setSelectedIds([id]);
     },
     [fields, page, setFields],
   );
@@ -127,7 +127,7 @@ export function FieldsStep() {
             label="이전 페이지"
             disabled={page <= 1}
             onClick={() => {
-              setSelectedId(null);
+              setSelectedIds([]);
               setPage((p) => Math.max(1, p - 1));
             }}
           >
@@ -140,7 +140,7 @@ export function FieldsStep() {
             label="다음 페이지"
             disabled={page >= total}
             onClick={() => {
-              setSelectedId(null);
+              setSelectedIds([]);
               setPage((p) => Math.min(total, p + 1));
             }}
           >
@@ -177,8 +177,8 @@ export function FieldsStep() {
           zoom={zoom}
           fitWidth={BASE_FIT_WIDTH}
           fields={fields}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
           onFieldsChange={setFields}
           onPageCount={setPageCount}
           className="max-h-[60vh]"
@@ -193,6 +193,7 @@ export function FieldsStep() {
 
       <p className="text-xs text-foreground-subtle">
         필드를 선택한 뒤 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제할 수 있어요.
+        Shift 또는 Cmd(Ctrl)+클릭으로 여러 필드를 함께 선택하고, 빈 곳 클릭이나 Esc로 선택을 해제해요.
       </p>
     </div>
   );

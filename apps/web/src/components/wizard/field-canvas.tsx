@@ -15,6 +15,9 @@
  *   • move  — pointer-drag a field body (pointer capture, snap guides)
  *   • resize— pointer-drag any of 8 handles
  *   • select/hover — click / pointer-enter, with clear visual feedback
+ *   • multi-select — Shift/Cmd(Ctrl)+click toggles a field in the selection;
+ *     a plain click selects a single field; empty-canvas click or Esc clears all.
+ *     Each selected field shows the same selection indicator (ring/border).
  *   • keyboard — focus a field, arrows move, Shift+arrows resize, Delete removes
  */
 
@@ -60,8 +63,10 @@ interface FieldCanvasProps {
   /** Available width (px) the page fits into at zoom 1. */
   fitWidth: number;
   fields: SignFieldDraft[];
-  selectedId: string | null;
-  onSelect: (id: string | null) => void;
+  /** Currently selected field ids (multi-select). Empty = nothing selected. */
+  selectedIds: string[];
+  /** Replace the full selection (single source lives in wizard state). */
+  onSelectionChange: (ids: string[]) => void;
   /** Replace the full field list (single source lives in wizard state). */
   onFieldsChange: (fields: SignFieldDraft[]) => void;
   /** Report rendered page count once the document opens. */
@@ -94,8 +99,8 @@ export function FieldCanvas({
   zoom,
   fitWidth,
   fields,
-  selectedId,
-  onSelect,
+  selectedIds,
+  onSelectionChange,
   onFieldsChange,
   onPageCount,
   className,
@@ -188,12 +193,34 @@ export function FieldCanvas({
     [fields, onFieldsChange],
   );
 
+  // --- selection (multi-select) --------------------------------------------
+
+  /** Replace the selection with just this field (plain click / drag / resize). */
+  const selectOnly = React.useCallback(
+    (id: string) => onSelectionChange([id]),
+    [onSelectionChange],
+  );
+
+  /** Add/remove a field from the selection (Shift/Cmd/Ctrl+click). */
+  const toggleSelect = React.useCallback(
+    (id: string) =>
+      onSelectionChange(
+        selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id],
+      ),
+    [selectedIds, onSelectionChange],
+  );
+
+  /** Clear all selection (empty-canvas click / Esc). */
+  const clearSelection = React.useCallback(() => {
+    if (selectedIds.length > 0) onSelectionChange([]);
+  }, [selectedIds, onSelectionChange]);
+
   const removeField = React.useCallback(
     (id: string) => {
       onFieldsChange(fields.filter((f) => f.id !== id));
-      if (selectedId === id) onSelect(null);
+      if (selectedIds.includes(id)) onSelectionChange(selectedIds.filter((x) => x !== id));
     },
-    [fields, onFieldsChange, selectedId, onSelect],
+    [fields, onFieldsChange, selectedIds, onSelectionChange],
   );
 
   // --- placement (HTML5 drag-and-drop from the palette) --------------------
@@ -211,9 +238,9 @@ export function FieldCanvas({
       const norm = clampNormRect(pxToNorm(px, pageSize));
       const id = nextFieldId();
       onFieldsChange([...fields, { id, type, page, ...norm }]);
-      onSelect(id);
+      selectOnly(id);
     },
-    [fields, onFieldsChange, onSelect, page, pageSize],
+    [fields, onFieldsChange, selectOnly, page, pageSize],
   );
 
   // --- move / resize (pointer events with capture) -------------------------
@@ -271,20 +298,26 @@ export function FieldCanvas({
     (event: React.PointerEvent, field: SignFieldDraft) => {
       if (event.button !== 0) return;
       event.stopPropagation();
-      onSelect(field.id);
+      // Shift/Cmd(Ctrl)+click toggles selection membership without moving.
+      if (event.shiftKey || event.metaKey || event.ctrlKey) {
+        toggleSelect(field.id);
+        return;
+      }
+      // Plain click: collapse to a single selection and start dragging it.
+      selectOnly(field.id);
       const startRect = normToPx(field, pageSize);
       gestureRef.current = { kind: 'move', id: field.id, startRect, startX: event.clientX, startY: event.clientY };
       setLiveRect({ id: field.id, rect: startRect });
       (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     },
-    [onSelect, pageSize],
+    [selectOnly, toggleSelect, pageSize],
   );
 
   const startResize = React.useCallback(
     (event: React.PointerEvent, field: SignFieldDraft, handle: ResizeHandle) => {
       if (event.button !== 0) return;
       event.stopPropagation();
-      onSelect(field.id);
+      selectOnly(field.id);
       const startRect = normToPx(field, pageSize);
       gestureRef.current = {
         kind: 'resize',
@@ -297,7 +330,7 @@ export function FieldCanvas({
       setLiveRect({ id: field.id, rect: startRect });
       (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
     },
-    [onSelect, pageSize],
+    [selectOnly, pageSize],
   );
 
   // --- keyboard assist (move / resize / delete a focused field) ------------
@@ -305,6 +338,11 @@ export function FieldCanvas({
   const onFieldKeyDown = React.useCallback(
     (event: React.KeyboardEvent, field: SignFieldDraft) => {
       const step = event.shiftKey ? NUDGE_PX_LARGE : NUDGE_PX;
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        clearSelection();
+        return;
+      }
       if (event.key === 'Delete' || event.key === 'Backspace') {
         event.preventDefault();
         removeField(field.id);
@@ -329,7 +367,7 @@ export function FieldCanvas({
       }
       updateField(field.id, clampNormRect(pxToNorm(clampPxRect(next, pageSize), pageSize)));
     },
-    [pageSize, removeField, updateField],
+    [pageSize, removeField, updateField, clearSelection],
   );
 
   const rectFor = (field: SignFieldDraft): PxRect =>
@@ -370,7 +408,7 @@ export function FieldCanvas({
             e.dataTransfer.dropEffect = 'copy';
           }}
           onDrop={onDrop}
-          onPointerDown={() => onSelect(null)}
+          onPointerDown={clearSelection}
         >
           {/* Snap guides */}
           {guides.map((g, i) =>
@@ -393,7 +431,7 @@ export function FieldCanvas({
 
           {pageFields.map((field) => {
             const rect = rectFor(field);
-            const selected = selectedId === field.id;
+            const selected = selectedIds.includes(field.id);
             const hovered = hoverId === field.id;
             const dragging = liveRect?.id === field.id;
             return (
