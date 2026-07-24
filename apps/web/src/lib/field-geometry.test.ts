@@ -16,6 +16,9 @@ import {
   defaultPxRectAt,
   resizePxRect,
   snapMove,
+  rectsIntersect,
+  rectFromPoints,
+  marqueeHitTest,
   FIELD_TYPE_META,
   MIN_NORM_WIDTH,
   MIN_NORM_HEIGHT,
@@ -190,5 +193,65 @@ describe('snapMove', () => {
     const rect: PxRect = { left: 153, top: 100, width: 80, height: 40 };
     const { rect: snapped } = snapMove(rect, page, [peer], 6);
     expect(snapped.left).toBeCloseTo(150, 6);
+  });
+});
+
+describe('rectsIntersect', () => {
+  const base: PxRect = { left: 100, top: 100, width: 100, height: 100 };
+
+  it('detects overlapping rects', () => {
+    expect(rectsIntersect(base, { left: 150, top: 150, width: 100, height: 100 })).toBe(true);
+  });
+
+  it('detects containment (one fully inside the other)', () => {
+    expect(rectsIntersect(base, { left: 120, top: 120, width: 20, height: 20 })).toBe(true);
+    expect(rectsIntersect({ left: 120, top: 120, width: 20, height: 20 }, base)).toBe(true);
+  });
+
+  it('rejects fully separated rects', () => {
+    expect(rectsIntersect(base, { left: 250, top: 100, width: 40, height: 40 })).toBe(false);
+    expect(rectsIntersect(base, { left: 100, top: 250, width: 40, height: 40 })).toBe(false);
+  });
+
+  it('treats edge-only contact (zero overlap area) as non-intersecting', () => {
+    // right edge of base (x=200) touches left edge of the other — no area shared.
+    expect(rectsIntersect(base, { left: 200, top: 100, width: 40, height: 40 })).toBe(false);
+  });
+
+  it('a zero-size rect (a click) intersects nothing', () => {
+    expect(rectsIntersect({ left: 150, top: 150, width: 0, height: 0 }, base)).toBe(false);
+  });
+});
+
+describe('rectFromPoints', () => {
+  it('builds a positive-size rect regardless of drag direction', () => {
+    const forward = rectFromPoints({ x: 10, y: 20 }, { x: 60, y: 90 });
+    expect(forward).toEqual({ left: 10, top: 20, width: 50, height: 70 });
+
+    // Dragging up-left from the anchor yields the same box.
+    const backward = rectFromPoints({ x: 60, y: 90 }, { x: 10, y: 20 });
+    expect(backward).toEqual({ left: 10, top: 20, width: 50, height: 70 });
+  });
+});
+
+describe('marqueeHitTest', () => {
+  const items = [
+    { id: 'a', rect: { left: 0, top: 0, width: 50, height: 50 } },
+    { id: 'b', rect: { left: 100, top: 100, width: 50, height: 50 } },
+    { id: 'c', rect: { left: 300, top: 300, width: 50, height: 50 } },
+  ];
+
+  it('returns ids of every field the marquee crosses', () => {
+    const hits = marqueeHitTest({ left: 20, top: 20, width: 110, height: 110 }, items);
+    expect(hits).toEqual(['a', 'b']);
+  });
+
+  it('returns empty when the marquee touches nothing', () => {
+    expect(marqueeHitTest({ left: 200, top: 0, width: 40, height: 40 }, items)).toEqual([]);
+  });
+
+  it('includes a field the marquee fully encloses', () => {
+    const hits = marqueeHitTest({ left: 90, top: 90, width: 80, height: 80 }, items);
+    expect(hits).toEqual(['b']);
   });
 });

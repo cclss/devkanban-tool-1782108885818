@@ -184,6 +184,39 @@ export function resizePxRect(rect: PxRect, handle: ResizeHandle, dx: number, dy:
   return { left, top, width, height };
 }
 
+/**
+ * True when two px rects overlap by any positive area. Edge-only contact (zero
+ * overlap area) does NOT count, so a click (zero-size marquee) selects nothing.
+ * Pure geometry — used by marquee hit-testing.
+ */
+export function rectsIntersect(a: PxRect, b: PxRect): boolean {
+  const overlapW = Math.min(a.left + a.width, b.left + b.width) - Math.max(a.left, b.left);
+  const overlapH = Math.min(a.top + a.height, b.top + b.height) - Math.max(a.top, b.top);
+  return overlapW > 0 && overlapH > 0;
+}
+
+/**
+ * Build a normalized (non-negative width/height) px rect from a drag anchor to a
+ * current point, regardless of drag direction. This is how a marquee box is
+ * derived from where the pointer went down and where it is now.
+ */
+export function rectFromPoints(a: { x: number; y: number }, b: { x: number; y: number }): PxRect {
+  const left = Math.min(a.x, b.x);
+  const top = Math.min(a.y, b.y);
+  return { left, top, width: Math.abs(a.x - b.x), height: Math.abs(a.y - b.y) };
+}
+
+/**
+ * Ids of items whose px rect intersects the marquee rect. Items carry their own
+ * id + rect so this stays DOM-free and independent of the field model shape.
+ */
+export function marqueeHitTest(
+  marquee: PxRect,
+  items: readonly { id: string; rect: PxRect }[],
+): string[] {
+  return items.filter((it) => rectsIntersect(marquee, it.rect)).map((it) => it.id);
+}
+
 /** Candidate snap line in one axis (px), with the value it represents. */
 export interface SnapLine {
   axis: 'x' | 'y';

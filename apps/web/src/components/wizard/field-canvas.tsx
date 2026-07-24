@@ -18,6 +18,9 @@
  *   • multi-select — Shift/Cmd(Ctrl)+click toggles a field in the selection;
  *     a plain click selects a single field; empty-canvas click or Esc clears all.
  *     Each selected field shows the same selection indicator (ring/border).
+ *   • marquee — pointer-drag on empty canvas draws a selection box; every field
+ *     it crosses is selected on release (union with the current selection when a
+ *     modifier is held). A drag under a few px is treated as an empty click.
  *   • keyboard — focus a field, arrows move, Shift+arrows resize, Delete removes
  */
 
@@ -38,6 +41,8 @@ import {
   defaultPxRectAt,
   resizePxRect,
   snapMove,
+  rectFromPoints,
+  marqueeHitTest,
   FIELD_TYPE_META,
   RESIZE_HANDLES,
   type PageSize,
@@ -49,6 +54,8 @@ import {
 import type { SignFieldDraft } from './wizard-context';
 
 const SNAP_THRESHOLD = 6; // px
+/** Below this drag distance a marquee counts as a plain click (clears selection). */
+const MARQUEE_MIN_DRAG = 3; // px
 const NUDGE_PX = 1;
 const NUDGE_PX_LARGE = 12;
 /** dataTransfer key carrying the field type during a palette → canvas drag. */
@@ -118,6 +125,14 @@ export function FieldCanvas({
   const [liveRect, setLiveRect] = React.useState<{ id: string; rect: PxRect } | null>(null);
   const [guides, setGuides] = React.useState<SnapLine[]>([]);
   const gestureRef = React.useRef<Gesture | null>(null);
+  // Marquee (rubber-band) selection: anchor + whether it unions the prior set.
+  const marqueeRef = React.useRef<{
+    startX: number;
+    startY: number;
+    additive: boolean;
+    base: string[];
+  } | null>(null);
+  const [marquee, setMarquee] = React.useState<PxRect | null>(null);
 
   const onPageCountRef = React.useRef(onPageCount);
   React.useEffect(() => {
@@ -333,6 +348,81 @@ export function FieldCanvas({
     [selectOnly, pageSize],
   );
 
+  // --- marquee (rubber-band) selection on empty canvas ---------------------
+
+  /** Overlay-local point for a pointer event, clamped inside the page raster. */
+  const overlayPoint = React.useCallback(
+    (event: React.PointerEvent) => {
+      const bounds = overlayRef.current?.getBoundingClientRect();
+      const x = event.clientX - (bounds?.left ?? 0);
+      const y = event.clientY - (bounds?.top ?? 0);
+      return {
+        x: Math.min(pageSize.width, Math.max(0, x)),
+        y: Math.min(pageSize.height, Math.max(0, y)),
+      };
+    },
+    [pageSize],
+  );
+
+  const startMarquee = React.useCallback(
+    (event: React.PointerEvent) => {
+      // Only the empty overlay starts a marquee — field bodies stop propagation.
+      if (event.button !== 0 || event.target !== event.currentTarget) return;
+      const additive = event.shiftKey || event.metaKey || event.ctrlKey;
+      marqueeRef.current = {
+        startX: event.clientX,
+        startY: event.clientY,
+        additive,
+        base: additive ? selectedIds : [],
+      };
+      const p = overlayPoint(event);
+      setMarquee({ left: p.x, top: p.y, width: 0, height: 0 });
+      (event.currentTarget as Element).setPointerCapture?.(event.pointerId);
+    },
+    [selectedIds, overlayPoint],
+  );
+
+  const onMarqueePointerMove = React.useCallback(
+    (event: React.PointerEvent) => {
+      const m = marqueeRef.current;
+      if (!m) return;
+      const bounds = overlayRef.current?.getBoundingClientRect();
+      const anchor = { x: m.startX - (bounds?.left ?? 0), y: m.startY - (bounds?.top ?? 0) };
+      const cur = overlayPoint(event);
+      setMarquee(rectFromPoints(anchor, cur));
+    },
+    [overlayPoint],
+  );
+
+  const endMarquee = React.useCallback(
+    (event: React.PointerEvent) => {
+      const m = marqueeRef.current;
+      if (!m) return;
+      const box = marquee;
+      marqueeRef.current = null;
+      setMarquee(null);
+      try {
+        (event.target as Element).releasePointerCapture?.(event.pointerId);
+      } catch {
+        /* capture may already be gone */
+      }
+      // A negligible drag is a plain empty-canvas click: clear unless modified.
+      if (!box || (box.width < MARQUEE_MIN_DRAG && box.height < MARQUEE_MIN_DRAG)) {
+        if (!m.additive) clearSelection();
+        return;
+      }
+      const hits = marqueeHitTest(
+        box,
+        pageFields.map((f) => ({ id: f.id, rect: normToPx(f, pageSize) })),
+      );
+      const next = m.additive
+        ? [...m.base, ...hits.filter((id) => !m.base.includes(id))]
+        : hits;
+      onSelectionChange(next);
+    },
+    [marquee, pageFields, pageSize, clearSelection, onSelectionChange],
+  );
+
   // --- keyboard assist (move / resize / delete a focused field) ------------
 
   const onFieldKeyDown = React.useCallback(
@@ -408,8 +498,24 @@ export function FieldCanvas({
             e.dataTransfer.dropEffect = 'copy';
           }}
           onDrop={onDrop}
-          onPointerDown={clearSelection}
+          onPointerDown={startMarquee}
+          onPointerMove={onMarqueePointerMove}
+          onPointerUp={endMarquee}
         >
+          {/* Marquee selection box */}
+          {marquee ? (
+            <span
+              aria-hidden="true"
+              className="pointer-events-none absolute rounded-xs border border-primary bg-primary-subtle/40"
+              style={{
+                left: marquee.left,
+                top: marquee.top,
+                width: marquee.width,
+                height: marquee.height,
+              }}
+            />
+          ) : null}
+
           {/* Snap guides */}
           {guides.map((g, i) =>
             g.axis === 'x' ? (
