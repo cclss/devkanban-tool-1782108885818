@@ -17,6 +17,7 @@
 
 import { apiFetch } from './api';
 import type { DocumentSummary } from './documents';
+import { confirmedFields } from '@/components/wizard/wizard-context';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
 
 interface SignFieldPayload {
@@ -41,7 +42,9 @@ export function saveFields(
   fields: SignFieldDraft[],
   token?: string,
 ): Promise<{ count: number }> {
-  const payload: SignFieldPayload[] = fields.map((f) => ({
+  // Auto-place recommendations never persist: only fields the user has confirmed
+  // (manual placement, or an accepted suggestion) reach the server.
+  const payload: SignFieldPayload[] = confirmedFields(fields).map((f) => ({
     type: f.type,
     page: f.page,
     x: f.x,
