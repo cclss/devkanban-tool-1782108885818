@@ -78,6 +78,11 @@ const config: Config = {
           foreground: 'var(--color-warning-foreground)',
           subtle: 'var(--color-warning-subtle)',
         },
+        recommended: {
+          DEFAULT: 'var(--color-recommended)',
+          foreground: 'var(--color-recommended-foreground)',
+          subtle: 'var(--color-recommended-subtle)',
+        },
         grey: {
           50: 'var(--grey-50)',
           100: 'var(--grey-100)',
