@@ -27,10 +27,22 @@
  */
 
 import * as React from 'react';
+import type { FieldCandidate } from '@/lib/field-anchors';
 import type { DocumentSummary } from '@/lib/documents';
 import { recipientsComplete } from '@/lib/recipients';
 
 export type SignFieldType = 'SIGNATURE' | 'DATE' | 'TEXT';
+
+/**
+ * Placement lifecycle of a sign field.
+ *   - `'confirmed'` — a field that is part of the saved set: every manually
+ *     placed field, a template-loaded field, or an auto-place recommendation the
+ *     user has accepted. Consumed by `canProceed` gating and every save path.
+ *   - `'recommended'` — an auto-place suggestion awaiting the user's accept. It
+ *     renders as a recommendation but is excluded from gating and from all save
+ *     paths until accepted (see {@link confirmedFields}).
+ */
+export type SignFieldStatus = 'recommended' | 'confirmed';
 
 /** A placed sign field. Geometry is normalized 0–1 relative to its page. */
 export interface SignFieldDraft {
@@ -44,6 +56,55 @@ export interface SignFieldDraft {
   height: number;
   /** 0-based recipient index this field is assigned to. */
   recipientIndex?: number;
+  /**
+   * Placement lifecycle. Absent is treated as `'confirmed'` so existing manual
+   * placement and saved/template layouts need no migration — only auto-place
+   * suggestions carry an explicit `'recommended'`.
+   */
+  status?: SignFieldStatus;
+}
+
+/**
+ * Whether a field counts toward the saved set. A field is confirmed unless it is
+ * explicitly `'recommended'`, so manual/template fields (no `status`) always
+ * pass. This is the single gate the save paths and `canProceed` share so a
+ * recommendation never persists before the user accepts it.
+ */
+export function isConfirmed(field: SignFieldDraft): boolean {
+  return field.status !== 'recommended';
+}
+
+/** An auto-place suggestion awaiting accept (the complement of {@link isConfirmed}). */
+export function isRecommended(field: SignFieldDraft): boolean {
+  return field.status === 'recommended';
+}
+
+/** The confirmed subset — what gating and saving consume. Recommendations drop out. */
+export function confirmedFields(fields: SignFieldDraft[]): SignFieldDraft[] {
+  return fields.filter(isConfirmed);
+}
+
+/**
+ * Map auto-place {@link FieldCandidate}s into `'recommended'` field drafts ready
+ * to drop into wizard state. Geometry (`rect`) is copied verbatim onto the
+ * NormRect fields; `makeId` mints the client id the canvas addresses (injected so
+ * this stays a pure function, decoupled from the canvas's id counter). The result
+ * is excluded from every save path until each is accepted.
+ */
+export function recommendedFieldsFromCandidates(
+  candidates: FieldCandidate[],
+  makeId: () => string,
+): SignFieldDraft[] {
+  return candidates.map((c) => ({
+    id: makeId(),
+    type: c.type,
+    page: c.page,
+    x: c.rect.x,
+    y: c.rect.y,
+    width: c.rect.width,
+    height: c.rect.height,
+    status: 'recommended',
+  }));
 }
 
 export interface RecipientDraft {
@@ -173,6 +234,16 @@ type WizardAction =
   | { type: 'GO_BACK' }
   | { type: 'GO_TO'; step: number }
   | { type: 'SET_FIELDS'; fields: SignFieldDraft[] }
+  /** Append auto-place recommendations (already mapped to drafts) to the set. */
+  | { type: 'ADD_RECOMMENDED_FIELDS'; fields: SignFieldDraft[] }
+  /** Promote one recommendation to a confirmed (saved-set) field. */
+  | { type: 'ACCEPT_FIELD'; id: string }
+  /** Promote every remaining recommendation to confirmed. */
+  | { type: 'ACCEPT_ALL_RECOMMENDED' }
+  /** Remove a single field by id (accepts recommended or confirmed). */
+  | { type: 'REMOVE_FIELD'; id: string }
+  /** Discard every remaining recommendation, leaving confirmed fields intact. */
+  | { type: 'CLEAR_RECOMMENDED' }
   | { type: 'SET_RECIPIENTS'; recipients: RecipientDraft[] }
   | { type: 'SET_DELIVERY_METHOD'; method: DeliveryMethod };
 
@@ -222,6 +293,37 @@ export function wizardReducer(state: WizardState, action: WizardAction): WizardS
     }
     case 'SET_FIELDS':
       return { ...state, fields: action.fields };
+    case 'ADD_RECOMMENDED_FIELDS':
+      // Suggestions land alongside any existing (manual or accepted) fields.
+      return action.fields.length === 0
+        ? state
+        : { ...state, fields: [...state.fields, ...action.fields] };
+    case 'ACCEPT_FIELD': {
+      let changed = false;
+      const next = state.fields.map((f) => {
+        if (f.id !== action.id || f.status !== 'recommended') return f;
+        changed = true;
+        return { ...f, status: 'confirmed' as const };
+      });
+      return changed ? { ...state, fields: next } : state;
+    }
+    case 'ACCEPT_ALL_RECOMMENDED': {
+      let changed = false;
+      const next = state.fields.map((f) => {
+        if (f.status !== 'recommended') return f;
+        changed = true;
+        return { ...f, status: 'confirmed' as const };
+      });
+      return changed ? { ...state, fields: next } : state;
+    }
+    case 'REMOVE_FIELD': {
+      const next = state.fields.filter((f) => f.id !== action.id);
+      return next.length === state.fields.length ? state : { ...state, fields: next };
+    }
+    case 'CLEAR_RECOMMENDED': {
+      const next = state.fields.filter((f) => f.status !== 'recommended');
+      return next.length === state.fields.length ? state : { ...state, fields: next };
+    }
     case 'SET_RECIPIENTS':
       return { ...state, recipients: action.recipients };
     case 'SET_DELIVERY_METHOD':
@@ -243,7 +345,9 @@ export function canProceed(state: WizardState): boolean {
     case 'upload':
       return state.document !== null;
     case 'fields':
-      return state.fields.length > 0;
+      // Only confirmed fields count — a screen of recommendations alone keeps
+      // "다음" locked until the user accepts at least one.
+      return confirmedFields(state.fields).length > 0;
     case 'delivery':
       // Locks "다음" until the user picks how the contract is delivered.
       return state.deliveryMethod !== null;
