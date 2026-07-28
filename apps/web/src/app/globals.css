@@ -70,15 +70,6 @@
     --color-warning-foreground: #ffffff;
     --color-warning-subtle: #fff4e6;
 
-    /* — Recommended field state (auto-place suggestion) —
-       A purple distinct from the placed-field blue (--color-primary) and the
-       remove-red (--color-danger), so an auto-placed candidate reads as a
-       different lifecycle state on hue alone — while dotted border + a "추천"
-       text badge carry the same distinction without relying on color. */
-    --color-recommended: #7e3af2;
-    --color-recommended-foreground: #ffffff;
-    --color-recommended-subtle: #f6f5ff;
-
     /* — Interaction — */
     --color-ring: var(--brand-primary);
     --color-overlay: rgba(13, 16, 21, 0.55);

@@ -43,7 +43,7 @@ import {
   type ResizeHandle,
   type SnapLine,
 } from '@/lib/field-geometry';
-import { isRecommended, type SignFieldDraft } from './wizard-context';
+import type { SignFieldDraft } from './wizard-context';
 
 const SNAP_THRESHOLD = 6; // px
 const NUDGE_PX = 1;
@@ -64,13 +64,6 @@ interface FieldCanvasProps {
   onSelect: (id: string | null) => void;
   /** Replace the full field list (single source lives in wizard state). */
   onFieldsChange: (fields: SignFieldDraft[]) => void;
-  /**
-   * Accept one recommended field — promote an auto-place suggestion to a
-   * confirmed field. Omitted when no recommendations can appear; a field box
-   * only shows its accept affordance when this is provided and the field is
-   * still `'recommended'`.
-   */
-  onAcceptField?: (id: string) => void;
   /** Report rendered page count once the document opens. */
   onPageCount?: (count: number) => void;
   className?: string;
@@ -104,7 +97,6 @@ export function FieldCanvas({
   selectedId,
   onSelect,
   onFieldsChange,
-  onAcceptField,
   onPageCount,
   className,
 }: FieldCanvasProps) {
@@ -404,7 +396,6 @@ export function FieldCanvas({
             const selected = selectedId === field.id;
             const hovered = hoverId === field.id;
             const dragging = liveRect?.id === field.id;
-            const recommended = isRecommended(field);
             return (
               <FieldBox
                 key={field.id}
@@ -413,7 +404,6 @@ export function FieldCanvas({
                 selected={selected}
                 hovered={hovered}
                 dragging={dragging}
-                recommended={recommended}
                 onPointerEnter={() => setHoverId(field.id)}
                 onPointerLeave={() => setHoverId((h) => (h === field.id ? null : h))}
                 onPointerDownBody={(e) => startMove(e, field)}
@@ -422,9 +412,6 @@ export function FieldCanvas({
                 onPointerUp={endGesture}
                 onKeyDown={(e) => onFieldKeyDown(e, field)}
                 onDelete={() => removeField(field.id)}
-                onAccept={
-                  recommended && onAcceptField ? () => onAcceptField(field.id) : undefined
-                }
               />
             );
           })}
@@ -440,8 +427,6 @@ interface FieldBoxProps {
   selected: boolean;
   hovered: boolean;
   dragging: boolean;
-  /** Auto-place suggestion awaiting accept — renders the recommended language. */
-  recommended: boolean;
   onPointerEnter: () => void;
   onPointerLeave: () => void;
   onPointerDownBody: (e: React.PointerEvent) => void;
@@ -450,8 +435,6 @@ interface FieldBoxProps {
   onPointerUp: (e: React.PointerEvent) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
   onDelete: () => void;
-  /** Accept this recommendation (present only for recommended fields). */
-  onAccept?: () => void;
 }
 
 function FieldBox({
@@ -460,7 +443,6 @@ function FieldBox({
   selected,
   hovered,
   dragging,
-  recommended,
   onPointerEnter,
   onPointerLeave,
   onPointerDownBody,
@@ -469,33 +451,13 @@ function FieldBox({
   onPointerUp,
   onKeyDown,
   onDelete,
-  onAccept,
 }: FieldBoxProps) {
   const meta = FIELD_TYPE_META[field.type];
-  const active = selected || hovered;
-  // A recommendation is distinguished on three independent axes so the state
-  // survives low-vision / color-blind viewing: dotted border (vs dashed),
-  // purple (vs the placed blue), and an always-on "추천" text badge.
-  const boxTone = recommended
-    ? selected
-      ? 'border-dotted border-recommended bg-recommended-subtle text-recommended shadow-md ring-2 ring-recommended'
-      : hovered
-        ? 'border-dotted border-recommended bg-recommended-subtle text-recommended shadow-sm'
-        : 'border-dotted border-recommended bg-recommended-subtle text-recommended'
-    : selected
-      ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
-      : hovered
-        ? 'border-primary bg-primary-subtle/60 text-primary shadow-sm'
-        : 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90';
-  const handleTone = recommended ? 'border-recommended' : 'border-primary';
-  const ariaLabel = recommended
-    ? `${meta.label} 추천 필드. 끌어서 이동·크기 조절로 수정, 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제. 수락하면 확정 필드가 돼요`
-    : `${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`;
   return (
     <div
       role="button"
       tabIndex={0}
-      aria-label={ariaLabel}
+      aria-label={`${meta.label} 필드. 방향키로 이동, Shift+방향키로 크기 조절, Delete로 삭제`}
       aria-pressed={selected}
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
@@ -509,46 +471,24 @@ function FieldBox({
         'group absolute flex select-none items-center justify-center rounded-sm border-2 text-xs font-semibold',
         'outline-none transition-[box-shadow,background-color,border-color]',
         dragging ? 'cursor-grabbing duration-0' : 'cursor-grab duration-fast ease-standard',
-        boxTone,
+        selected
+          ? 'border-primary bg-primary-subtle/80 text-primary shadow-md ring-2 ring-focus'
+          : hovered
+            ? 'border-primary bg-primary-subtle/60 text-primary shadow-sm'
+            : 'border-dashed border-primary/60 bg-primary-subtle/40 text-primary/90',
       )}
       style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height }}
     >
       <span className="pointer-events-none flex items-center gap-2xs truncate px-2xs">
-        {recommended ? (
-          <span className="inline-flex items-center gap-0.5 rounded-full bg-recommended px-1.5 py-px text-[10px] font-bold leading-none text-recommended-foreground">
-            <RecommendedGlyph />
-            추천
-          </span>
-        ) : null}
         <FieldGlyph type={field.type} />
         {meta.label}
       </span>
 
-      {/* Candidate actions (recommended only) — accept promotes to a confirmed
-          field. Shown while the field is active so they don't clutter the page. */}
-      {recommended && onAccept && active ? (
+      {/* Delete affordance — appears when the field is active. */}
+      {selected ? (
         <button
           type="button"
-          aria-label={`${meta.label} 추천 필드 수락`}
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={(e) => {
-            e.stopPropagation();
-            onAccept();
-          }}
-          className="absolute -left-2.5 -top-2.5 flex h-5 w-5 items-center justify-center rounded-full bg-recommended text-recommended-foreground shadow-sm transition-transform duration-fast hover:scale-110 active:scale-95"
-        >
-          <svg viewBox="0 0 12 12" className="h-3 w-3" fill="none" aria-hidden="true">
-            <path d="M2.5 6.5l2.5 2.5 4.5-5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-          </svg>
-        </button>
-      ) : null}
-
-      {/* Delete affordance — appears when the field is active. Deleting a
-          recommendation simply drops it (it was never in the saved set). */}
-      {active ? (
-        <button
-          type="button"
-          aria-label={recommended ? `${meta.label} 추천 필드 삭제` : `${meta.label} 필드 삭제`}
+          aria-label={`${meta.label} 필드 삭제`}
           onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
@@ -562,15 +502,14 @@ function FieldBox({
         </button>
       ) : null}
 
-      {/* Resize handles — visible on select/hover; drag = the "수정" affordance. */}
-      {active
+      {/* Resize handles — visible on select/hover. */}
+      {selected || hovered
         ? RESIZE_HANDLES.map((h) => (
             <span
               key={h}
               onPointerDown={(e) => onPointerDownHandle(e, h)}
               className={cn(
-                'absolute h-2.5 w-2.5 rounded-full border bg-surface shadow-xs',
-                handleTone,
+                'absolute h-2.5 w-2.5 rounded-full border border-primary bg-surface shadow-xs',
                 HANDLE_POSITION[h],
                 HANDLE_CURSOR[h],
               )}
@@ -578,18 +517,6 @@ function FieldBox({
           ))
         : null}
     </div>
-  );
-}
-
-/** Small sparkle glyph — reads "suggested" alongside the "추천" text. */
-function RecommendedGlyph() {
-  return (
-    <svg viewBox="0 0 12 12" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
-      <path
-        d="M6 1.5l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z"
-        fill="currentColor"
-      />
-    </svg>
   );
 }
 

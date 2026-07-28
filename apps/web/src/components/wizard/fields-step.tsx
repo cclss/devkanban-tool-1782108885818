@@ -24,13 +24,7 @@ import {
   clampNormRect,
   type SignFieldType,
 } from '@/lib/field-geometry';
-import { autoPlaceFields } from '@/lib/auto-place';
-import {
-  isRecommended,
-  recommendedFieldsFromCandidates,
-  useWizard,
-  type SignFieldDraft,
-} from './wizard-context';
+import { useWizard, type SignFieldDraft } from './wizard-context';
 import { FieldCanvas, FIELD_DND_TYPE, nextFieldId } from './field-canvas';
 import { SaveTemplateDialog } from './save-template-dialog';
 
@@ -50,46 +44,11 @@ export function FieldsStep() {
   const [selectedId, setSelectedId] = React.useState<string | null>(null);
   const [pageCount, setPageCount] = React.useState(document?.pageCount ?? 0);
   const [saveOpen, setSaveOpen] = React.useState(false);
-  const [autoRunning, setAutoRunning] = React.useState(false);
-  // Outcome of the last auto-place run, shown inline (never a toast). `placed`
-  // summarizes what was suggested; `none` is the no-anchor guidance that keeps
-  // the user moving to manual placement. Cleared as soon as a new run starts.
-  const [autoNotice, setAutoNotice] =
-    React.useState<{ kind: 'placed' | 'none'; count: number } | null>(null);
 
   const setFields = React.useCallback(
     (next: SignFieldDraft[]) => dispatch({ type: 'SET_FIELDS', fields: next }),
     [dispatch],
   );
-
-  const runAutoPlace = React.useCallback(async () => {
-    if (!file || autoRunning) return;
-    setAutoRunning(true);
-    setAutoNotice(null);
-    try {
-      // autoPlaceFields never throws — a corrupt/scanned/anchor-less PDF returns
-      // [], so manual placement always stays available (no screen break).
-      const candidates = await autoPlaceFields(file);
-      const drafts = recommendedFieldsFromCandidates(candidates, nextFieldId);
-      dispatch({ type: 'ADD_RECOMMENDED_FIELDS', fields: drafts });
-      setAutoNotice({ kind: drafts.length > 0 ? 'placed' : 'none', count: drafts.length });
-    } finally {
-      setAutoRunning(false);
-    }
-  }, [file, autoRunning, dispatch]);
-
-  const acceptField = React.useCallback(
-    (id: string) => dispatch({ type: 'ACCEPT_FIELD', id }),
-    [dispatch],
-  );
-  const acceptAllRecommended = React.useCallback(() => {
-    dispatch({ type: 'ACCEPT_ALL_RECOMMENDED' });
-    setAutoNotice(null);
-  }, [dispatch]);
-  const clearRecommended = React.useCallback(() => {
-    dispatch({ type: 'CLEAR_RECOMMENDED' });
-    setAutoNotice(null);
-  }, [dispatch]);
 
   const addAtCenter = React.useCallback(
     (type: SignFieldType) => {
@@ -119,7 +78,6 @@ export function FieldsStep() {
 
   const total = Math.max(pageCount, 1);
   const pageFieldCount = fields.filter((f) => f.page === page).length;
-  const recommendedCount = fields.filter(isRecommended).length;
   // Saving needs the uploaded PDF's storage key and at least one placed field.
   const canSaveTemplate = fields.length > 0 && Boolean(document?.storageKey);
 
@@ -132,25 +90,14 @@ export function FieldsStep() {
             받는 분이 서명할 위치에 필드를 끌어다 놓으세요. 클릭하면 가운데에 추가돼요.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-xs">
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={runAutoPlace}
-            isLoading={autoRunning}
-          >
-            {!autoRunning ? <SparkleIcon /> : null}
-            {autoRunning ? '자동으로 배치 중…' : '자동으로 배치'}
-          </Button>
-          <Button
-            variant="secondary"
-            size="sm"
-            onClick={() => setSaveOpen(true)}
-            disabled={!canSaveTemplate}
-          >
-            템플릿으로 저장
-          </Button>
-        </div>
+        <Button
+          variant="secondary"
+          size="sm"
+          onClick={() => setSaveOpen(true)}
+          disabled={!canSaveTemplate}
+        >
+          템플릿으로 저장
+        </Button>
       </div>
 
       {document?.storageKey ? (
@@ -161,59 +108,6 @@ export function FieldsStep() {
           pageCount={pageCount > 0 ? pageCount : undefined}
           fields={fields}
         />
-      ) : null}
-
-      {/* Auto-place outcome — inline (never a toast).
-          • placed → recommendation-toned summary (purple).
-          • none   → neutral/info guidance, NOT a failure: it reads as "place them
-            yourself", distinct from the canvas's danger-toned "PDF를 읽을 수 없어요". */}
-      {autoNotice ? (
-        <div
-          role="status"
-          className={cn(
-            'flex items-start gap-xs rounded-md border px-sm py-xs text-sm text-foreground',
-            autoNotice.kind === 'placed'
-              ? 'border-recommended bg-recommended-subtle'
-              : 'border-border bg-surface-muted',
-          )}
-        >
-          <span
-            className={cn(
-              'mt-px flex h-4 w-4 shrink-0 items-center justify-center rounded-full',
-              autoNotice.kind === 'placed'
-                ? 'bg-recommended text-recommended-foreground'
-                : 'bg-grey-200 text-foreground-muted',
-            )}
-          >
-            {autoNotice.kind === 'placed' ? (
-              <SparkleIcon className="h-2.5 w-2.5" />
-            ) : (
-              <InfoIcon />
-            )}
-          </span>
-          <p>
-            {autoNotice.kind === 'placed'
-              ? `추천 필드 ${autoNotice.count}개를 넣었어요. 확인하고 수락해 주세요.`
-              : '자동으로 넣을 서명 위치를 찾지 못했어요. 아래 도구로 직접 배치해 주세요.'}
-          </p>
-        </div>
-      ) : null}
-
-      {/* Batch actions over the remaining recommendations. */}
-      {recommendedCount > 0 ? (
-        <div className="flex flex-wrap items-center gap-xs rounded-md border border-border bg-surface px-sm py-xs">
-          <span className="text-sm font-medium text-foreground">
-            추천 필드 {recommendedCount}개
-          </span>
-          <div className="ml-auto flex items-center gap-xs">
-            <Button variant="secondary" size="sm" onClick={acceptAllRecommended}>
-              모두 수락
-            </Button>
-            <Button variant="ghost" size="sm" onClick={clearRecommended}>
-              모두 지우기
-            </Button>
-          </div>
-        </div>
       ) : null}
 
       {/* Tool palette */}
@@ -286,7 +180,6 @@ export function FieldsStep() {
           selectedId={selectedId}
           onSelect={setSelectedId}
           onFieldsChange={setFields}
-          onAcceptField={acceptField}
           onPageCount={setPageCount}
           className="max-h-[60vh]"
         />
@@ -331,27 +224,6 @@ function FieldTool({ type, onAdd }: { type: SignFieldType; onAdd: () => void }) 
       </span>
       {meta.label}
     </button>
-  );
-}
-
-function SparkleIcon({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" className={cn('h-4 w-4', className)} fill="none" aria-hidden="true">
-      <path
-        d="M8 1.5l1.4 3.6L13 6.5l-3.6 1.4L8 11.5 6.6 7.9 3 6.5l3.6-1.4z"
-        fill="currentColor"
-      />
-      <path d="M13 11l.6 1.5L15 13l-1.4.5L13 15l-.6-1.5L11 13l1.4-.5z" fill="currentColor" />
-    </svg>
-  );
-}
-
-function InfoIcon() {
-  return (
-    <svg viewBox="0 0 16 16" className="h-2.5 w-2.5" fill="none" aria-hidden="true">
-      <circle cx="8" cy="8" r="6.5" stroke="currentColor" strokeWidth="1.4" />
-      <path d="M8 7.2v3.4M8 5.2h.01" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-    </svg>
   );
 }
 

@@ -16,7 +16,6 @@
 
 import { apiDownload, apiFetch } from './api';
 import { getToken } from './auth';
-import { confirmedFields } from '@/components/wizard/wizard-context';
 import type { SignFieldDraft } from '@/components/wizard/wizard-context';
 
 /**
@@ -87,9 +86,7 @@ export function createTemplate(input: CreateTemplateInput): Promise<TemplateDeta
     name: input.name.trim(),
     storageKey: input.storageKey,
     ...(input.pageCount !== undefined ? { pageCount: input.pageCount } : {}),
-    // A template stores only confirmed layout — unaccepted auto-place
-    // recommendations are excluded, same as the send path.
-    fields: confirmedFields(input.fields).map((f) => ({
+    fields: input.fields.map((f) => ({
       type: f.type,
       page: f.page,
       x: f.x,
