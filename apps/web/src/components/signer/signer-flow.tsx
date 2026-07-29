@@ -40,7 +40,7 @@ const NOTICE: Record<BlockReason, { title: string; body: string; tone: NoticeScr
 };
 
 export function SignerFlow() {
-  const { state } = useSigner();
+  const { state, reauth } = useSigner();
 
   switch (state.phase) {
     case 'loading':
@@ -48,6 +48,19 @@ export function SignerFlow() {
     case 'verify':
       // Meta is guaranteed present once we leave loading for verify.
       return state.meta ? <VerifyScreen meta={state.meta} /> : <LoadingScreen />;
+    case 'expired':
+      // The session lapsed mid-flow: reuse the server's expiry copy and offer a
+      // re-auth CTA back to the verify screen (values reload on re-verify).
+      return (
+        <NoticeScreen
+          title={SIGNER_COPY.sessionExpiredTitle}
+          body={state.expiredMessage ?? SIGNER_COPY.sessionExpired}
+          tone="neutral"
+          sender={state.meta?.sender ?? null}
+          brandColor={state.meta?.sender.brandColor ?? null}
+          action={{ label: SIGNER_COPY.sessionReauth, onClick: reauth }}
+        />
+      );
     case 'blocked': {
       const notice = NOTICE[state.blockReason ?? 'invalidLink'];
       return (

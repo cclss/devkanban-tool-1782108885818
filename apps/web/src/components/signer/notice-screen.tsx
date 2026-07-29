@@ -12,11 +12,18 @@
  */
 
 import * as React from 'react';
+import { Button } from '@repo/ui';
 import type { SignerSender } from '@/lib/signing';
 import { BrandingHeader } from './branding-header';
 import { brandStyle } from '@/lib/branding';
 
 export type NoticeTone = 'success' | 'neutral';
+
+/** An optional primary action rendered under the message (e.g. re-authenticate). */
+export interface NoticeAction {
+  label: string;
+  onClick: () => void;
+}
 
 export interface NoticeScreenProps {
   title: string;
@@ -26,9 +33,11 @@ export interface NoticeScreenProps {
   sender?: SignerSender | null;
   /** Brand color for the `brandStyle()` hook. */
   brandColor?: string | null;
+  /** Optional recovery action (e.g. "다시 인증하기"); omit for a terminal notice. */
+  action?: NoticeAction;
 }
 
-export function NoticeScreen({ title, body, tone, sender, brandColor }: NoticeScreenProps) {
+export function NoticeScreen({ title, body, tone, sender, brandColor, action }: NoticeScreenProps) {
   return (
     <main
       style={brandStyle(brandColor)}
@@ -40,6 +49,11 @@ export function NoticeScreen({ title, body, tone, sender, brandColor }: NoticeSc
         <Glyph tone={tone} />
         <h1 className="mt-lg text-2xl font-bold text-foreground">{title}</h1>
         <p className="mt-xs text-base text-foreground-subtle">{body}</p>
+        {action ? (
+          <Button size="lg" fullWidth className="mt-xl" onClick={action.onClick}>
+            {action.label}
+          </Button>
+        ) : null}
       </div>
     </main>
   );

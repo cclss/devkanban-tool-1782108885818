@@ -97,6 +97,12 @@ export const SIGNER_COPY = {
   unavailable: '더 이상 서명할 수 없는 계약이에요. 발신자에게 문의해 주세요.',
   invalidLinkTitle: '링크를 확인해 주세요',
   invalidLink: '서명 링크가 올바르지 않아요. 발신자에게 링크를 다시 요청해 주세요.',
+  // Session-expiry re-auth notice. `sessionExpired` mirrors the server's
+  // `messages.signing.sessionExpired` verbatim (the voice stays one); shown when a
+  // session-guarded call 401s so the signer can re-verify and return to the flow.
+  sessionExpiredTitle: '다시 인증해 주세요',
+  sessionExpired: '본인확인 후 시간이 지났어요. 인증 코드를 다시 입력해 주세요.',
+  sessionReauth: '다시 인증하기',
   // Document viewer chrome (mirrors the same Toss voice).
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',
@@ -184,6 +190,17 @@ export function clearSignerSession(accessToken: string): void {
   } catch {
     // Nothing to recover from — see setSignerSession.
   }
+}
+
+/**
+ * A session-guarded signer call failed because the session lapsed: the server
+ * returns 401 with its `sessionExpired` copy once the ~30-minute token expires,
+ * and the flow also synthesizes a 401 when no session is stored at all. The flow
+ * catches this to clear the dead session and route the signer back to re-verify.
+ * Pure so the decision stays unit-testable.
+ */
+export function isSessionExpiredError(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
 }
 
 // --- endpoints ---------------------------------------------------------------
