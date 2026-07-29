@@ -393,15 +393,16 @@ export class SigningService {
 
   // --- internals -----------------------------------------------------------
 
-  /** A request can still be signed only while the document is in progress. */
+  /**
+   * A request can still be signed only while the document is IN_PROGRESS.
+   * DRAFT links are explicitly not signable (policy M-8): a document must be
+   * sent (IN_PROGRESS) before any signer can verify, view, save, or complete.
+   */
   private isSignable(documentStatus: DocumentStatus, requestStatus: SignRequestStatus): boolean {
     if (requestStatus === SignRequestStatus.SIGNED || requestStatus === SignRequestStatus.DECLINED) {
       return false;
     }
-    return (
-      documentStatus === DocumentStatus.IN_PROGRESS ||
-      documentStatus === DocumentStatus.DRAFT
-    );
+    return documentStatus === DocumentStatus.IN_PROGRESS;
   }
 
   private async countRecentVerifyFailures(signRequestId: string): Promise<number> {
