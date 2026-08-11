@@ -85,6 +85,16 @@ export interface SignerState {
   activeFieldId: string | null;
   /** Set once `complete` succeeds: whether the whole document is now finalized. */
   documentCompleted: boolean;
+  /**
+   * Contract facts for the completion summary card (spec §6), captured from the
+   * finalize result: 서명 완료 시각 + derived 계약 날짜·금액 (null when the server
+   * could not extract them). Null until `complete` succeeds.
+   */
+  completion: {
+    signedAt: string | null;
+    contractDate: string | null;
+    contractAmount: string | null;
+  } | null;
   /** The re-auth notice's body when `phase === 'expired'` (server's expiry copy). */
   expiredMessage: string | null;
   /**
@@ -102,6 +112,7 @@ const initialState: SignerState = {
   fieldValues: {},
   activeFieldId: null,
   documentCompleted: false,
+  completion: null,
   expiredMessage: null,
   targetPage: null,
 };
@@ -113,7 +124,13 @@ type SignerAction =
   | { type: 'GO_VIEWING'; page: number | null }
   | { type: 'GO_CARDS' }
   | { type: 'GO_SIGNING' }
-  | { type: 'DONE'; documentCompleted: boolean }
+  | {
+      type: 'DONE';
+      documentCompleted: boolean;
+      signedAt: string;
+      contractDate: string | null;
+      contractAmount: string | null;
+    }
   | { type: 'EXPIRE'; message: string }
   | { type: 'REAUTH' }
   | { type: 'OPEN_FIELD'; fieldId: string }
@@ -155,7 +172,16 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
-      return { ...state, phase: 'done', documentCompleted: action.documentCompleted };
+      return {
+        ...state,
+        phase: 'done',
+        documentCompleted: action.documentCompleted,
+        completion: {
+          signedAt: action.signedAt,
+          contractDate: action.contractDate,
+          contractAmount: action.contractAmount,
+        },
+      };
     case 'EXPIRE':
       // The session lapsed mid-flow: drop the now-stale working set and show the
       // re-auth notice. `meta` is kept so re-verify lands on the same document.
@@ -367,7 +393,13 @@ export function SignerProvider({
           throw new ApiError(SIGNER_COPY.sessionExpired, 401);
         }
         const result = await completeSigning(token, session);
-        dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
+        dispatch({
+          type: 'DONE',
+          documentCompleted: result.documentCompleted,
+          signedAt: result.signedAt,
+          contractDate: result.contractDate,
+          contractAmount: result.contractAmount,
+        });
       }),
     [token, guardExpiry],
   );
@@ -422,6 +454,18 @@ export function SignerProvider({
       fieldValues: state.fieldValues,
       activeFieldId: state.activeFieldId,
       documentCompleted: state.documentCompleted,
+      // The signer just finalized: the completion pipeline (final PDF + cert +
+      // email) was only just enqueued, so the artifact is never ready in this
+      // freshly-completed frame → the screen shows "계약서 준비 중". The download
+      // affordance appears on re-entry once the signed PDF is stored.
+      documentReady: false,
+      summary: state.completion
+        ? {
+            signedAt: state.completion.signedAt,
+            contractDate: state.completion.contractDate,
+            contractAmount: state.completion.contractAmount,
+          }
+        : undefined,
       pdfUrl: signerPdfUrl(token),
       initialPage: state.targetPage,
       loadSession: () => getSignerSession(token),

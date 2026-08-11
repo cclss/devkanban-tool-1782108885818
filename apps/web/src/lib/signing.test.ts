@@ -10,8 +10,11 @@
 
 import { ApiError } from './api';
 import {
+  completionArtifactState,
+  completionSummaryRows,
   deserializeFieldValue,
   entryPhaseAfterVerify,
+  formatSignedAt,
   isSessionExpiredError,
   serializeFieldValue,
   signProgress,
@@ -201,5 +204,110 @@ describe('deserializeFieldValue (M-6 session restore)', () => {
     expect(
       serializeFieldValue(deserializeFieldValue('DATE', '2026-08-11')!),
     ).toBe('2026-08-11');
+  });
+});
+
+describe('formatSignedAt (M-7 서명 완료 시각)', () => {
+  it('formats an ISO instant in ko-KR pinned to KST (device-timezone independent)', () => {
+    // 2026-08-11T05:30:00Z → 2026-08-11 14:30 KST → "오후 2:30".
+    const label = formatSignedAt('2026-08-11T05:30:00.000Z');
+    expect(label).toContain('2026년');
+    expect(label).toContain('8월');
+    expect(label).toContain('11일');
+    expect(label).toContain('오후');
+    expect(label).toContain('2:30');
+  });
+
+  it('rolls the KST day forward for a late-UTC instant', () => {
+    // 2026-08-11T20:00:00Z → 2026-08-12 05:00 KST (next KST day).
+    const label = formatSignedAt('2026-08-11T20:00:00.000Z');
+    expect(label).toContain('12일');
+    expect(label).toContain('오전');
+  });
+
+  it('returns an empty string for an absent or unparseable value (row omitted)', () => {
+    expect(formatSignedAt(null)).toBe('');
+    expect(formatSignedAt('')).toBe('');
+    expect(formatSignedAt('not-a-date')).toBe('');
+  });
+});
+
+describe('completionSummaryRows (M-7 요약 카드 실제 값 + 생략 규칙)', () => {
+  it('emits 날짜 → 금액 → 서명시각 in reading order when all are present', () => {
+    const rows = completionSummaryRows({
+      signedAt: '2026-08-11T05:30:00.000Z',
+      contractDate: '2026년 8월 1일',
+      contractAmount: '5,000,000원',
+    });
+    expect(rows.map((r) => r.key)).toEqual(['contractDate', 'contractAmount', 'signedAt']);
+    expect(rows[0]).toEqual({ key: 'contractDate', value: '2026년 8월 1일' });
+    expect(rows[1]).toEqual({ key: 'contractAmount', value: '5,000,000원' });
+    expect(rows[2]?.value).toContain('오후');
+  });
+
+  it('omits rows whose fact is null/blank (spec §6 추출 가능한 경우)', () => {
+    const rows = completionSummaryRows({
+      signedAt: '2026-08-11T05:30:00.000Z',
+      contractDate: null,
+      contractAmount: '   ',
+    });
+    // Only the always-present signed timestamp survives.
+    expect(rows.map((r) => r.key)).toEqual(['signedAt']);
+  });
+
+  it('is empty when nothing is derivable (no card rows render)', () => {
+    expect(
+      completionSummaryRows({ signedAt: null, contractDate: null, contractAmount: null }),
+    ).toEqual([]);
+  });
+
+  it('passes raw date/amount figures through verbatim (already Korean substrings)', () => {
+    const rows = completionSummaryRows({
+      signedAt: null,
+      contractDate: '2026. 8. 1.',
+      contractAmount: '금 오백만원정',
+    });
+    expect(rows).toEqual([
+      { key: 'contractDate', value: '2026. 8. 1.' },
+      { key: 'contractAmount', value: '금 오백만원정' },
+    ]);
+  });
+});
+
+describe('completionArtifactState (M-7 다운로드/준비중 분기)', () => {
+  it('shows the download button once the final PDF is ready', () => {
+    expect(
+      completionArtifactState({ hasDownload: true, documentReady: true, documentCompleted: true }),
+    ).toBe('download');
+  });
+
+  it('shows the 준비 중 notice while a completed document is still generating its PDF', () => {
+    expect(
+      completionArtifactState({ hasDownload: true, documentReady: false, documentCompleted: true }),
+    ).toBe('processing');
+  });
+
+  it('shows neither when the document is not yet complete (others pending)', () => {
+    expect(
+      completionArtifactState({ hasDownload: true, documentReady: false, documentCompleted: false }),
+    ).toBe('none');
+  });
+
+  it('shows nothing for a flow without a download (e.g. the share flow)', () => {
+    expect(
+      completionArtifactState({ hasDownload: false, documentReady: true, documentCompleted: true }),
+    ).toBe('none');
+  });
+});
+
+describe('completion copy (M-7 요약 카드 라벨 + 준비중 안내)', () => {
+  it('labels each summary fact row', () => {
+    expect(SIGNER_COPY.done.contractDateLabel).toBe('계약 날짜');
+    expect(SIGNER_COPY.done.contractAmountLabel).toBe('계약 금액');
+    expect(SIGNER_COPY.done.signedAtLabel).toBe('서명 완료 시각');
+  });
+
+  it('provides a 계약서 준비 중 notice for the in-progress artifact state', () => {
+    expect(SIGNER_COPY.done.processing).toContain('준비 중');
   });
 });

@@ -27,10 +27,24 @@ import { createPortal } from 'react-dom';
 import { Confetti, SuccessCheck } from '@repo/ui';
 import { brandStyle } from '@/lib/branding';
 import { CompletionDownload } from '@/components/completion-download';
+import {
+  completionArtifactState,
+  completionSummaryRows,
+  type CompletionSummaryRowKey,
+} from '@/lib/signing';
 import { useFill } from './fill-context';
 
 export function CompletionScreen() {
-  const { brandColor, documentTitle, payload, documentCompleted, copy, download } = useFill();
+  const {
+    brandColor,
+    documentTitle,
+    payload,
+    documentCompleted,
+    documentReady,
+    summary,
+    copy,
+    download,
+  } = useFill();
   const done = copy.done;
 
   // Portals need the DOM; gate on mount so SSR/first paint stays clean.
@@ -40,6 +54,21 @@ export function CompletionScreen() {
 
   const title = payload?.documentTitle ?? documentTitle;
   const nextStep = documentCompleted ? done.nextAllDone : done.nextWaiting;
+
+  // Real-value summary rows (계약 날짜·금액·서명 완료 시각), empty rows omitted.
+  const factRows = summary ? completionSummaryRows(summary) : [];
+  const rowLabels: Record<CompletionSummaryRowKey, string | undefined> = {
+    contractDate: done.contractDateLabel,
+    contractAmount: done.contractAmountLabel,
+    signedAt: done.signedAtLabel,
+  };
+
+  // 준비 완료 → 다운로드 버튼 / 처리 중 → 계약서 준비 중 안내 / 그 외 → 없음.
+  const artifactState = completionArtifactState({
+    hasDownload: !!download,
+    documentReady: documentReady ?? false,
+    documentCompleted,
+  });
 
   return createPortal(
     <div
@@ -63,20 +92,36 @@ export function CompletionScreen() {
         <h1 className="text-2xl font-bold text-foreground">{done.title}</h1>
         <p className="text-base text-foreground-subtle">{done.body}</p>
 
-        <div className="mt-xs w-full rounded-md border border-border bg-surface-muted px-md py-sm text-left">
-          <p className="text-2xs font-medium text-foreground-subtle">{done.documentLabel}</p>
-          <p className="mt-2xs truncate text-sm font-semibold text-foreground">{title}</p>
-        </div>
+        <dl className="mt-xs w-full rounded-md border border-border bg-surface-muted px-md py-sm text-left">
+          <div>
+            <dt className="text-2xs font-medium text-foreground-subtle">{done.documentLabel}</dt>
+            <dd className="mt-2xs truncate text-sm font-semibold text-foreground">{title}</dd>
+          </div>
+          {factRows.map((row) => {
+            const label = rowLabels[row.key];
+            if (!label) return null;
+            return (
+              <div key={row.key} className="mt-sm">
+                <dt className="text-2xs font-medium text-foreground-subtle">{label}</dt>
+                <dd className="mt-2xs text-sm font-semibold text-foreground">{row.value}</dd>
+              </div>
+            );
+          })}
+        </dl>
 
         <p className="mt-xs text-sm text-foreground-subtle">{nextStep}</p>
 
-        {download && documentCompleted ? (
+        {artifactState === 'download' && download ? (
           <CompletionDownload
             className="mt-xs w-full rounded-md border border-border bg-surface px-md py-md"
             ready
             showBadge={false}
             onDownload={(kind) => download.onDownload(kind)}
           />
+        ) : artifactState === 'processing' && done.processing ? (
+          <p className="mt-xs w-full rounded-md border border-border bg-surface px-md py-md text-sm text-foreground-subtle">
+            {done.processing}
+          </p>
         ) : null}
       </div>
     </div>,

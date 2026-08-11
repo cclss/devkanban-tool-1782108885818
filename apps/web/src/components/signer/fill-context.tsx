@@ -120,6 +120,34 @@ export interface DoneCopy {
   nextAllDone: string;
   /** Next-step note when other participants are still pending. */
   nextWaiting: string;
+  /**
+   * Summary-card row labels for the derived contract facts (spec §6). Optional so
+   * a flow that surfaces no facts (the share flow) can omit them; a row renders
+   * only when both its label and its value are present.
+   */
+  contractDateLabel?: string;
+  contractAmountLabel?: string;
+  signedAtLabel?: string;
+  /**
+   * "계약서 준비 중" notice shown when the whole document is complete but the
+   * final signed PDF is still being generated (no download yet). Optional — only
+   * flows that offer a download (the OTP signer flow) provide it.
+   */
+  processing?: string;
+}
+
+/**
+ * The completion summary's derived contract facts (spec §6), projected from the
+ * finalize result (or, on re-entry, the signed meta). Each is null when the
+ * server could not derive it ("추출 가능한 경우"); the screen omits empty rows.
+ */
+export interface FillCompletionSummary {
+  /** ISO-8601 서명 완료 시각 — the screen formats it to ko-KR/KST. */
+  signedAt: string | null;
+  /** 계약 날짜 raw figure, or null when not extractable. */
+  contractDate: string | null;
+  /** 계약 금액 raw figure, or null when not extractable. */
+  contractAmount: string | null;
 }
 
 /** Optional completed-artifact download (OTP only; the share flow omits it). */
@@ -146,6 +174,20 @@ export interface FillContextValue {
   activeFieldId: string | null;
   /** True once finalize reports the whole document is complete. */
   documentCompleted: boolean;
+  /**
+   * True once the final signed PDF is generated and downloadable (document
+   * COMPLETED + artifact stored). Gates the completion screen's "다운로드" button
+   * vs the "계약서 준비 중" notice. Absent/false right after finalize (the PDF is
+   * still being produced); the re-entry projection sets it true once ready. Only
+   * flows with a download (the OTP signer flow) provide it.
+   */
+  documentReady?: boolean;
+  /**
+   * Derived contract facts (계약 날짜·금액·서명 완료 시각) for the completion
+   * summary card (spec §6). Absent for flows that surface no facts (the share
+   * flow); present once the OTP signer flow finalizes.
+   */
+  summary?: FillCompletionSummary;
   /** Absolute URL of the session-guarded PDF byte stream. */
   pdfUrl: string;
   /**

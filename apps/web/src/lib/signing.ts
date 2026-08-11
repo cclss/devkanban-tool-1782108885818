@@ -23,7 +23,10 @@ import {
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
-import type { FillFieldValue } from '@/components/signer/fill-context';
+import type {
+  FillCompletionSummary,
+  FillFieldValue,
+} from '@/components/signer/fill-context';
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -185,6 +188,84 @@ export function signProgress(total: number, done: number): SignProgress {
   };
 }
 
+// --- completion summary (spec §6: 요약 카드 실제 값 + 다운로드/준비중) ---------
+
+/**
+ * Format an ISO instant as the completion card's 서명 완료 시각 in Korean, pinned
+ * to KST regardless of the viewer's device timezone (a signed timestamp is a
+ * legal fact — it must read the same everywhere). Uses `Intl.DateTimeFormat`
+ * ('ko-KR', Asia/Seoul) → e.g. "2026년 8월 11일 오후 2:30". Returns an empty
+ * string for an absent/unparseable input so the row is simply omitted. Pure.
+ */
+export function formatSignedAt(iso: string | null): string {
+  if (!iso) return '';
+  const ms = Date.parse(iso);
+  if (Number.isNaN(ms)) return '';
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    year: 'numeric',
+    month: 'long',
+    day: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  }).format(new Date(ms));
+}
+
+/** The ordered summary-card fact rows the completion screen may render. */
+export type CompletionSummaryRowKey = 'contractDate' | 'contractAmount' | 'signedAt';
+
+/** One rendered summary row: a stable key (→ label lookup) + its display value. */
+export interface CompletionSummaryRow {
+  key: CompletionSummaryRowKey;
+  /** The display string — raw figure for date/amount, formatted for signedAt. */
+  value: string;
+}
+
+/**
+ * Build the completion summary's fact rows in reading order (날짜 → 금액 →
+ * 서명시각), omitting any whose value is absent/blank so the card shows only real
+ * values (spec §6 "추출 가능한 경우" / 값 없는 행 생략). The signedAt is formatted
+ * to ko-KR/KST via {@link formatSignedAt}; the raw date/amount figures pass
+ * through verbatim (they are already human-readable Korean substrings). Pure so
+ * the omission rules stay unit-testable independent of rendering.
+ */
+export function completionSummaryRows(
+  summary: FillCompletionSummary,
+): CompletionSummaryRow[] {
+  const rows: CompletionSummaryRow[] = [];
+  const date = summary.contractDate?.trim();
+  if (date) rows.push({ key: 'contractDate', value: date });
+  const amount = summary.contractAmount?.trim();
+  if (amount) rows.push({ key: 'contractAmount', value: amount });
+  const signedAt = formatSignedAt(summary.signedAt);
+  if (signedAt) rows.push({ key: 'signedAt', value: signedAt });
+  return rows;
+}
+
+/** Which artifact affordance the completion screen shows in its download area. */
+export type CompletionArtifactState = 'download' | 'processing' | 'none';
+
+/**
+ * Decide the completion screen's download-area affordance (spec §6): the
+ * "서명된 계약서 다운로드" button once the final PDF is ready, the "계약서 준비 중"
+ * notice while the completed document's PDF is still being generated, or nothing
+ * when there is no download to offer (a flow without an artifact, or a document
+ * not yet complete — other signers still pending). Pure.
+ */
+export function completionArtifactState(input: {
+  /** The flow offers a completed-artifact download (OTP only). */
+  hasDownload: boolean;
+  /** The final signed PDF is generated and downloadable. */
+  documentReady: boolean;
+  /** Every signer has finished — the document as a whole is complete. */
+  documentCompleted: boolean;
+}): CompletionArtifactState {
+  if (!input.hasDownload) return 'none';
+  if (input.documentReady) return 'download';
+  if (input.documentCompleted) return 'processing';
+  return 'none';
+}
+
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
 
 /**
@@ -271,6 +352,12 @@ export const SIGNER_COPY = {
     body: '작성하신 서명이 안전하게 전달됐어요.',
     /** Calm post-summary: which document was signed. */
     documentLabel: '서명한 문서',
+    /** Summary-card fact row labels (계약 날짜·금액·서명 완료 시각). */
+    contractDateLabel: '계약 날짜',
+    contractAmountLabel: '계약 금액',
+    signedAtLabel: '서명 완료 시각',
+    /** Shown while the final signed PDF is still being generated (no download yet). */
+    processing: '계약서 준비 중입니다. 최종 계약서가 준비되면 이메일로 안내드릴게요.',
     /** What happens next, by whether the whole document is now complete. */
     nextAllDone: '모든 서명이 끝났어요. 완료된 계약서를 메일로 보내 드릴게요.',
     nextWaiting: '다른 분들의 서명이 끝나면 완료된 계약서를 메일로 보내 드릴게요.',
@@ -397,6 +484,12 @@ export interface CompleteResult {
   /** True when this was the last outstanding signer — the whole doc is now done. */
   documentCompleted: boolean;
   message: string;
+  /** ISO-8601 서명 완료 시각 for the completion summary card (spec §6). */
+  signedAt: string;
+  /** 계약 날짜 derived from clause figures, or null when not extractable. */
+  contractDate: string | null;
+  /** 계약 금액 derived from clause figures, or null when not extractable. */
+  contractAmount: string | null;
 }
 
 /**
