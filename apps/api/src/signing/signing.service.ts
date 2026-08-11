@@ -196,16 +196,23 @@ export class SigningService {
       documentTitle: signRequest.document.title,
       pageCount: signRequest.document.pageCount,
       pdfPath: `/api/signing/${signRequest.accessToken}/pdf`,
-      fields: signRequest.signFields.map((f) => ({
-        id: f.id,
-        type: f.type,
-        page: f.page,
-        x: f.x,
-        y: f.y,
-        width: f.width,
-        height: f.height,
-        filled: f.value != null && f.value.length > 0,
-      })),
+      fields: signRequest.signFields.map((f) => {
+        const filled = f.value != null && f.value.length > 0;
+        return {
+          id: f.id,
+          type: f.type,
+          page: f.page,
+          x: f.x,
+          y: f.y,
+          width: f.width,
+          height: f.height,
+          filled,
+          // Session re-entry restore (spec §5 / M-6): the actual stored value
+          // (SIGNATURE dataURL / ISO date / TEXT original), or null when unfilled —
+          // so the frontend can render the real value instead of a placeholder.
+          value: filled ? f.value : null,
+        };
+      }),
       clauses,
     };
   }
@@ -552,6 +559,12 @@ export interface SigningPayloadField {
   width: number;
   height: number;
   filled: boolean;
+  /**
+   * The field's actual stored value for session re-entry restore (spec §5 / M-6):
+   * a SIGNATURE dataURL, an ISO date string, or the TEXT original — or `null`
+   * when the field has not been filled yet.
+   */
+  value: string | null;
 }
 
 export interface SigningPayload {
