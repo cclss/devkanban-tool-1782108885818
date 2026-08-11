@@ -10,8 +10,10 @@
 
 import { ApiError } from './api';
 import {
+  deserializeFieldValue,
   entryPhaseAfterVerify,
   isSessionExpiredError,
+  serializeFieldValue,
   signProgress,
   visibleClauseCards,
   MAX_CLAUSE_CARDS,
@@ -145,5 +147,59 @@ describe('document viewer CTA copy', () => {
   it('labels the next-field jump and the finalize action per the M-5 spec', () => {
     expect(SIGNER_COPY.viewerCtaContinue).toBe('다음 서명란으로 이동');
     expect(SIGNER_COPY.viewerCtaComplete).toBe('서명 완료하기');
+  });
+});
+
+describe('deserializeFieldValue (M-6 session restore)', () => {
+  it('restores a SIGNATURE data URL verbatim', () => {
+    const dataUrl = 'data:image/png;base64,AAAA';
+    expect(deserializeFieldValue('SIGNATURE', dataUrl)).toEqual({
+      type: 'SIGNATURE',
+      dataUrl,
+    });
+  });
+
+  it('restores a DATE value as its ISO text', () => {
+    expect(deserializeFieldValue('DATE', '2026-08-11')).toEqual({
+      type: 'DATE',
+      text: '2026-08-11',
+    });
+  });
+
+  it('restores a TEXT value as its text (font is not recoverable)', () => {
+    expect(deserializeFieldValue('TEXT', '홍길동')).toEqual({
+      type: 'TEXT',
+      text: '홍길동',
+    });
+  });
+
+  it('returns null for an unfilled field (null value)', () => {
+    expect(deserializeFieldValue('SIGNATURE', null)).toBeNull();
+    expect(deserializeFieldValue('TEXT', null)).toBeNull();
+    expect(deserializeFieldValue('DATE', null)).toBeNull();
+  });
+
+  it('returns null for an empty / whitespace-only value', () => {
+    expect(deserializeFieldValue('SIGNATURE', '')).toBeNull();
+    expect(deserializeFieldValue('TEXT', '   ')).toBeNull();
+    expect(deserializeFieldValue('DATE', '')).toBeNull();
+  });
+
+  it('trims surrounding whitespace on TEXT / DATE values', () => {
+    expect(deserializeFieldValue('TEXT', '  홍길동  ')).toEqual({
+      type: 'TEXT',
+      text: '홍길동',
+    });
+  });
+
+  it('is the inverse of serializeFieldValue for each field type', () => {
+    const dataUrl = 'data:image/png;base64,BBBB';
+    expect(
+      serializeFieldValue(deserializeFieldValue('SIGNATURE', dataUrl)!),
+    ).toBe(dataUrl);
+    expect(serializeFieldValue(deserializeFieldValue('TEXT', '값')!)).toBe('값');
+    expect(
+      serializeFieldValue(deserializeFieldValue('DATE', '2026-08-11')!),
+    ).toBe('2026-08-11');
   });
 });

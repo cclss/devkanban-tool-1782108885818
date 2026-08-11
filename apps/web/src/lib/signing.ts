@@ -23,6 +23,7 @@ import {
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
+import type { FillFieldValue } from '@/components/signer/fill-context';
 
 // --- shared status unions (mirror the Prisma enums; web stays server-free) ---
 
@@ -69,6 +70,14 @@ export interface SigningPayloadField {
   width: number;
   height: number;
   filled: boolean;
+  /**
+   * The field's stored value on a resumed session — a SIGNATURE PNG data URL, an
+   * ISO `YYYY-MM-DD` date, or the original TEXT — mirroring the server's projected
+   * value (`SigningService.payload`). `null` when the field is unfilled. The
+   * client deserializes it via {@link deserializeFieldValue} to render the real
+   * value inline (not the "작성됨" placeholder) after a re-verify (spec §5 / M-6).
+   */
+  value: string | null;
 }
 
 // --- 핵심 조항 카드 (mirror the server's ExtractedClause contract) -----------
@@ -440,4 +449,26 @@ export function serializeFieldValue(value: {
   if (value.type === 'SIGNATURE') return value.dataUrl ?? null;
   const text = value.text?.trim();
   return text ? text : null;
+}
+
+/**
+ * Rehydrate a server-persisted field value string back into the client's
+ * {@link FillFieldValue} — the inverse of {@link serializeFieldValue}. Used to
+ * restore a resumed session so the viewer shows the real value inline instead of
+ * the "작성됨" placeholder (spec §5 / M-6). Returns `null` for an absent or empty
+ * value (nothing to restore — the field stays unfilled).
+ *
+ * The chosen signature font (`fontFamily`) is *not* recoverable — the server
+ * stores only the value string — so a restored TEXT renders in the default face;
+ * the value itself (the legally meaningful content) is preserved exactly.
+ */
+export function deserializeFieldValue(
+  type: SignFieldType,
+  value: string | null,
+): FillFieldValue | null {
+  if (value == null) return null;
+  if (type === 'SIGNATURE') return value ? { type: 'SIGNATURE', dataUrl: value } : null;
+  const text = value.trim();
+  if (!text) return null;
+  return type === 'DATE' ? { type: 'DATE', text } : { type: 'TEXT', text };
 }

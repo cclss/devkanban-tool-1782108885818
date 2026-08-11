@@ -28,6 +28,7 @@ import { ApiError } from '@/lib/api';
 import {
   clearSignerSession,
   completeSigning,
+  deserializeFieldValue,
   downloadSignerArtifact,
   entryPhaseAfterVerify,
   fetchMeta,
@@ -42,6 +43,7 @@ import {
   SIGNER_COPY,
   type SigningMeta,
   type SigningPayload,
+  type SigningPayloadField,
 } from '@/lib/signing';
 import {
   FillProvider,
@@ -132,10 +134,13 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
     case 'VERIFIED':
       // Route to the 핵심 조항 카드 화면 when the payload carries clauses; a
       // 0-card payload falls straight through to the viewer (no error screen).
+      // Restore any server-persisted field values so a resumed session (or a
+      // post-REAUTH re-verify) renders the real value inline, not a placeholder.
       return {
         ...state,
         phase: entryPhaseAfterVerify(action.payload),
         payload: action.payload,
+        fieldValues: hydrateFieldValues(action.payload.fields),
         targetPage: null,
       };
     case 'GO_VIEWING':
@@ -189,6 +194,25 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
     default:
       return state;
   }
+}
+
+/**
+ * Rehydrate the `fieldValues` map from a freshly-fetched payload so a resumed
+ * session renders each already-filled field's real value inline — not the
+ * "작성됨" placeholder — right after verify / re-verify (spec §5 / M-6). Fields
+ * the server reports as unfilled (`value === null`, or an empty/whitespace value)
+ * are simply omitted, so they stay in their pulse "여기에 …" affordance. Pure so
+ * the restore stays deterministic and driven only by the payload.
+ */
+function hydrateFieldValues(
+  fields: SigningPayloadField[],
+): Record<string, SignerFieldValue> {
+  const values: Record<string, SignerFieldValue> = {};
+  for (const field of fields) {
+    const restored = deserializeFieldValue(field.type, field.value);
+    if (restored) values[field.id] = restored;
+  }
+  return values;
 }
 
 /** Map a resolved meta onto the right entry phase. */
