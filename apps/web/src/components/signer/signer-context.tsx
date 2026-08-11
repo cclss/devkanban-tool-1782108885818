@@ -273,6 +273,19 @@ export function SignerProvider({
 
   const reauth = React.useCallback(() => dispatch({ type: 'REAUTH' }), []);
 
+  // The reading path (PDF stream) 401s or has no session: project it through the
+  // same `guardExpiry` contract as save/complete so the tone is identical — clear
+  // the dead session and dispatch `EXPIRE` with the mirrored expiry copy. The
+  // 401 is synthesized here because the fetch already happened in the viewer.
+  const onSessionExpired = React.useCallback(() => {
+    void guardExpiry(async () => {
+      throw new ApiError(SIGNER_COPY.sessionExpired, 401);
+    }).catch(() => {
+      // guardExpiry has already routed to the re-auth notice; the re-throw is
+      // expected and carries no further action for the reading path.
+    });
+  }, [guardExpiry]);
+
   const complete = React.useCallback(
     () =>
       guardExpiry(async () => {
@@ -342,11 +355,12 @@ export function SignerProvider({
       setFieldValue,
       complete,
       copy: SIGNER_FILL_COPY,
+      onSessionExpired,
       download: {
         onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
       },
     };
-  }, [state, token, persistFields, openField, closeField, setFieldValue, complete]);
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, onSessionExpired]);
 
   return (
     <SignerContext.Provider value={value}>

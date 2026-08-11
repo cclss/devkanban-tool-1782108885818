@@ -39,10 +39,31 @@ async function getPdfjs(): Promise<PdfjsModule> {
 
 /** Raised when a file can't be parsed as a PDF (corrupt / not a real PDF). */
 export class PdfRenderError extends Error {
-  constructor(message = 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.') {
+  /**
+   * The HTTP status of the failed fetch, when the error came from a URL load
+   * (`loadPdfFromUrl`). Present so the signer viewer can tell a lapsed session
+   * (401) apart from a genuine corrupt/parse failure and route to re-auth rather
+   * than showing the generic load error. Absent for File/byte parse failures.
+   */
+  readonly status?: number;
+  constructor(
+    message = 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
+    status?: number,
+  ) {
     super(message);
     this.name = 'PdfRenderError';
+    this.status = status;
   }
+}
+
+/**
+ * True when a PDF load failed because the session-guarded stream returned 401 —
+ * the ~30-minute signer session lapsed (or was never present). Pure so the
+ * viewer's re-auth routing decision stays unit-testable, mirroring
+ * `isSessionExpiredError` for the JSON (save/complete) paths.
+ */
+export function isPdfSessionExpired(error: unknown): boolean {
+  return error instanceof PdfRenderError && error.status === 401;
 }
 
 /**
@@ -92,7 +113,9 @@ export async function loadPdfFromUrl(
   } catch {
     throw new PdfRenderError();
   }
-  if (!res.ok) throw new PdfRenderError();
+  // Carry the HTTP status so a session-guarded 401 can be told apart from a
+  // corrupt/parse failure (the signer viewer routes 401 to re-auth).
+  if (!res.ok) throw new PdfRenderError(undefined, res.status);
   return loadPdfFromData(await res.arrayBuffer());
 }
 

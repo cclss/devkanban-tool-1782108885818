@@ -28,6 +28,7 @@ import {
   loadPdfFromUrl,
   renderPageToCanvas,
   isRenderCancelled,
+  isPdfSessionExpired,
   PdfRenderError,
   type PdfDocument,
 } from '@/lib/pdf';
@@ -72,6 +73,7 @@ export function DocumentViewer() {
     openField,
     complete,
     copy,
+    onSessionExpired,
   } = useFill();
 
   // Finalize state for the bottom CTA. A failed `complete` keeps every captured
@@ -90,6 +92,14 @@ export function DocumentViewer() {
   // Open the streamed PDF once per session; dispose on unmount.
   React.useEffect(() => {
     if (!session) {
+      // No stored session: the ~30-minute signer session lapsed (or the tab lost
+      // it). For a flow with a re-auth path (OTP), route to the same re-auth
+      // notice as the save/complete paths instead of a dead-end load error;
+      // otherwise (share flow) fall back to the generic load error.
+      if (onSessionExpired) {
+        onSessionExpired();
+        return;
+      }
       setStatus('error');
       setError(copy.loadError);
       return;
@@ -113,6 +123,13 @@ export function DocumentViewer() {
       })
       .catch((err: unknown) => {
         if (disposed) return;
+        // A 401 from the guarded PDF stream means the session lapsed: route to the
+        // same re-auth notice as the save/complete paths rather than the generic
+        // load error. Any other failure stays a plain load error.
+        if (onSessionExpired && isPdfSessionExpired(err)) {
+          onSessionExpired();
+          return;
+        }
         setError(err instanceof PdfRenderError ? err.message : copy.loadError);
         setStatus('error');
       });
@@ -120,7 +137,7 @@ export function DocumentViewer() {
       disposed = true;
       void opened?.destroy();
     };
-  }, [pdfUrl, session, copy.loadError]);
+  }, [pdfUrl, session, copy.loadError, onSessionExpired]);
 
   // Measure the page column so each page rasterizes exactly fit-to-width.
   const pagesRef = React.useRef<HTMLDivElement>(null);

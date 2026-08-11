@@ -152,6 +152,14 @@ export interface FillContextValue {
   copy: FillCopy;
   /** Present ⇒ the completion screen shows a download area (OTP only). */
   download?: FillDownload;
+  /**
+   * Route a session-expired (401) reading-path failure — the guarded PDF stream
+   * 401s, or no session is stored — to this flow's re-auth notice, matching the
+   * save/complete paths. Present only for flows with a re-auth path (the OTP
+   * signer flow); the share flow omits it and the viewer falls back to the
+   * generic load error.
+   */
+  onSessionExpired?: () => void;
 }
 
 const FillContext = React.createContext<FillContextValue | null>(null);
