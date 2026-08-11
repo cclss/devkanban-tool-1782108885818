@@ -69,6 +69,18 @@ export class SigningService {
     if (!signRequest) throw new NotFoundException(MESSAGES.signing.invalidLink);
 
     const { document } = signRequest;
+    const alreadySigned = signRequest.status === SignRequestStatus.SIGNED;
+
+    // Re-entry projection (spec §6): once signed, the landing screen shows the
+    // completion summary instead of the sign flow. `documentReady` gates the
+    // "서명된 계약서 다운로드" button (COMPLETED + final PDF stored) vs the
+    // "계약서 준비 중" notice. The contract facts are derived only after signing —
+    // both to bound the pre-auth PDF read to the re-entry case and to avoid
+    // exposing 계약 금액 before verification.
+    const facts = alreadySigned
+      ? deriveContractFacts(await this.extractClauses(document.storageKey))
+      : EMPTY_CONTRACT_FACTS;
+
     return {
       documentTitle: document.title,
       pageCount: document.pageCount,
@@ -80,8 +92,13 @@ export class SigningService {
       },
       recipientNameMasked: maskName(signRequest.recipientName),
       status: signRequest.status,
-      alreadySigned: signRequest.status === SignRequestStatus.SIGNED,
+      alreadySigned,
       signable: this.isSignable(document.status, signRequest.status),
+      signedAt: signRequest.signedAt ? signRequest.signedAt.toISOString() : null,
+      contractDate: facts.contractDate,
+      contractAmount: facts.contractAmount,
+      documentReady:
+        document.status === DocumentStatus.COMPLETED && !!document.signedStorageKey,
     };
   }
 
@@ -362,7 +379,7 @@ export class SigningService {
         id: true,
         status: true,
         documentId: true,
-        document: { select: { status: true } },
+        document: { select: { status: true, storageKey: true } },
         signFields: { select: { id: true, value: true } },
       },
     });
@@ -381,10 +398,14 @@ export class SigningService {
       throw new BadRequestException(MESSAGES.signing.fieldsIncomplete);
     }
 
+    // The moment this signer finishes — surfaced on the completion screen as the
+    // "서명 완료 시각" and reused verbatim for the re-entry projection (spec §6).
+    const signedAt = new Date();
+
     const documentCompleted = await this.prisma.$transaction(async (tx) => {
       await tx.signRequest.update({
         where: { id: signRequest.id },
-        data: { status: SignRequestStatus.SIGNED, signedAt: new Date() },
+        data: { status: SignRequestStatus.SIGNED, signedAt },
       });
       await tx.auditLog.create({
         data: {
@@ -424,10 +445,22 @@ export class SigningService {
       await this.completionQueue.enqueue(signRequest.documentId);
     }
 
+    // Contract headline facts (계약 날짜·금액) for the completion summary card,
+    // derived purely from the same on-demand clause extraction used for the
+    // pre-read cards. Never fatal: a corrupt/image-only PDF or storage hiccup
+    // degrades `extractClauses` to `[]`, and both facts fall back to null
+    // (spec §6: "추출 가능한 경우").
+    const facts = deriveContractFacts(
+      await this.extractClauses(signRequest.document.storageKey),
+    );
+
     return {
       status: SignRequestStatus.SIGNED,
       documentCompleted,
       message: MESSAGES.signing.completed,
+      signedAt: signedAt.toISOString(),
+      contractDate: facts.contractDate,
+      contractAmount: facts.contractAmount,
     };
   }
 
@@ -528,6 +561,45 @@ function normalizeFieldValue(type: SignFieldType, value: string): string {
   return type === SignFieldType.SIGNATURE ? value : value.trim();
 }
 
+/** Headline contract facts derived from the extracted clause cards. */
+export interface ContractFacts {
+  /** First `date` figure in reading order, or null when none was extracted. */
+  contractDate: string | null;
+  /** First `money` figure in reading order, or null when none was extracted. */
+  contractAmount: string | null;
+}
+
+/** Neutral facts for the pre-signed (or fact-less) case — avoids re-allocating. */
+const EMPTY_CONTRACT_FACTS: ContractFacts = {
+  contractDate: null,
+  contractAmount: null,
+};
+
+/**
+ * Pure derivation of the completion summary's 계약 날짜·금액 from the already
+ * extracted "핵심 조항" cards: the first `date` figure becomes `contractDate`,
+ * the first `money` figure becomes `contractAmount`, both scanned in reading
+ * order across the cards (which are themselves ordered by document flow). A kind
+ * that never appears stays null — matching the spec's "추출 가능한 경우" caveat.
+ *
+ * No IO, no clock: deterministic over its input so it unit-tests in isolation.
+ */
+export function deriveContractFacts(clauses: ExtractedClause[]): ContractFacts {
+  let contractDate: string | null = null;
+  let contractAmount: string | null = null;
+  for (const clause of clauses) {
+    for (const figure of clause.figures) {
+      if (contractDate === null && figure.kind === 'date') {
+        contractDate = figure.value;
+      } else if (contractAmount === null && figure.kind === 'money') {
+        contractAmount = figure.value;
+      }
+    }
+    if (contractDate !== null && contractAmount !== null) break;
+  }
+  return { contractDate, contractAmount };
+}
+
 // --- response shapes -------------------------------------------------------
 
 export interface SigningMeta {
@@ -543,6 +615,20 @@ export interface SigningMeta {
   status: SignRequestStatus;
   alreadySigned: boolean;
   signable: boolean;
+  /**
+   * Re-entry facts (spec §6) — populated once the request is SIGNED, else null/false:
+   */
+  /** ISO-8601 서명 완료 시각, or null before this signer has signed. */
+  signedAt: string | null;
+  /** 계약 날짜 derived from clause figures, or null when not extractable. */
+  contractDate: string | null;
+  /** 계약 금액 derived from clause figures, or null when not extractable. */
+  contractAmount: string | null;
+  /**
+   * `true` when the signed final PDF is ready to download (document COMPLETED
+   * and `signedStorageKey` stored) → gates "다운로드" vs "계약서 준비 중".
+   */
+  documentReady: boolean;
 }
 
 export interface VerifyResult {
@@ -584,4 +670,10 @@ export interface CompleteResult {
   status: SignRequestStatus;
   documentCompleted: boolean;
   message: string;
+  /** ISO-8601 서명 완료 시각 for the completion summary card. */
+  signedAt: string;
+  /** 계약 날짜 derived from clause figures, or null when not extractable. */
+  contractDate: string | null;
+  /** 계약 금액 derived from clause figures, or null when not extractable. */
+  contractAmount: string | null;
 }
