@@ -23,7 +23,7 @@ import * as React from 'react';
 import { Button, Skeleton, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { brandStyle } from '@/lib/branding';
-import type { SignFieldType } from '@/lib/signing';
+import { signProgress, type SignFieldType } from '@/lib/signing';
 import {
   loadPdfFromUrl,
   renderPageToCanvas,
@@ -181,6 +181,9 @@ export function DocumentViewer() {
   );
   const remaining = orderedUnfilled.length;
   const total = fields.length;
+  const done = total - remaining;
+  // Pure progress math for the bottom bar (fill width + aria value + CTA state).
+  const prog = signProgress(total, done);
 
   const scrollToField = React.useCallback((id: string) => {
     document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
@@ -305,6 +308,30 @@ export function DocumentViewer() {
         style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
       >
         <div className="mx-auto w-full max-w-[480px] px-lg py-md">
+          {total > 0 ? (
+            // Visual signing progress: a CSS-only bar (brand-tinted fill over a
+            // grey track, width animated) plus a compact "N / M …완료" count.
+            // The bar and its count sit above the CTA so the recipient sees how
+            // much is left before the action itself.
+            <div className="mb-sm">
+              <div
+                role="progressbar"
+                aria-valuenow={done}
+                aria-valuemin={0}
+                aria-valuemax={total}
+                aria-valuetext={copy.progressCount(total, done)}
+                className="h-xs w-full overflow-hidden rounded-full bg-grey-200"
+              >
+                <div
+                  className="h-full rounded-full bg-primary transition-[width] duration-base ease-standard"
+                  style={{ width: `${prog.ratio * 100}%` }}
+                />
+              </div>
+              <p className="mt-2xs text-center text-xs font-bold text-foreground-subtle">
+                {copy.progressCount(total, done)}
+              </p>
+            </div>
+          ) : null}
           {completeError ? (
             <p
               role="alert"
@@ -315,7 +342,7 @@ export function DocumentViewer() {
             </p>
           ) : null}
           <Button fullWidth size="lg" onClick={onCta} isLoading={completing}>
-            {remaining > 0 ? copy.ctaContinue : copy.ctaComplete}
+            {prog.complete ? copy.ctaComplete : copy.ctaContinue}
           </Button>
         </div>
       </div>

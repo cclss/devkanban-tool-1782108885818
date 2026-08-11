@@ -74,6 +74,12 @@ export interface FillCopy {
   pageError: (pageNumber: number) => string;
   /** Progress line, by total + completed counts. */
   progress: (total: number, done: number) => string;
+  /**
+   * Compact count line beside the bottom progress bar, by total + completed
+   * counts (e.g. "2 / 4 서명 완료"). Distinct from {@link progress}: this is the
+   * short fraction the bar annotates, not the full sentence under the title.
+   */
+  progressCount: (total: number, done: number) => string;
   /** Progress line when there are no fields to fill. */
   progressNone: string;
   /** Progress line when every field is done. */

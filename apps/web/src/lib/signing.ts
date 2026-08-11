@@ -140,6 +140,42 @@ export function visibleClauseCards(clauses: ExtractedClause[]): ExtractedClause[
   return clauses.slice(0, MAX_CLAUSE_CARDS);
 }
 
+// --- signing progress (pure math for the viewer's bottom progress bar) --------
+
+/**
+ * The viewer's bottom progress state, derived purely from field counts so the
+ * visual progress bar and its count text stay unit-testable and free of any
+ * flow-specific copy. `ratio` drives both the bar's fill width and its
+ * `aria-valuenow` (as a 0–1 fraction); `label` is a locale-neutral fraction
+ * ("2 / 4") the flow's copy wraps into a sentence; `complete` flips the CTA to
+ * its finalize label.
+ */
+export interface SignProgress {
+  /** Completion fraction in [0, 1] — bar fill width + aria value. */
+  ratio: number;
+  /** Locale-neutral count fraction, e.g. "2 / 4". */
+  label: string;
+  /** True once every field is done (also true when there is nothing to fill). */
+  complete: boolean;
+}
+
+/**
+ * Derive the viewer's progress state from the total assigned fields and how many
+ * are done. Inputs are clamped defensively (non-negative integers, `done` never
+ * exceeds `total`) so a transient over-count can't drive the bar past 100% or
+ * produce a negative width. An empty field set (`total === 0`) reads as complete
+ * with a full ratio — there is nothing left to fill. Pure so it stays testable.
+ */
+export function signProgress(total: number, done: number): SignProgress {
+  const safeTotal = Math.max(0, Math.trunc(total));
+  const safeDone = Math.min(Math.max(0, Math.trunc(done)), safeTotal);
+  return {
+    ratio: safeTotal === 0 ? 1 : safeDone / safeTotal,
+    label: `${safeDone} / ${safeTotal}`,
+    complete: safeDone >= safeTotal,
+  };
+}
+
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
 
 /**
@@ -185,8 +221,8 @@ export const SIGNER_COPY = {
     },
   },
   // Document viewer chrome (mirrors the same Toss voice).
-  viewerCtaContinue: '서명하기',
-  viewerCtaComplete: '서명 완료',
+  viewerCtaContinue: '다음 서명란으로 이동',
+  viewerCtaComplete: '서명 완료하기',
   viewerLoadError: '문서를 불러올 수 없어요. 잠시 후 다시 시도해 주세요.',
   /** Back affordance that collapses the original and returns to the clause cards. */
   viewerCollapse: '접기',

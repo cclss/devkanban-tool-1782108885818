@@ -12,6 +12,7 @@ import { ApiError } from './api';
 import {
   entryPhaseAfterVerify,
   isSessionExpiredError,
+  signProgress,
   visibleClauseCards,
   MAX_CLAUSE_CARDS,
   SIGNER_COPY,
@@ -107,5 +108,42 @@ describe('collapse (접기) availability', () => {
 
   it('labels the back affordance "접기"', () => {
     expect(SIGNER_COPY.viewerCollapse).toBe('접기');
+  });
+});
+
+describe('signProgress', () => {
+  it('derives ratio, fraction label, and incompleteness mid-progress', () => {
+    expect(signProgress(4, 2)).toEqual({ ratio: 0.5, label: '2 / 4', complete: false });
+  });
+
+  it('is incomplete with a zero ratio when nothing is done yet', () => {
+    expect(signProgress(3, 0)).toEqual({ ratio: 0, label: '0 / 3', complete: false });
+  });
+
+  it('is complete with a full ratio once every field is done', () => {
+    expect(signProgress(4, 4)).toEqual({ ratio: 1, label: '4 / 4', complete: true });
+  });
+
+  it('treats an empty field set as complete (nothing to fill)', () => {
+    // total 0 must not divide-by-zero — it reads as a full, complete bar.
+    expect(signProgress(0, 0)).toEqual({ ratio: 1, label: '0 / 0', complete: true });
+  });
+
+  it('clamps done into [0, total] so the bar never over/under-fills', () => {
+    // A transient over-count is pinned to total (100%), not past it.
+    expect(signProgress(2, 5)).toEqual({ ratio: 1, label: '2 / 2', complete: true });
+    // A negative count floors at 0.
+    expect(signProgress(4, -1)).toEqual({ ratio: 0, label: '0 / 4', complete: false });
+  });
+
+  it('truncates fractional counts to whole fields', () => {
+    expect(signProgress(4, 2.9)).toEqual({ ratio: 0.5, label: '2 / 4', complete: false });
+  });
+});
+
+describe('document viewer CTA copy', () => {
+  it('labels the next-field jump and the finalize action per the M-5 spec', () => {
+    expect(SIGNER_COPY.viewerCtaContinue).toBe('다음 서명란으로 이동');
+    expect(SIGNER_COPY.viewerCtaComplete).toBe('서명 완료하기');
   });
 });
