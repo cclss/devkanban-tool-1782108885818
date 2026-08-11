@@ -136,6 +136,12 @@ export interface FillContextValue {
   documentCompleted: boolean;
   /** Absolute URL of the session-guarded PDF byte stream. */
   pdfUrl: string;
+  /**
+   * 1-based page the viewer should scroll to once rendered — set when the signer
+   * enters via a clause card's "원문 보기" deep-link. Absent/null ⇒ start at top.
+   * Only the OTP signer flow provides it; the share flow omits it.
+   */
+  initialPage?: number | null;
   /** Read the bearer session token for the guarded PDF / save calls. */
   loadSession: () => string | null;
   /** Persist captured field values to this flow's `fields` endpoint. */

@@ -29,6 +29,7 @@ import {
   clearSignerSession,
   completeSigning,
   downloadSignerArtifact,
+  entryPhaseAfterVerify,
   fetchMeta,
   fetchPayload,
   getSignerSession,
@@ -58,6 +59,7 @@ export type SignerFieldValue = FillFieldValue;
 export type SignerPhase =
   | 'loading'
   | 'verify'
+  | 'cards'
   | 'viewing'
   | 'signing'
   | 'done'
@@ -82,6 +84,11 @@ export interface SignerState {
   documentCompleted: boolean;
   /** The re-auth notice's body when `phase === 'expired'` (server's expiry copy). */
   expiredMessage: string | null;
+  /**
+   * The 1-based page the viewer should scroll to on entry, set when the signer
+   * follows a clause card's "원문 보기" deep-link. `null` = no target (top).
+   */
+  targetPage: number | null;
 }
 
 const initialState: SignerState = {
@@ -93,12 +100,14 @@ const initialState: SignerState = {
   activeFieldId: null,
   documentCompleted: false,
   expiredMessage: null,
+  targetPage: null,
 };
 
 type SignerAction =
   | { type: 'META_OK'; meta: SigningMeta }
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
   | { type: 'VERIFIED'; payload: SigningPayload }
+  | { type: 'GO_VIEWING'; page: number | null }
   | { type: 'GO_SIGNING' }
   | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'EXPIRE'; message: string }
@@ -119,7 +128,18 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         blockReason: action.reason,
       };
     case 'VERIFIED':
-      return { ...state, phase: 'viewing', payload: action.payload };
+      // Route to the 핵심 조항 카드 화면 when the payload carries clauses; a
+      // 0-card payload falls straight through to the viewer (no error screen).
+      return {
+        ...state,
+        phase: entryPhaseAfterVerify(action.payload),
+        payload: action.payload,
+        targetPage: null,
+      };
+    case 'GO_VIEWING':
+      // Leave the card screen for the original — optionally deep-linked to the
+      // page the tapped clause starts on.
+      return { ...state, phase: 'viewing', targetPage: action.page };
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
@@ -134,6 +154,7 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         payload: null,
         fieldValues: {},
         activeFieldId: null,
+        targetPage: null,
       };
     case 'REAUTH':
       // Back to the code entry; a fresh verify re-fetches the payload (with any
@@ -145,6 +166,7 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         payload: null,
         fieldValues: {},
         activeFieldId: null,
+        targetPage: null,
       };
     case 'OPEN_FIELD':
       return { ...state, activeFieldId: action.fieldId };
@@ -179,6 +201,11 @@ interface SignerContextValue {
    * code so the screen can shake + reset without leaving `verify`.
    */
   verify: (code: string) => Promise<void>;
+  /**
+   * Leave the 핵심 조항 카드 화면 for the original document viewer. Pass a
+   * 1-based `page` to deep-link (the viewer scrolls to it); omit for the top.
+   */
+  goViewer: (page?: number) => void;
   /** Advance from the viewer into the signature step (later grains). */
   goSigning: () => void;
   /**
@@ -247,6 +274,11 @@ export function SignerProvider({
     [token],
   );
 
+  const goViewer = React.useCallback(
+    (page?: number) => dispatch({ type: 'GO_VIEWING', page: page ?? null }),
+    [],
+  );
+
   const goSigning = React.useCallback(() => dispatch({ type: 'GO_SIGNING' }), []);
 
   // Any session-guarded call can 401 once the ~30-minute signer session lapses.
@@ -312,8 +344,8 @@ export function SignerProvider({
   );
 
   const value = React.useMemo<SignerContextValue>(
-    () => ({ state, token, verify, goSigning, complete, reauth, openField, closeField, setFieldValue }),
-    [state, token, verify, goSigning, complete, reauth, openField, closeField, setFieldValue],
+    () => ({ state, token, verify, goViewer, goSigning, complete, reauth, openField, closeField, setFieldValue }),
+    [state, token, verify, goViewer, goSigning, complete, reauth, openField, closeField, setFieldValue],
   );
 
   // Persist captured values to the signer's `fields` endpoint. A 401 (or a lost
@@ -348,6 +380,7 @@ export function SignerProvider({
       activeFieldId: state.activeFieldId,
       documentCompleted: state.documentCompleted,
       pdfUrl: signerPdfUrl(token),
+      initialPage: state.targetPage,
       loadSession: () => getSignerSession(token),
       persistFields,
       openField,

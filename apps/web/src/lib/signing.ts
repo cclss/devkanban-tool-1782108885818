@@ -71,11 +71,73 @@ export interface SigningPayloadField {
   filled: boolean;
 }
 
+// --- 핵심 조항 카드 (mirror the server's ExtractedClause contract) -----------
+
+/**
+ * The kind of key figure surfaced on a card — mirrors the server's
+ * `ClauseFigureKind` (`apps/api/src/pdf/clause-extraction.types.ts`).
+ */
+export type ClauseFigureKind = 'money' | 'period' | 'date';
+
+/** A single highlighted figure (금액·기간·날짜) pulled from a clause body. */
+export interface ClauseFigure {
+  kind: ClauseFigureKind;
+  /** The raw matched substring, verbatim from the source text. */
+  value: string;
+}
+
+/**
+ * One structured clause card as projected onto the signer payload. Mirrors the
+ * server's `ExtractedClause` so the card screen binds to it directly.
+ */
+export interface ExtractedClause {
+  /** Human-readable clause title (e.g. "제3조 (계약기간)"). */
+  title: string;
+  /** Plain-language ("일상어") rendering of the clause body. */
+  plainText: string;
+  /** Key figures to emphasize on the card, in reading order, de-duplicated. */
+  figures: ClauseFigure[];
+  /** `true` when the clause carries risk language → render in a warning tone. */
+  caution: boolean;
+  /** 1-based page the clause starts on — the "원문 보기" deep-link anchor. */
+  page: number;
+}
+
 export interface SigningPayload {
   documentTitle: string;
   pageCount: number;
   pdfPath: string;
   fields: SigningPayloadField[];
+  /**
+   * Top 1–5 핵심 조항 cards, or `[]` when the server extracted none / failed.
+   * An empty array routes the signer straight to the document viewer (no error
+   * screen) — see {@link entryPhaseAfterVerify}.
+   */
+  clauses: ExtractedClause[];
+}
+
+/** Hard cap on rendered cards — mirrors the server's 1–5 selection contract. */
+export const MAX_CLAUSE_CARDS = 5;
+
+/**
+ * Decide the entry screen once a verify resolves: the 핵심 조항 카드 화면 when at
+ * least one clause was extracted, otherwise straight to the document viewer. The
+ * 0-card case is a *silent* fallback (no error screen) per the spec. Pure so the
+ * routing decision stays unit-testable.
+ */
+export function entryPhaseAfterVerify(
+  payload: Pick<SigningPayload, 'clauses'>,
+): 'cards' | 'viewing' {
+  return visibleClauseCards(payload.clauses).length > 0 ? 'cards' : 'viewing';
+}
+
+/**
+ * The clauses the card screen actually renders: the server already returns at
+ * most {@link MAX_CLAUSE_CARDS}, but we clamp defensively so the client never
+ * renders more than five even if a payload arrives over-full.
+ */
+export function visibleClauseCards(clauses: ExtractedClause[]): ExtractedClause[] {
+  return clauses.slice(0, MAX_CLAUSE_CARDS);
 }
 
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
@@ -103,6 +165,25 @@ export const SIGNER_COPY = {
   sessionExpiredTitle: '다시 인증해 주세요',
   sessionExpired: '본인확인 후 시간이 지났어요. 인증 코드를 다시 입력해 주세요.',
   sessionReauth: '다시 인증하기',
+  // 핵심 조항 카드 화면 chrome (shown right after verify when clauses exist).
+  cards: {
+    /** Screen headline — "read only the essentials first". */
+    title: '먼저 핵심 내용만 확인해요',
+    /** Calm subhead pointing at the full original below. */
+    subtitle: '꼭 알아야 할 조항만 쉬운 말로 정리했어요. 원문은 언제든 열어볼 수 있어요.',
+    /** Badge on a caution clause (warning tone). */
+    cautionLabel: '주의',
+    /** Per-card deep-link into the original at that clause's page. */
+    cardDeepLink: '이 조항 원문 보기',
+    /** Bottom CTA into the full original document. */
+    viewFull: '원문 보기',
+    /** Accessible label prefix for a key figure, by kind. */
+    figureLabel: {
+      money: '금액',
+      period: '기간',
+      date: '날짜',
+    },
+  },
   // Document viewer chrome (mirrors the same Toss voice).
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',

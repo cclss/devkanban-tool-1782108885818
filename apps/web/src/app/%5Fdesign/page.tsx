@@ -30,6 +30,8 @@ import {
   StepIndicator,
   SuccessCheck,
 } from '@repo/ui';
+import { ClauseCard } from '@/components/signer/clause-cards-screen';
+import type { ExtractedClause } from '@/lib/signing';
 
 function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
   return (
@@ -63,6 +65,29 @@ const RADII = ['xs', 'sm', 'md', 'lg', 'xl', '2xl'] as const;
 const SHADOWS = ['xs', 'sm', 'md', 'lg', 'xl'] as const;
 
 const STEPS = ['문서 업로드', '서명란 배치', '수신자 입력', '발송'];
+
+/** Fixture clauses for the 핵심 조항 카드 preview (base + warning tones). */
+const SAMPLE_CLAUSES: ExtractedClause[] = [
+  {
+    title: '제3조 (계약기간)',
+    plainText: '계약은 2026년 3월 1일부터 1년간 유효하며, 별도 통지가 없으면 자동으로 갱신돼요.',
+    figures: [
+      { kind: 'date', value: '2026년 3월 1일' },
+      { kind: 'period', value: '1년' },
+    ],
+    caution: false,
+    page: 1,
+  },
+  {
+    title: '제7조 (위약금)',
+    plainText: '계약을 중도 해지하면 남은 기간에 해당하는 금액의 30%를 위약금으로 물어야 해요.',
+    figures: [
+      { kind: 'money', value: '30%' },
+    ],
+    caution: true,
+    page: 4,
+  },
+];
 
 export default function DesignSystemPage() {
   const [step, setStep] = React.useState(1);
@@ -299,6 +324,23 @@ export default function DesignSystemPage() {
             <Button onClick={replay}>이펙트 재생</Button>
           </CardContent>
         </Card>
+      </Section>
+
+      <Section
+        title="Clause Card — 핵심 조항 카드"
+        hint="인증 직후 화면. base(중립)와 warning(주의) 톤. 제목·일상어 번역·핵심 수치 칩·원문 딥링크"
+      >
+        <div className="flex max-w-[480px] flex-col gap-md">
+          {SAMPLE_CLAUSES.map((clause, index) => (
+            <ClauseCard
+              key={index}
+              clause={clause}
+              onViewSource={() => {
+                /* preview only — no navigation in the gallery */
+              }}
+            />
+          ))}
+        </div>
       </Section>
 
       <Section title="Brand override hook" hint="발신자 브랜딩 색상으로 primary 토큰을 런타임 교체">

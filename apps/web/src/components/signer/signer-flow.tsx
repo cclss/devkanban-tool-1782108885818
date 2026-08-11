@@ -17,6 +17,7 @@ import { useSigner, type BlockReason } from './signer-context';
 import { LoadingScreen } from './loading-screen';
 import { VerifyScreen } from './verify-screen';
 import { NoticeScreen, type NoticeScreenProps } from './notice-screen';
+import { ClauseCardsScreen } from './clause-cards-screen';
 import { DocumentViewer } from './document-viewer';
 import { CompletionScreen } from './completion-screen';
 
@@ -73,6 +74,14 @@ export function SignerFlow() {
         />
       );
     }
+    case 'cards':
+      // The card screen only renders when clauses exist (the reducer routes a
+      // 0-card payload straight to `viewing`); guard on payload just in case.
+      return state.payload && state.payload.clauses.length > 0 ? (
+        <ClauseCardsScreen />
+      ) : (
+        <DocumentViewer />
+      );
     case 'viewing':
     case 'signing':
       return state.meta ? <DocumentViewer /> : <LoadingScreen />;

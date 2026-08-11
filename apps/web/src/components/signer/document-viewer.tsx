@@ -51,6 +51,11 @@ function fieldDomId(id: string): string {
   return `fill-field-${id}`;
 }
 
+/** Stable DOM id so a clause deep-link can scroll a page into view. */
+function pageDomId(pageNumber: number): string {
+  return `fill-page-${pageNumber}`;
+}
+
 /** A field is done when a value was captured, or the server already has one. */
 function isFilled(field: FillField, values: Record<string, FillFieldValue>): boolean {
   return values[field.id] != null || field.filled;
@@ -69,6 +74,7 @@ export function DocumentViewer() {
     payload,
     fieldValues,
     pdfUrl,
+    initialPage,
     loadSession,
     openField,
     complete,
@@ -179,6 +185,19 @@ export function DocumentViewer() {
     document.getElementById(fieldDomId(id))?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }, []);
 
+  // Deep-link entry: when a clause card's "원문 보기" routed here with a target
+  // page, scroll it into view once the pages are laid out. Guarded so it fires
+  // only once per entry (a re-render must not yank the reader back up).
+  const scrolledToInitial = React.useRef(false);
+  React.useEffect(() => {
+    if (scrolledToInitial.current) return;
+    if (status !== 'ready' || pageWidth === 0 || !initialPage) return;
+    scrolledToInitial.current = true;
+    document
+      .getElementById(pageDomId(initialPage))
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [status, pageWidth, initialPage]);
+
   const onFieldTap = React.useCallback(
     (field: FillField) => {
       scrollToField(field.id);
@@ -246,6 +265,7 @@ export function DocumentViewer() {
           Array.from({ length: pageCount }, (_, i) => i + 1).map((pageNumber) => (
             <PdfPageView
               key={pageNumber}
+              id={pageDomId(pageNumber)}
               doc={doc}
               pageNumber={pageNumber}
               width={pageWidth}
@@ -287,6 +307,8 @@ export function DocumentViewer() {
 }
 
 interface PdfPageViewProps {
+  /** DOM id on the page wrapper so a deep-link can scroll it into view. */
+  id: string;
   doc: PdfDocument;
   pageNumber: number;
   /** Fit-to-width target in CSS px. */
@@ -300,6 +322,7 @@ interface PdfPageViewProps {
 
 /** One PDF page rasterized fit-to-width, with its field overlay on top. */
 function PdfPageView({
+  id,
   doc,
   pageNumber,
   width,
@@ -336,7 +359,7 @@ function PdfPageView({
   const ready = status === 'ready' && pageSize !== null;
 
   return (
-    <div className="relative w-full">
+    <div id={id} className="relative w-full scroll-mt-lg">
       {ready ? null : status === 'error' ? (
         <div className="flex aspect-[1/1.414] w-full items-center justify-center rounded-sm border border-border bg-surface-muted px-md text-center">
           <p className="text-sm text-foreground-muted">{pageError(pageNumber)}</p>
