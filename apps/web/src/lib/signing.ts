@@ -56,6 +56,25 @@ export interface SigningMeta {
   status: SignRequestStatus;
   alreadySigned: boolean;
   signable: boolean;
+  /**
+   * Re-entry facts (spec §6), populated once the request is SIGNED — mirror the
+   * server's `SigningService.meta`. Null/false before this signer has signed;
+   * projected onto the {@link SIGNER_COPY.reentry} "이미 서명 완료" screen so a
+   * signer reopening a finished link sees the completed contract (summary card +
+   * download) instead of the sign flow.
+   */
+  /** ISO-8601 서명 완료 시각, or null before this signer has signed. */
+  signedAt: string | null;
+  /** 계약 날짜 derived from clause figures, or null when not extractable. */
+  contractDate: string | null;
+  /** 계약 금액 derived from clause figures, or null when not extractable. */
+  contractAmount: string | null;
+  /**
+   * `true` when the signed final PDF is ready to download (document COMPLETED +
+   * artifact stored) → gates the re-entry screen's "서명된 계약서 다운로드" button
+   * vs the "계약서 준비 중" notice.
+   */
+  documentReady: boolean;
 }
 
 export interface VerifyResult {
@@ -266,6 +285,42 @@ export function completionArtifactState(input: {
   return 'none';
 }
 
+// --- re-entry (spec §6 경계: "이미 서명 완료된 계약입니다") --------------------
+
+/**
+ * Project the pre-auth {@link SigningMeta} of an already-signed link onto the
+ * completion summary's fact shape (계약 날짜·금액·서명 완료 시각), so the re-entry
+ * screen reuses {@link completionSummaryRows} verbatim — the same summary card a
+ * signer saw right after finishing. Pure so the projection stays unit-testable.
+ */
+export function reentrySummary(
+  meta: Pick<SigningMeta, 'signedAt' | 'contractDate' | 'contractAmount'>,
+): FillCompletionSummary {
+  return {
+    signedAt: meta.signedAt,
+    contractDate: meta.contractDate,
+    contractAmount: meta.contractAmount,
+  };
+}
+
+/**
+ * Decide the re-entry screen's download-area affordance from the signed link's
+ * meta (spec §6 경계): the "서명된 계약서 다운로드" button once the final PDF is
+ * ready, the "계약서 준비 중" notice while a completed document is still generating
+ * it, or nothing otherwise. The OTP signer flow always offers a download, so
+ * `hasDownload` is fixed true here; the gating is purely `documentReady` vs the
+ * document being COMPLETED. Pure — reuses {@link completionArtifactState}.
+ */
+export function reentryArtifactState(
+  meta: Pick<SigningMeta, 'documentStatus' | 'documentReady'>,
+): CompletionArtifactState {
+  return completionArtifactState({
+    hasDownload: true,
+    documentReady: meta.documentReady,
+    documentCompleted: meta.documentStatus === 'COMPLETED',
+  });
+}
+
 // --- client-authored copy (mirrors messages.signing.* voice) -----------------
 
 /**
@@ -375,6 +430,24 @@ export const SIGNER_COPY = {
   },
   /** Final-CTA failure fallback (no blame, just retry) — when the server gives none. */
   completeError: '서명을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
+  /**
+   * Re-entry takeover (spec §6 경계): shown when a signer reopens a link they've
+   * already signed. Not a celebration — a calm confirmation that the contract is
+   * done, with the completed summary + (once ready) a download. The sign flow is
+   * never shown again.
+   */
+  reentry: {
+    /** Headline — the spec's exact re-entry message. */
+    title: '이미 서명 완료된 계약입니다',
+    /** Calm body pointing at the completed summary below. */
+    body: '이 링크로는 이미 서명을 마쳤어요. 완료된 계약 내용을 아래에서 확인할 수 있어요.',
+    /**
+     * Download auth notice: a re-opened tab holds no signer session, so a fresh
+     * download needs 재본인확인 (a short-lived session). Surfaced when the
+     * session-less download is attempted (see {@link downloadSignerArtifact}).
+     */
+    downloadReauth: '다운로드하려면 본인확인을 다시 진행해 주세요.',
+  },
 } as const;
 
 // --- session token persistence ----------------------------------------------
@@ -532,7 +605,10 @@ export async function downloadSignerArtifact(
   fallbackTitle: string,
 ): Promise<void> {
   const session = getSignerSession(accessToken);
-  if (!session) throw new ApiError(SIGNER_COPY.completeError, 401);
+  // A re-opened tab holds no session: re-entry download requires 재본인확인 to mint
+  // a fresh short-lived session (spec §6 경계 decision) — surface that, not a
+  // generic finalize error, so the message matches the download context.
+  if (!session) throw new ApiError(SIGNER_COPY.reentry.downloadReauth, 401);
 
   const { blob, filename } = await apiDownload(`${base(accessToken)}/download/${kind}`, {
     token: session,

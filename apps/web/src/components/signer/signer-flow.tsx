@@ -20,6 +20,7 @@ import { NoticeScreen, type NoticeScreenProps } from './notice-screen';
 import { ClauseCardsScreen } from './clause-cards-screen';
 import { DocumentViewer } from './document-viewer';
 import { CompletionScreen } from './completion-screen';
+import { AlreadySignedScreen } from './already-signed-screen';
 
 /** Terminal copy + tone for each non-signable reason (Toss voice, no blame). */
 const NOTICE: Record<BlockReason, { title: string; body: string; tone: NoticeScreenProps['tone'] }> = {
@@ -63,6 +64,13 @@ export function SignerFlow() {
         />
       );
     case 'blocked': {
+      // Re-entry on an already-signed link (spec §6 경계 / S-6 추가 케이스): show
+      // the completed contract (message + summary + download) instead of the bare
+      // notice — the sign flow is never re-mounted. Facts come from the pre-auth
+      // meta; guard on it (a meta-less block can only be an invalid link).
+      if (state.blockReason === 'alreadySigned' && state.meta) {
+        return <AlreadySignedScreen meta={state.meta} />;
+      }
       const notice = NOTICE[state.blockReason ?? 'invalidLink'];
       return (
         <NoticeScreen

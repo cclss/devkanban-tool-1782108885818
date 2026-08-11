@@ -16,12 +16,15 @@ import {
   entryPhaseAfterVerify,
   formatSignedAt,
   isSessionExpiredError,
+  reentryArtifactState,
+  reentrySummary,
   serializeFieldValue,
   signProgress,
   visibleClauseCards,
   MAX_CLAUSE_CARDS,
   SIGNER_COPY,
   type ExtractedClause,
+  type SigningMeta,
 } from './signing';
 
 /** Minimal clause factory for the routing/clamp tests. */
@@ -297,6 +300,81 @@ describe('completionArtifactState (M-7 다운로드/준비중 분기)', () => {
     expect(
       completionArtifactState({ hasDownload: false, documentReady: true, documentCompleted: true }),
     ).toBe('none');
+  });
+});
+
+/** Minimal already-signed meta factory for the re-entry projection tests. */
+function signedMeta(overrides: Partial<SigningMeta> = {}): SigningMeta {
+  return {
+    documentTitle: '용역 계약서',
+    pageCount: 3,
+    documentStatus: 'COMPLETED',
+    sender: { name: '아크미', brandColor: null, brandLogoUrl: null },
+    recipientNameMasked: '홍*동',
+    status: 'SIGNED',
+    alreadySigned: true,
+    signable: false,
+    signedAt: '2026-08-11T05:30:00.000Z',
+    contractDate: '2026년 8월 1일',
+    contractAmount: '5,000,000원',
+    documentReady: true,
+    ...overrides,
+  };
+}
+
+describe('reentrySummary (재접속 요약 카드 팩트 투영)', () => {
+  it('projects the signed meta facts onto the completion summary shape', () => {
+    expect(reentrySummary(signedMeta())).toEqual({
+      signedAt: '2026-08-11T05:30:00.000Z',
+      contractDate: '2026년 8월 1일',
+      contractAmount: '5,000,000원',
+    });
+  });
+
+  it('feeds completionSummaryRows so re-entry reuses the same 날짜→금액→시각 rows', () => {
+    const rows = completionSummaryRows(reentrySummary(signedMeta()));
+    expect(rows.map((r) => r.key)).toEqual(['contractDate', 'contractAmount', 'signedAt']);
+    expect(rows[0]?.value).toBe('2026년 8월 1일');
+    expect(rows[1]?.value).toBe('5,000,000원');
+    expect(rows[2]?.value).toContain('오후');
+  });
+
+  it('omits rows for facts the server could not extract (null passes through)', () => {
+    const rows = completionSummaryRows(
+      reentrySummary(signedMeta({ contractDate: null, contractAmount: null })),
+    );
+    // Only the always-present signed timestamp survives on re-entry too.
+    expect(rows.map((r) => r.key)).toEqual(['signedAt']);
+  });
+});
+
+describe('reentryArtifactState (재접속 다운로드/준비중 분기)', () => {
+  it('offers the download once the final signed PDF is ready', () => {
+    expect(reentryArtifactState(signedMeta({ documentReady: true }))).toBe('download');
+  });
+
+  it('shows 준비 중 while a completed document is still generating its PDF', () => {
+    expect(
+      reentryArtifactState(signedMeta({ documentStatus: 'COMPLETED', documentReady: false })),
+    ).toBe('processing');
+  });
+
+  it('shows neither while the document is not yet complete (others still pending)', () => {
+    // This signer signed, but the whole doc is still IN_PROGRESS → nothing to
+    // download and nothing being generated yet.
+    expect(
+      reentryArtifactState(signedMeta({ documentStatus: 'IN_PROGRESS', documentReady: false })),
+    ).toBe('none');
+  });
+});
+
+describe('re-entry copy (재접속 "이미 서명 완료" 메시지)', () => {
+  it('uses the spec-exact re-entry headline', () => {
+    expect(SIGNER_COPY.reentry.title).toBe('이미 서명 완료된 계약입니다');
+  });
+
+  it('names the download re-auth requirement (세션 없는 재접속)', () => {
+    expect(SIGNER_COPY.reentry.downloadReauth).toContain('본인확인');
   });
 });
 
