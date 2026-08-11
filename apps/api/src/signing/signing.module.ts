@@ -5,6 +5,7 @@ import { SigningService } from './signing.service';
 import { SignerSessionService } from './signer-session.service';
 import { SignerSessionGuard } from './signer-session.guard';
 import { CompletionModule } from '../completion/completion.module';
+import { PdfModule } from '../pdf/pdf.module';
 
 /**
  * Public signing flow keyed by SignRequest.accessToken.
@@ -16,7 +17,7 @@ import { CompletionModule } from '../completion/completion.module';
  * completes (grain-5).
  */
 @Module({
-  imports: [JwtModule.register({}), CompletionModule],
+  imports: [JwtModule.register({}), CompletionModule, PdfModule],
   controllers: [SigningController],
   providers: [SigningService, SignerSessionService, SignerSessionGuard],
   // Exported so the LINK share flow (sharing module) can reuse the exact same

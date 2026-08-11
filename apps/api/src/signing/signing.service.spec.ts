@@ -59,6 +59,7 @@ describe('SigningService — signable gating (M-8)', () => {
       {} as never,
       { issue: jest.fn().mockReturnValue('sess') } as never,
       { enqueue: jest.fn() } as never,
+      { extractFromPdf: jest.fn().mockResolvedValue([]) } as never,
     );
     return { service, prisma };
   }

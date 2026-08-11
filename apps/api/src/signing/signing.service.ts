@@ -23,6 +23,8 @@ import {
 import { SignerSessionService } from './signer-session.service';
 import { CompletionQueue } from '../completion/completion.queue';
 import { artifactFilename, type CompletionArtifact } from '../completion/artifact';
+import { ClauseExtractionService } from '../pdf/clause-extraction.service';
+import type { ExtractedClause } from '../pdf/clause-extraction.types';
 import type { SaveFieldValuesDto } from './dto/signing.dto';
 
 /** Audit-log action names for the signer flow. */
@@ -43,6 +45,7 @@ export class SigningService {
     private readonly storage: StorageService,
     private readonly sessions: SignerSessionService,
     private readonly completionQueue: CompletionQueue,
+    private readonly clauseExtraction: ClauseExtractionService,
   ) {}
 
   // --- ① pre-auth meta -----------------------------------------------------
@@ -156,7 +159,9 @@ export class SigningService {
     const signRequest = await this.prisma.signRequest.findUnique({
       where: { id: signRequestId },
       include: {
-        document: { select: { id: true, title: true, pageCount: true, status: true } },
+        document: {
+          select: { id: true, title: true, pageCount: true, status: true, storageKey: true },
+        },
         signFields: {
           orderBy: [{ page: 'asc' }, { y: 'asc' }],
           select: {
@@ -182,6 +187,11 @@ export class SigningService {
 
     await this.recordFirstView(signRequestId);
 
+    // 핵심 조항 카드: on-demand extraction from the live PDF bytes. Never fatal —
+    // a corrupt/image-only doc or a storage hiccup degrades to `[]`, and the
+    // signer flow drops straight to the original view with no error screen.
+    const clauses = await this.extractClauses(signRequest.document.storageKey);
+
     return {
       documentTitle: signRequest.document.title,
       pageCount: signRequest.document.pageCount,
@@ -196,7 +206,30 @@ export class SigningService {
         height: f.height,
         filled: f.value != null && f.value.length > 0,
       })),
+      clauses,
     };
+  }
+
+  /**
+   * Read the document bytes and extract the 1–5 "핵심 조항" cards for the payload.
+   *
+   * Wrapped so nothing here can break the payload: the extraction service
+   * already returns `[]` for unusable text, and this catch additionally absorbs
+   * a storage failure (missing object / read error). Either way the signer gets
+   * a well-formed payload with `clauses: []` and no error screen.
+   */
+  private async extractClauses(storageKey: string): Promise<ExtractedClause[]> {
+    try {
+      const bytes = await this.storage.read(storageKey);
+      return await this.clauseExtraction.extractFromPdf(bytes);
+    } catch (err) {
+      this.logger.warn(
+        `clause extraction skipped; serving empty cards: ${
+          err instanceof Error ? err.message : String(err)
+        }`,
+      );
+      return [];
+    }
   }
 
   // --- ④ pdf bytes (session) ----------------------------------------------
@@ -526,6 +559,12 @@ export interface SigningPayload {
   pageCount: number;
   pdfPath: string;
   fields: SigningPayloadField[];
+  /**
+   * 1–5 extracted "핵심 조항" cards for the pre-read screen, or `[]` when the
+   * document has no usable text / extraction failed (→ frontend skips the card
+   * screen and drops straight to the original view).
+   */
+  clauses: ExtractedClause[];
 }
 
 export interface CompleteResult {

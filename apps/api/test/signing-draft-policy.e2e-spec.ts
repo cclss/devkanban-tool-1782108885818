@@ -240,6 +240,10 @@ describe('Signing DRAFT policy (e2e, M-8)', () => {
       .set('Authorization', `Bearer ${ipSession}`)
       .expect(200);
     expect(ipPayload.body.fields.length).toBeGreaterThanOrEqual(1);
+    // grain-2: the payload always carries a well-formed `clauses` array. This
+    // blank test PDF has no extractable text, so the no-error fallback yields
+    // an empty array (never a missing field, never an error response).
+    expect(Array.isArray(ipPayload.body.clauses)).toBe(true);
 
     // pdf: streams the document bytes.
     const ipPdf = await request(app.getHttpServer())
