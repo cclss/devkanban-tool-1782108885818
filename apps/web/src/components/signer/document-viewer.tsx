@@ -20,7 +20,16 @@
  */
 
 import * as React from 'react';
-import { Button, Skeleton, cn } from '@repo/ui';
+import {
+  Button,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  Skeleton,
+  cn,
+} from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { brandStyle } from '@/lib/branding';
 import { signProgress, type SignFieldType } from '@/lib/signing';
@@ -33,7 +42,12 @@ import {
   type PdfDocument,
 } from '@/lib/pdf';
 import { normToPx, type PageSize } from '@/lib/field-geometry';
-import { useFill, type FillField, type FillFieldValue } from './fill-context';
+import {
+  useFill,
+  type ConfirmCopy,
+  type FillField,
+  type FillFieldValue,
+} from './fill-context';
 import { BrandingHeader } from './branding-header';
 import { SignatureInputSheet } from './signature-sheet';
 
@@ -78,6 +92,7 @@ export function DocumentViewer() {
     loadSession,
     openField,
     complete,
+    confirm,
     copy,
     onSessionExpired,
     onCollapse,
@@ -210,16 +225,11 @@ export function DocumentViewer() {
     [openField, scrollToField],
   );
 
-  const onCta = React.useCallback(async () => {
-    const next = orderedUnfilled[0];
-    if (next) {
-      scrollToField(next.id);
-      openField(next.id);
-      return;
-    }
-    // All fields captured: finalize. On success the flow flips to `done` and this
-    // viewer unmounts for the completion screen; on failure we surface the
-    // server's Toss-tone message and let the recipient retry (values are kept).
+  // Fire the finalize call. On success the flow flips to `done` and this viewer
+  // unmounts for the completion screen; on failure we surface the server's
+  // Toss-tone message and let the recipient retry (captured values are kept, and
+  // the confirm sheet — if any — stays open so the retry happens in place).
+  const runComplete = React.useCallback(async () => {
     if (completing) return;
     setCompleting(true);
     setCompleteError(null);
@@ -229,7 +239,31 @@ export function DocumentViewer() {
       setCompleteError(err instanceof ApiError ? err.message : copy.completeError);
       setCompleting(false);
     }
-  }, [orderedUnfilled, scrollToField, openField, complete, completing, copy.completeError]);
+  }, [completing, complete, copy.completeError]);
+
+  const onCta = React.useCallback(async () => {
+    const next = orderedUnfilled[0];
+    if (next) {
+      scrollToField(next.id);
+      openField(next.id);
+      return;
+    }
+    // Every field captured. Flows with a final-confirm step (the OTP signer flow)
+    // open the 확인 시트 here — its "확인" runs the finalize; flows without one
+    // (the share flow) finalize straight from the CTA.
+    if (confirm) {
+      confirm.request();
+      return;
+    }
+    await runComplete();
+  }, [orderedUnfilled, scrollToField, openField, confirm, runComplete]);
+
+  // "닫기" on the confirm sheet: drop any stale finalize error and return to the
+  // viewer with every captured value intact.
+  const onCancelConfirm = React.useCallback(() => {
+    setCompleteError(null);
+    confirm?.cancel();
+  }, [confirm]);
 
   const progress =
     total === 0
@@ -349,7 +383,84 @@ export function DocumentViewer() {
 
       {/* The capture BottomSheet targets the field opened via the fill context. */}
       <SignatureInputSheet />
+
+      {/* Final confirm sheet (OTP flow only): the finalize CTA opens it, and only
+          "확인" here fires the actual complete. */}
+      {confirm && copy.confirm ? (
+        <ConfirmCompleteSheet
+          open={confirm.open}
+          completing={completing}
+          error={completeError}
+          copy={copy.confirm}
+          onConfirm={runComplete}
+          onCancel={onCancelConfirm}
+        />
+      ) : null}
     </main>
+  );
+}
+
+interface ConfirmCompleteSheetProps {
+  open: boolean;
+  completing: boolean;
+  error: string | null;
+  copy: ConfirmCopy;
+  onConfirm: () => void | Promise<void>;
+  onCancel: () => void;
+}
+
+/**
+ * The final confirm sheet — a last calm checkpoint after every field is captured,
+ * before the irreversible finalize fires (spec §6 / S-6). "확인" runs `onConfirm`
+ * (the finalize); "닫기", a backdrop tap, or Esc returns to the viewer with every
+ * captured value intact. A finalize failure keeps the sheet open with the
+ * server's retry message so the signer can try again in place; the dismiss paths
+ * are disabled while the call is in flight so a confirmed finalize can't be
+ * cancelled mid-request.
+ */
+function ConfirmCompleteSheet({
+  open,
+  completing,
+  error,
+  copy,
+  onConfirm,
+  onCancel,
+}: ConfirmCompleteSheetProps) {
+  return (
+    <Sheet
+      open={open}
+      onOpenChange={(next) => {
+        if (!next && !completing) onCancel();
+      }}
+    >
+      <SheetContent side="bottom">
+        <SheetHeader>
+          <SheetTitle>{copy.title}</SheetTitle>
+          <SheetDescription>{copy.body}</SheetDescription>
+        </SheetHeader>
+
+        {error ? (
+          <p role="alert" aria-live="assertive" className="mt-md text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
+
+        <div className="mt-lg flex gap-xs">
+          <Button
+            type="button"
+            variant="secondary"
+            size="lg"
+            onClick={onCancel}
+            disabled={completing}
+          >
+            {copy.cancel}
+          </Button>
+          <Button type="button" size="lg" fullWidth onClick={onConfirm} isLoading={completing}>
+            {copy.confirm}
+          </Button>
+        </div>
+      </SheetContent>
+    </Sheet>
   );
 }
 

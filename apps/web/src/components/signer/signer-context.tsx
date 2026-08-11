@@ -83,6 +83,13 @@ export interface SignerState {
   fieldValues: Record<string, SignerFieldValue>;
   /** The field whose capture sheet is open (drives the BottomSheet target). */
   activeFieldId: string | null;
+  /**
+   * Whether the final 확인 시트 is open (spec §6 / S-6). The finalize CTA opens it
+   * once every field is captured; the sheet's "확인" runs `complete`, "닫기" closes
+   * it and keeps the signer in the viewer. `complete` never fires while this is
+   * merely open — only the explicit confirmation advances to the completion screen.
+   */
+  confirmOpen: boolean;
   /** Set once `complete` succeeds: whether the whole document is now finalized. */
   documentCompleted: boolean;
   /**
@@ -111,6 +118,7 @@ const initialState: SignerState = {
   blockReason: null,
   fieldValues: {},
   activeFieldId: null,
+  confirmOpen: false,
   documentCompleted: false,
   completion: null,
   expiredMessage: null,
@@ -133,6 +141,8 @@ type SignerAction =
     }
   | { type: 'EXPIRE'; message: string }
   | { type: 'REAUTH' }
+  | { type: 'OPEN_CONFIRM' }
+  | { type: 'CLOSE_CONFIRM' }
   | { type: 'OPEN_FIELD'; fieldId: string }
   | { type: 'CLOSE_FIELD' }
   | { type: 'SET_FIELD_VALUE'; fieldId: string; value: SignerFieldValue };
@@ -171,10 +181,18 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
       return { ...state, phase: 'cards', targetPage: null };
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
+    case 'OPEN_CONFIRM':
+      // The finalize CTA was tapped with every field captured: raise the 확인
+      // 시트. `complete` is intentionally not called here — only "확인" fires it.
+      return { ...state, confirmOpen: true };
+    case 'CLOSE_CONFIRM':
+      // "닫기" (or a backdrop dismiss): stay in the viewer, values untouched.
+      return { ...state, confirmOpen: false };
     case 'DONE':
       return {
         ...state,
         phase: 'done',
+        confirmOpen: false,
         documentCompleted: action.documentCompleted,
         completion: {
           signedAt: action.signedAt,
@@ -192,6 +210,7 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         payload: null,
         fieldValues: {},
         activeFieldId: null,
+        confirmOpen: false,
         targetPage: null,
       };
     case 'REAUTH':
@@ -204,6 +223,7 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
         payload: null,
         fieldValues: {},
         activeFieldId: null,
+        confirmOpen: false,
         targetPage: null,
       };
     case 'OPEN_FIELD':
@@ -277,6 +297,14 @@ interface SignerContextValue {
    * so the viewer can show a friendly retry — the captured field values stay put.
    */
   complete: () => Promise<void>;
+  /**
+   * Open the final 확인 시트 (spec §6 / S-6). The viewer's finalize CTA calls this
+   * once every field is captured, instead of completing outright — the sheet's
+   * "확인" then runs {@link complete}.
+   */
+  requestConfirm: () => void;
+  /** Dismiss the 확인 시트 without finalizing; the signer stays in the viewer. */
+  cancelConfirm: () => void;
   /**
    * Leave the `expired` notice and return to code entry so the signer can
    * re-verify; a fresh verify reloads the payload and drops them back into the
@@ -403,6 +431,8 @@ export function SignerProvider({
       }),
     [token, guardExpiry],
   );
+  const requestConfirm = React.useCallback(() => dispatch({ type: 'OPEN_CONFIRM' }), []);
+  const cancelConfirm = React.useCallback(() => dispatch({ type: 'CLOSE_CONFIRM' }), []);
   const openField = React.useCallback(
     (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
     [],
@@ -415,8 +445,8 @@ export function SignerProvider({
   );
 
   const value = React.useMemo<SignerContextValue>(
-    () => ({ state, token, verify, goViewer, collapse, goSigning, complete, reauth, openField, closeField, setFieldValue }),
-    [state, token, verify, goViewer, collapse, goSigning, complete, reauth, openField, closeField, setFieldValue],
+    () => ({ state, token, verify, goViewer, collapse, goSigning, complete, requestConfirm, cancelConfirm, reauth, openField, closeField, setFieldValue }),
+    [state, token, verify, goViewer, collapse, goSigning, complete, requestConfirm, cancelConfirm, reauth, openField, closeField, setFieldValue],
   );
 
   // Persist captured values to the signer's `fields` endpoint. A 401 (or a lost
@@ -474,6 +504,12 @@ export function SignerProvider({
       closeField,
       setFieldValue,
       complete,
+      // Gate finalize behind the 확인 시트: the CTA opens it, "확인" runs `complete`.
+      confirm: {
+        open: state.confirmOpen,
+        request: requestConfirm,
+        cancel: cancelConfirm,
+      },
       copy: SIGNER_FILL_COPY,
       onSessionExpired,
       onCollapse: hasClauseCards ? collapse : undefined,
@@ -481,7 +517,7 @@ export function SignerProvider({
         onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
       },
     };
-  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, onSessionExpired, collapse]);
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, requestConfirm, cancelConfirm, onSessionExpired, collapse]);
 
   return (
     <SignerContext.Provider value={value}>
@@ -511,6 +547,7 @@ const SIGNER_FILL_COPY: FillCopy = {
       return SIGNER_COPY.sheet.drawHint;
     },
   },
+  confirm: SIGNER_COPY.confirm,
   done: SIGNER_COPY.done,
 };
 

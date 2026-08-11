@@ -345,6 +345,17 @@ export const SIGNER_COPY = {
     apply: '적용',
     saveError: '서명을 저장하지 못했어요. 잠시 후 다시 시도해 주세요.',
   },
+  /**
+   * Final confirm sheet chrome (spec §6 / S-6): a last calm checkpoint after every
+   * field is captured, before the irreversible complete fires. "확인" finalizes,
+   * "닫기" returns to the viewer with every captured value intact.
+   */
+  confirm: {
+    title: '이대로 서명을 완료할까요?',
+    body: '완료하면 서명이 최종 제출되고, 이후에는 수정할 수 없어요.',
+    confirm: '확인',
+    cancel: '닫기',
+  },
   /** Completion takeover chrome (same Toss voice as the rest). */
   done: {
     /** Celebration headline — mirrors the server's `completed` catalog entry. */

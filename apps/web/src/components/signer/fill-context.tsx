@@ -90,8 +90,30 @@ export interface FillCopy {
   completeError: string;
   /** The capture BottomSheet chrome (titles, mode toggles, hints, apply…). */
   sheet: SheetCopy;
+  /**
+   * The final confirm sheet chrome (title / body / 확인·닫기). Present only for
+   * flows that gate finalize behind a confirmation step (the OTP signer flow);
+   * omitted by flows that finalize straight from the CTA (the share flow).
+   */
+  confirm?: ConfirmCopy;
   /** The completion takeover chrome. */
   done: DoneCopy;
+}
+
+/**
+ * Copy for the final confirm sheet shown after every field is captured, before
+ * the finalize call actually fires (spec §6 / S-6 "최종 확인 시트"). A last calm
+ * checkpoint so the signer confirms intent before the irreversible complete.
+ */
+export interface ConfirmCopy {
+  /** Sheet title — "이대로 서명을 완료할까요?". */
+  title: string;
+  /** Reassuring body under the title (what happens on confirm). */
+  body: string;
+  /** Primary action that fires `complete` — "확인". */
+  confirm: string;
+  /** Secondary action that dismisses the sheet and stays in the viewer — "닫기". */
+  cancel: string;
 }
 
 export interface SheetCopy {
@@ -156,6 +178,21 @@ export interface FillDownload {
 }
 
 /**
+ * The final-confirm step surface projected from the flow state machine: whether
+ * the confirm sheet is open, plus the intents to open it (from the finalize CTA)
+ * and dismiss it (staying in the viewer). The actual finalize is
+ * {@link FillContextValue.complete}, invoked from the sheet's "확인".
+ */
+export interface ConfirmStep {
+  /** True while the final confirm sheet is open. */
+  open: boolean;
+  /** Open the confirm sheet — the finalize CTA calls this instead of `complete`. */
+  request: () => void;
+  /** Dismiss the sheet without finalizing (stay in the viewer). */
+  cancel: () => void;
+}
+
+/**
  * Everything the shared reading/filling/completion screens need, projected from
  * whichever flow state machine owns the session.
  */
@@ -208,6 +245,14 @@ export interface FillContextValue {
   setFieldValue: (fieldId: string, value: FillFieldValue) => void;
   /** Finalize the recipient's part (complete / submit), advancing to `done`. */
   complete: () => Promise<void>;
+  /**
+   * The final-confirm step gating the finalize CTA (spec §6 / S-6). Present ⇒ the
+   * viewer's "서명 완료하기" tap opens the confirm sheet ({@link ConfirmStep.request})
+   * instead of finalizing outright; the sheet's "확인" runs {@link complete}, its
+   * "닫기" calls {@link ConfirmStep.cancel} and keeps the viewer. Absent ⇒ the CTA
+   * finalizes directly (the share flow keeps its one-tap submit).
+   */
+  confirm?: ConfirmStep;
   /** Flow-specific copy for the shared screens. */
   copy: FillCopy;
   /** Present ⇒ the completion screen shows a download area (OTP only). */
