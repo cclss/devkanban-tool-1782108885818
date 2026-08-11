@@ -14,6 +14,7 @@ import {
   isSessionExpiredError,
   visibleClauseCards,
   MAX_CLAUSE_CARDS,
+  SIGNER_COPY,
   type ExtractedClause,
 } from './signing';
 
@@ -84,5 +85,27 @@ describe('visibleClauseCards', () => {
 
   it('is empty for no clauses', () => {
     expect(visibleClauseCards([])).toEqual([]);
+  });
+});
+
+describe('collapse (접기) availability', () => {
+  // The viewer projects `onCollapse` — and thus renders the "접기" back button —
+  // only when `visibleClauseCards(...).length > 0`, the same gate
+  // `entryPhaseAfterVerify` uses to route into the card screen. So the collapse
+  // path exists iff the signer entered via cards; a 0-card flow (which lands on
+  // the viewer directly) has nothing to return to and hides the affordance.
+  it('offers 접기 exactly when the signer entered via clause cards', () => {
+    const withClauses = [clause()];
+    expect(visibleClauseCards(withClauses).length > 0).toBe(true);
+    expect(entryPhaseAfterVerify({ clauses: withClauses })).toBe('cards');
+  });
+
+  it('hides 접기 on a 0-card flow (nothing to collapse back to)', () => {
+    expect(visibleClauseCards([]).length > 0).toBe(false);
+    expect(entryPhaseAfterVerify({ clauses: [] })).toBe('viewing');
+  });
+
+  it('labels the back affordance "접기"', () => {
+    expect(SIGNER_COPY.viewerCollapse).toBe('접기');
   });
 });

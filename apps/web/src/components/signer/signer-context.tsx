@@ -38,6 +38,7 @@ import {
   setSignerSession,
   signerPdfUrl,
   verifyCode,
+  visibleClauseCards,
   SIGNER_COPY,
   type SigningMeta,
   type SigningPayload,
@@ -108,6 +109,7 @@ type SignerAction =
   | { type: 'BLOCK'; reason: BlockReason; meta: SigningMeta | null }
   | { type: 'VERIFIED'; payload: SigningPayload }
   | { type: 'GO_VIEWING'; page: number | null }
+  | { type: 'GO_CARDS' }
   | { type: 'GO_SIGNING' }
   | { type: 'DONE'; documentCompleted: boolean }
   | { type: 'EXPIRE'; message: string }
@@ -140,6 +142,11 @@ function reducer(state: SignerState, action: SignerAction): SignerState {
       // Leave the card screen for the original — optionally deep-linked to the
       // page the tapped clause starts on.
       return { ...state, phase: 'viewing', targetPage: action.page };
+    case 'GO_CARDS':
+      // Collapse the expanded original and return to the clause cards. The
+      // working set (payload + captured values) is kept; only the deep-link
+      // target is cleared so a later "원문 보기" reopens at the top by default.
+      return { ...state, phase: 'cards', targetPage: null };
     case 'GO_SIGNING':
       return { ...state, phase: 'signing' };
     case 'DONE':
@@ -206,6 +213,12 @@ interface SignerContextValue {
    * 1-based `page` to deep-link (the viewer scrolls to it); omit for the top.
    */
   goViewer: (page?: number) => void;
+  /**
+   * Collapse the expanded original and return to the 핵심 조항 카드 화면 (the
+   * inverse of `goViewer`). No-op in practice unless the flow surfaced cards to
+   * fall back to; the viewer only exposes it when clause cards exist.
+   */
+  collapse: () => void;
   /** Advance from the viewer into the signature step (later grains). */
   goSigning: () => void;
   /**
@@ -279,6 +292,8 @@ export function SignerProvider({
     [],
   );
 
+  const collapse = React.useCallback(() => dispatch({ type: 'GO_CARDS' }), []);
+
   const goSigning = React.useCallback(() => dispatch({ type: 'GO_SIGNING' }), []);
 
   // Any session-guarded call can 401 once the ~30-minute signer session lapses.
@@ -344,8 +359,8 @@ export function SignerProvider({
   );
 
   const value = React.useMemo<SignerContextValue>(
-    () => ({ state, token, verify, goViewer, goSigning, complete, reauth, openField, closeField, setFieldValue }),
-    [state, token, verify, goViewer, goSigning, complete, reauth, openField, closeField, setFieldValue],
+    () => ({ state, token, verify, goViewer, collapse, goSigning, complete, reauth, openField, closeField, setFieldValue }),
+    [state, token, verify, goViewer, collapse, goSigning, complete, reauth, openField, closeField, setFieldValue],
   );
 
   // Persist captured values to the signer's `fields` endpoint. A 401 (or a lost
@@ -365,6 +380,10 @@ export function SignerProvider({
   // shared viewer / capture sheet / completion screen render the OTP flow.
   const fillValue = React.useMemo<FillContextValue>(() => {
     const documentTitle = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
+    // Only offer "접기" when the signer actually has clause cards to return to.
+    // A 0-card payload never showed cards (it entered the viewer directly), so a
+    // collapse would strand them on an empty screen — omit the affordance there.
+    const hasClauseCards = visibleClauseCards(state.payload?.clauses ?? []).length > 0;
     return {
       sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null },
       brandColor: state.meta?.sender.brandColor ?? null,
@@ -389,11 +408,12 @@ export function SignerProvider({
       complete,
       copy: SIGNER_FILL_COPY,
       onSessionExpired,
+      onCollapse: hasClauseCards ? collapse : undefined,
       download: {
         onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
       },
     };
-  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, onSessionExpired]);
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, onSessionExpired, collapse]);
 
   return (
     <SignerContext.Provider value={value}>
@@ -406,6 +426,7 @@ export function SignerProvider({
 const SIGNER_FILL_COPY: FillCopy = {
   ctaContinue: SIGNER_COPY.viewerCtaContinue,
   ctaComplete: SIGNER_COPY.viewerCtaComplete,
+  viewerCollapse: SIGNER_COPY.viewerCollapse,
   loadError: SIGNER_COPY.viewerLoadError,
   pageError: (n) => `${n}페이지를 불러올 수 없어요.`,
   progress: (total, done) => `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,

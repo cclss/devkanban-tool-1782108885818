@@ -62,6 +62,12 @@ export interface FillCopy {
   ctaContinue: string;
   /** Bottom CTA when every field is captured (finalizes). */
   ctaComplete: string;
+  /**
+   * Back affordance that collapses the original and returns to the clause cards.
+   * Present only for flows that offer a collapse path (the OTP signer flow with
+   * clause cards); paired with {@link FillContextValue.onCollapse}.
+   */
+  viewerCollapse?: string;
   /** Whole-document load failure. */
   loadError: string;
   /** Per-page rasterize failure, by page number. */
@@ -166,6 +172,14 @@ export interface FillContextValue {
    * generic load error.
    */
   onSessionExpired?: () => void;
+  /**
+   * Collapse the expanded original and return to the 핵심 조항 카드 화면. Present
+   * only when the flow entered the viewer from clause cards it can fall back to
+   * (the OTP signer flow with ≥1 visible clause); the share flow — and the OTP
+   * flow's 0-card path, which never showed cards — omit it, so the viewer hides
+   * the "접기" affordance and stays a dead-end scroll.
+   */
+  onCollapse?: () => void;
 }
 
 const FillContext = React.createContext<FillContextValue | null>(null);

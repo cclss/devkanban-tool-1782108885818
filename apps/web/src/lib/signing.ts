@@ -188,6 +188,8 @@ export const SIGNER_COPY = {
   viewerCtaContinue: '서명하기',
   viewerCtaComplete: '서명 완료',
   viewerLoadError: '문서를 불러올 수 없어요. 잠시 후 다시 시도해 주세요.',
+  /** Back affordance that collapses the original and returns to the clause cards. */
+  viewerCollapse: '접기',
   fieldFilled: '작성됨',
   /** "Tap here" affordance shown on an unfilled field, by type. */
   fieldAffordance: {

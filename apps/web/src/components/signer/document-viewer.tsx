@@ -80,6 +80,7 @@ export function DocumentViewer() {
     complete,
     copy,
     onSessionExpired,
+    onCollapse,
   } = useFill();
 
   // Finalize state for the bottom CTA. A failed `complete` keeps every captured
@@ -239,6 +240,25 @@ export function DocumentViewer() {
       style={brandStyle(brandColor)}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pt-xl"
     >
+      {onCollapse ? (
+        // Return to the clause cards the signer expanded from — the inverse of
+        // "원문 보기". Rendered only when the flow handed us a collapse path (OTP
+        // signer flow with clause cards); the share flow omits it.
+        <button
+          type="button"
+          onClick={onCollapse}
+          className={cn(
+            '-ml-2xs inline-flex w-fit items-center gap-2xs rounded-sm px-2xs py-2xs',
+            'text-sm font-bold text-foreground-subtle',
+            'transition-opacity duration-fast ease-standard active:opacity-70',
+            'focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus',
+          )}
+        >
+          <span aria-hidden="true">←</span>
+          {copy.viewerCollapse}
+        </button>
+      ) : null}
+
       <BrandingHeader sender={sender} />
 
       <div className="mt-lg">
