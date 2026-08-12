@@ -168,3 +168,66 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
     expect(storage.buildKey).toHaveBeenCalledWith('owner-1', 'café.pdf');
   });
 });
+
+/**
+ * `toSummary` exposes the scheduled-send instant (grain-1). A SCHEDULED document
+ * surfaces its `scheduledSendAt` as an ISO string so the dashboard can render
+ * "예약됨 · {일시}"; every other status carries `null`. Exercised through the
+ * public `list()` path (the create/send paths always persist a null schedule).
+ */
+describe('DocumentsService — scheduledSendAt in summary', () => {
+  const SCHEDULE = new Date('2026-08-20T09:00:00.000Z');
+
+  /** A persisted Document row with the fields `toSummary` reads. */
+  function docRow(overrides: Record<string, unknown>) {
+    return {
+      id: 'doc-1',
+      ownerId: 'owner-1',
+      title: '계약서',
+      storageKey: 'owner-1/계약서.pdf',
+      pageCount: 1,
+      status: DocumentStatus.DRAFT,
+      sentAt: null,
+      scheduledSendAt: null,
+      createdAt: new Date('2026-08-12T00:00:00.000Z'),
+      completedAt: null,
+      signedStorageKey: null,
+      certificateStorageKey: null,
+      _count: { signRequests: 0 },
+      signRequests: [],
+      ...overrides,
+    };
+  }
+
+  function serviceWith(rows: ReturnType<typeof docRow>[]) {
+    const prisma = {
+      document: { findMany: jest.fn(async () => rows) },
+    };
+    return new DocumentsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      { get: jest.fn(() => undefined) } as never,
+      {} as never,
+    );
+  }
+
+  it('exposes scheduledSendAt as an ISO string for a SCHEDULED document', async () => {
+    const service = serviceWith([
+      docRow({ status: DocumentStatus.SCHEDULED, scheduledSendAt: SCHEDULE }),
+    ]);
+
+    const [summary] = await service.list('owner-1');
+
+    expect(summary.status).toBe(DocumentStatus.SCHEDULED);
+    expect(summary.scheduledSendAt).toBe(SCHEDULE.toISOString());
+  });
+
+  it('leaves scheduledSendAt null when the document has no pending schedule', async () => {
+    const service = serviceWith([docRow({ status: DocumentStatus.DRAFT })]);
+
+    const [summary] = await service.list('owner-1');
+
+    expect(summary.scheduledSendAt).toBeNull();
+  });
+});

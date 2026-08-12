@@ -108,6 +108,12 @@ describe('deriveNextAction — full status mapping', () => {
     expect(deriveNextAction(DocumentStatus.DRAFT)).toBe(NextAction.SEND_DRAFT);
   });
 
+  it('SCHEDULED → MANAGE_SCHEDULE (non-null: a queued send is still actionable)', () => {
+    const action = deriveNextAction(DocumentStatus.SCHEDULED);
+    expect(action).toBe(NextAction.MANAGE_SCHEDULE);
+    expect(action).not.toBeNull();
+  });
+
   it('IN_PROGRESS → AWAITING_SIGN', () => {
     expect(deriveNextAction(DocumentStatus.IN_PROGRESS)).toBe(
       NextAction.AWAITING_SIGN,

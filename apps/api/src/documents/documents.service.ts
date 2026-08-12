@@ -184,6 +184,46 @@ export class DocumentsService {
       index: i,
     }));
 
+    const { updated, recipientCount } = await this.dispatchContract(
+      document,
+      recipients,
+      ownerId,
+      ip,
+    );
+
+    // Just sent: every recipient's request was created PENDING, so all of them
+    // are still-pending signers.
+    return this.toSummary(updated, recipientCount, recipientCount, new Date());
+  }
+
+  /**
+   * The actual dispatch of a contract, factored out of `send` so both the
+   * immediate-send path and the future scheduled-send worker can reuse the exact
+   * same mechanics: create one SignRequest per recipient, map fields to
+   * recipients, flip the document to 진행 중 (IN_PROGRESS), write the audit trail,
+   * and enqueue recipient notifications.
+   *
+   * This deliberately does NOT re-validate ownership/status/field-count — those
+   * are entry-point concerns the caller owns (immediate send checks a DRAFT; the
+   * scheduled worker checks a SCHEDULED doc). The Free-plan quota IS re-checked
+   * inside the transaction to keep the immediate-send behaviour identical and
+   * avoid a race past the limit.
+   *
+   * Returns the updated document row and the recipient count so the caller can
+   * shape the API summary. Behaviour is unchanged from the previous inline path.
+   */
+  private async dispatchContract(
+    document: Document,
+    recipients: Array<{
+      email: string;
+      name: string | null;
+      order: number;
+      index: number;
+    }>,
+    ownerId: string,
+    ip?: string,
+  ): Promise<{ updated: Document; recipientCount: number }> {
+    const documentId = document.id;
     const webOrigin = this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
 
     const result = await this.prisma.$transaction(async (tx) => {
@@ -255,14 +295,7 @@ export class DocumentsService {
     }
     await this.notifications.enqueueMany(jobs);
 
-    // Just sent: every recipient's request was created PENDING, so all of them
-    // are still-pending signers.
-    return this.toSummary(
-      result.updated,
-      result.createdRequests.length,
-      result.createdRequests.length,
-      new Date(),
-    );
+    return { updated: result.updated, recipientCount: result.createdRequests.length };
   }
 
   /** Dashboard list for the signed-in sender, newest first. */
@@ -488,6 +521,12 @@ export class DocumentsService {
       pageCount: document.pageCount,
       recipientCount,
       sentAt: document.sentAt ? document.sentAt.toISOString() : null,
+      // When the contract is queued for a future send its scheduled instant is
+      // surfaced (ISO) so the dashboard can show "예약됨 · {일시}"; null whenever
+      // there is no pending schedule (any non-SCHEDULED status).
+      scheduledSendAt: document.scheduledSendAt
+        ? document.scheduledSendAt.toISOString()
+        : null,
       createdAt: document.createdAt.toISOString(),
       completedAt: document.completedAt ? document.completedAt.toISOString() : null,
       // The dashboard download area only appears once post-processing has stored
@@ -519,6 +558,12 @@ export interface DocumentSummary {
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;
+  /**
+   * ISO instant the contract is queued to auto-send, present only while the
+   * document is SCHEDULED; `null` for every other status. Lets the dashboard
+   * render the reservation time alongside the 예약됨 status.
+   */
+  scheduledSendAt: string | null;
   createdAt: string;
   /** ISO completion timestamp once the contract is fully signed (else null). */
   completedAt: string | null;

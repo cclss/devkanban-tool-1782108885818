@@ -49,6 +49,7 @@ export enum Urgency {
  */
 export enum NextAction {
   SEND_DRAFT = 'SEND_DRAFT',
+  MANAGE_SCHEDULE = 'MANAGE_SCHEDULE',
   AWAITING_SIGN = 'AWAITING_SIGN',
   DOWNLOAD = 'DOWNLOAD',
 }
@@ -93,15 +94,18 @@ export function deriveUrgency(
 
 /**
  * Derive the owner's next action purely from status:
- *   DRAFT       → SEND_DRAFT     (not sent yet)
- *   IN_PROGRESS → AWAITING_SIGN  (out for signature)
- *   COMPLETED   → DOWNLOAD       (grab the signed artifacts)
- *   CANCELLED   → null           (no actionable next step)
+ *   DRAFT       → SEND_DRAFT       (not sent yet)
+ *   SCHEDULED   → MANAGE_SCHEDULE  (queued for a future send — review/change/cancel)
+ *   IN_PROGRESS → AWAITING_SIGN    (out for signature)
+ *   COMPLETED   → DOWNLOAD         (grab the signed artifacts)
+ *   CANCELLED   → null             (no actionable next step)
  */
 export function deriveNextAction(status: DocumentStatus): NextAction | null {
   switch (status) {
     case DocumentStatus.DRAFT:
       return NextAction.SEND_DRAFT;
+    case DocumentStatus.SCHEDULED:
+      return NextAction.MANAGE_SCHEDULE;
     case DocumentStatus.IN_PROGRESS:
       return NextAction.AWAITING_SIGN;
     case DocumentStatus.COMPLETED:
