@@ -7,13 +7,19 @@
  * field's local value, aggregates validity, and provides a save/cancel action
  * bar (save enabled only when there's a valid change to keep).
  *
- * Persistence (real, this grain): on mount it loads `GET /branding` to seed the
- * current 대표 색상 and whether a logo/favicon is already set. On save it uploads
- * any newly picked logo/favicon (`POST /branding/logo|favicon`), persists the
- * color (`PATCH /branding`), then calls the global runtime's `refresh()` so the
- * header logo, browser-tab favicon, and brand color update for every end user
- * immediately — no reload. Upload/save failures surface inline as the server's
- * `ApiError` copy. Cancel reverts the fields to the last saved baseline.
+ * Persistence (real): on mount it loads `GET /branding` to seed the current 대표
+ * 색상. The already-stored logo/favicon are previewed as real thumbnails by each
+ * ImageUploader — the form feeds the runtime's current asset URLs (already `?v=`
+ * versioned by the API) as `currentUrl`, so a saved asset shows without a new
+ * pick and an unset one falls back to the empty state. On save it uploads any
+ * newly picked logo/favicon (`POST /branding/logo|favicon`), persists the color
+ * (`PATCH /branding`), then calls the global runtime's `refresh()` so the header
+ * logo, browser-tab favicon, and brand color update for every end user
+ * immediately — no reload. Because `refresh()` re-fetches into the runtime, the
+ * uploaders' `currentUrl` swaps to the freshly versioned asset URL the moment the
+ * save lands (the picked file is cleared, so the thumbnail is the stored one).
+ * Upload/save failures surface inline as the server's `ApiError` copy. Cancel
+ * reverts the fields to the last saved baseline.
  *
  * All chrome reuses existing `globals.css` tokens; no new colors, spacing, or
  * radii. The child controls own their own inline validation and only ever
@@ -47,26 +53,24 @@ function readBrandPrimary(): string {
 }
 
 export function BrandingForm() {
-  // The global runtime's refresh() re-fetches branding and re-applies it across
-  // the whole app (header logo · favicon · brand color) the moment we save.
-  const { refresh } = useBranding();
+  // The global runtime holds the branding currently in force (absolute, `?v=`
+  // versioned asset URLs). `refresh()` re-fetches and re-applies it across the
+  // whole app (header logo · favicon · brand color) the moment we save, and the
+  // uploaders read `branding.logoUrl`/`faviconUrl` as their saved-asset preview.
+  const { branding, refresh } = useBranding();
 
   // `baseline` is the last-saved state; `values` is what's on screen. Dirtiness
   // and cancel both compare against the baseline.
   const [baseline, setBaseline] = React.useState<BrandingValues>(EMPTY);
   const [values, setValues] = React.useState<BrandingValues>(EMPTY);
-  // Whether a logo/favicon is already persisted — surfaced as an uploader hint so
-  // the admin knows a re-upload replaces the current one (the control is
-  // file-only, so we don't preview the stored asset here).
-  const [hasLogo, setHasLogo] = React.useState(false);
-  const [hasFavicon, setHasFavicon] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  // Seed from the persisted branding: current 대표 색상 + logo/favicon presence.
-  // Fall back to the live `--brand-primary` token when the color is unset (or the
-  // load fails) so the swatch/preview open on the real current color, not empty.
+  // Seed the current 대표 색상 from the persisted branding. Fall back to the live
+  // `--brand-primary` token when the color is unset (or the load fails) so the
+  // swatch/preview open on the real current color, not empty. The logo/favicon
+  // thumbnails don't need seeding here — they come from the runtime's `branding`.
   React.useEffect(() => {
     let active = true;
     const seedColor = (raw: string | null) => {
@@ -77,10 +81,7 @@ export function BrandingForm() {
     };
     fetchBranding()
       .then((b) => {
-        if (!active) return;
-        setHasLogo(Boolean(b.logoUrl));
-        setHasFavicon(Boolean(b.faviconUrl));
-        seedColor(b.brandColor);
+        if (active) seedColor(b.brandColor);
       })
       .catch(() => {
         if (active) seedColor(null);
@@ -121,9 +122,8 @@ export function BrandingForm() {
       // favicon, and brand color update for every end user with no reload.
       await refresh();
       // New baseline: the color is persisted; the picked files are now stored, so
-      // clear them (existence is tracked separately) and the form returns clean.
-      if (values.logo) setHasLogo(true);
-      if (values.favicon) setHasFavicon(true);
+      // clear them and the form returns clean. The uploaders' saved-asset preview
+      // now reads the freshly versioned URL from the refreshed runtime branding.
       setBaseline({ logo: null, favicon: null, color: values.color });
       setValues((v) => ({ ...v, logo: null, favicon: null }));
       setSaved(true);
@@ -147,15 +147,15 @@ export function BrandingForm() {
         <ImageUploader
           id="branding-logo"
           label={BRANDING_FORM_COPY.logoLabel}
-          hint={hasLogo ? BRANDING_FORM_COPY.logoSetHint : undefined}
           value={values.logo}
+          currentUrl={branding.logoUrl}
           onChange={(file) => update({ logo: file })}
         />
         <ImageUploader
           id="branding-favicon"
           label={BRANDING_FORM_COPY.faviconLabel}
-          hint={hasFavicon ? BRANDING_FORM_COPY.faviconSetHint : undefined}
           value={values.favicon}
+          currentUrl={branding.faviconUrl}
           onChange={(file) => update({ favicon: file })}
         />
         <BrandColorPicker
