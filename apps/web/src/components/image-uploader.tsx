@@ -4,11 +4,15 @@
  * ImageUploader — the reusable branding image control (로고 · 파비콘 공용).
  *
  * A controlled, presentation-only component: the parent owns the picked `File`
- * (`value` / `onChange`), and this renders one of three states — default
- * (drop / pick), preview (thumbnail + filename + remove/replace), and an inline
- * error when a pick violates the format/size constraints. There is no network
- * here; validation and the local object-URL preview are all that happen (the
- * actual upload lands with the branding form, a later grain).
+ * (`value` / `onChange`) and, optionally, the URL of an already-stored asset
+ * (`currentUrl`). It renders one of three states — default (drop / pick), preview
+ * (a thumbnail card), and an inline error when a pick violates the format/size
+ * constraints. The preview card covers two cases: a freshly picked file (blob
+ * thumbnail + filename/size) and, when nothing is picked but an asset is stored,
+ * that saved asset's thumbnail. Precedence is picked file > saved asset > empty
+ * (see `resolveImageUploaderView`). There is no network here; validation and the
+ * local object-URL preview are all that happen (upload/remove persistence is the
+ * branding form's job).
  *
  * Visuals reuse the wizard drop-zone treatment (components/wizard/upload-step)
  * and the danger tokens the Input primitive uses for its invalid state — no new
@@ -24,6 +28,7 @@ import {
   IMAGE_CONSTRAINT_HINT,
   IMAGE_ACCEPT_ATTR,
 } from '@/lib/image-validation';
+import { resolveImageUploaderView } from '@/lib/image-uploader-view';
 
 export interface ImageUploaderProps {
   /** Ties the field label to the file input. Must be unique per uploader. */
@@ -34,8 +39,20 @@ export interface ImageUploaderProps {
   hint?: React.ReactNode;
   /** The currently held file, or `null` when nothing is selected. */
   value: File | null;
+  /**
+   * URL of the already-stored asset, shown as a thumbnail when no new file is
+   * picked. `null`/`undefined` (or empty) means nothing is stored → empty state.
+   */
+  currentUrl?: string | null;
   /** Called with a valid file on pick, or `null` on remove. */
   onChange: (file: File | null) => void;
+  /**
+   * Optional: remove the stored asset. When provided, the saved-asset preview
+   * shows a `제거` action that calls this. Persistence lives in the parent, so
+   * without a handler the network-free control offers replace-only (no dead
+   * button that cannot actually clear a server asset).
+   */
+  onClearCurrent?: () => void;
   className?: string;
 }
 
@@ -44,7 +61,9 @@ export function ImageUploader({
   label,
   hint,
   value,
+  currentUrl,
   onChange,
+  onClearCurrent,
   className,
 }: ImageUploaderProps) {
   const inputRef = React.useRef<HTMLInputElement>(null);
@@ -101,6 +120,13 @@ export function ImageUploader({
 
   const labelText = typeof label === 'string' ? label : undefined;
 
+  // Precedence: newly picked file > stored asset > empty drop zone.
+  const view = resolveImageUploaderView({
+    hasFile: Boolean(value),
+    previewUrl,
+    currentUrl,
+  });
+
   return (
     <Field
       label={label}
@@ -120,31 +146,56 @@ export function ImageUploader({
         onChange={(e) => handleFiles(e.target.files)}
       />
 
-      {value && previewUrl ? (
-        <div
-          className={cn(
-            'flex items-center gap-sm rounded-lg border bg-surface p-md',
-            error ? 'border-danger' : 'border-border',
-          )}
-        >
-          <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-surface-muted">
-            {/* Filename beside it carries the accessible name; the thumb is decorative. */}
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewUrl} alt="" className="h-full w-full object-contain" />
-          </span>
-          <div className="flex min-w-0 flex-1 flex-col gap-2xs">
-            <span className="truncate text-sm font-semibold text-foreground">{value.name}</span>
-            <span className="text-xs text-foreground-subtle">{formatImageSize(value.size)}</span>
-          </div>
-          <div className="flex shrink-0 items-center gap-2xs">
-            <Button variant="ghost" size="sm" onClick={triggerPick}>
-              다른 파일
-            </Button>
-            <Button variant="ghost" size="sm" onClick={handleRemove}>
-              제거
-            </Button>
-          </div>
-        </div>
+      {view.kind === 'file' ? (
+        <PreviewCard
+          thumbSrc={view.previewUrl}
+          error={error}
+          meta={
+            <>
+              <span className="truncate text-sm font-semibold text-foreground">{value?.name}</span>
+              <span className="text-xs text-foreground-subtle">
+                {value ? formatImageSize(value.size) : null}
+              </span>
+            </>
+          }
+          actions={
+            <>
+              <Button variant="ghost" size="sm" onClick={triggerPick}>
+                다른 파일
+              </Button>
+              <Button variant="ghost" size="sm" onClick={handleRemove}>
+                제거
+              </Button>
+            </>
+          }
+        />
+      ) : view.kind === 'saved' ? (
+        <PreviewCard
+          thumbSrc={view.url}
+          error={error}
+          // No filename for a stored asset — a descriptive label carries the
+          // accessible name instead, so the thumbnail stays decorative.
+          meta={
+            <>
+              <span className="truncate text-sm font-semibold text-foreground">
+                {labelText ? `현재 설정된 ${labelText}` : '현재 설정된 이미지'}
+              </span>
+              <span className="text-xs text-foreground-subtle">새로 올리면 교체돼요</span>
+            </>
+          }
+          actions={
+            <>
+              <Button variant="ghost" size="sm" onClick={triggerPick}>
+                다른 파일
+              </Button>
+              {onClearCurrent ? (
+                <Button variant="ghost" size="sm" onClick={onClearCurrent}>
+                  제거
+                </Button>
+              ) : null}
+            </>
+          }
+        />
       ) : (
         <label
           htmlFor={id}
@@ -191,6 +242,42 @@ export function ImageUploader({
         </label>
       )}
     </Field>
+  );
+}
+
+/**
+ * Shared preview card for both preview states (picked file · stored asset). Same
+ * container, thumbnail frame, meta column, and action slot — only the thumbnail
+ * source, meta text, and actions differ. Reusing one shell keeps the two states
+ * pixel-identical (same tokens, no drift) and the img decorative (`alt=""`): the
+ * meta column always carries the accessible name.
+ */
+function PreviewCard({
+  thumbSrc,
+  error,
+  meta,
+  actions,
+}: {
+  thumbSrc: string;
+  error: string | null;
+  meta: React.ReactNode;
+  actions: React.ReactNode;
+}) {
+  return (
+    <div
+      className={cn(
+        'flex items-center gap-sm rounded-lg border bg-surface p-md',
+        error ? 'border-danger' : 'border-border',
+      )}
+    >
+      <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-surface-muted">
+        {/* Decorative: the meta column beside it carries the accessible name. */}
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img src={thumbSrc} alt="" className="h-full w-full object-contain" />
+      </span>
+      <div className="flex min-w-0 flex-1 flex-col gap-2xs">{meta}</div>
+      <div className="flex shrink-0 items-center gap-2xs">{actions}</div>
+    </div>
   );
 }
 
