@@ -34,6 +34,13 @@ export interface BrandColorPickerProps {
   label?: React.ReactNode;
   /** Constraint hint under the field. Defaults to the settings copy. */
   hint?: React.ReactNode;
+  /**
+   * Render the built-in inline preview sample. Defaults to `true` for standalone
+   * use. The branding form sets this `false`: the live re-skin now lives in the
+   * shared right-hand `BrandingPreview` panel, so the inline sample would just
+   * duplicate it — the control keeps only the swatch + HEX input.
+   */
+  showPreview?: boolean;
   className?: string;
 }
 
@@ -43,6 +50,7 @@ export function BrandColorPicker({
   onChange,
   label,
   hint,
+  showPreview = true,
   className,
 }: BrandColorPickerProps) {
   const swatchId = `${id}-swatch`;
@@ -135,27 +143,30 @@ export function BrandColorPicker({
       {/* Live preview: a wrapper carrying the `--brand-*` hook, so the sample
           primary elements re-skin to `active` exactly as they will service-wide.
           Purely illustrative, so it's hidden from assistive tech — the field's
-          own value already conveys the chosen color. */}
-      <div className="mt-xs flex flex-col gap-xs">
-        <span className="text-xs font-semibold text-foreground-muted">
-          {BRAND_COLOR_COPY.previewLabel}
-        </span>
-        <div
-          aria-hidden="true"
-          style={brandStyle(active)}
-          className="flex flex-wrap items-center gap-md rounded-lg border border-border bg-surface p-md"
-        >
-          <Button type="button" variant="primary" size="sm" tabIndex={-1}>
-            {BRAND_COLOR_COPY.previewButton}
-          </Button>
-          <span className="text-sm font-semibold text-primary underline underline-offset-2">
-            {BRAND_COLOR_COPY.previewLink}
+          own value already conveys the chosen color. Suppressed when the shared
+          BrandingPreview panel owns the live re-skin (`showPreview={false}`). */}
+      {showPreview ? (
+        <div className="mt-xs flex flex-col gap-xs">
+          <span className="text-xs font-semibold text-foreground-muted">
+            {BRAND_COLOR_COPY.previewLabel}
           </span>
-          <span className="ml-auto inline-flex items-center rounded-full bg-primary-subtle px-md py-2xs text-xs font-semibold uppercase text-primary">
-            {active}
-          </span>
+          <div
+            aria-hidden="true"
+            style={brandStyle(active)}
+            className="flex flex-wrap items-center gap-md rounded-lg border border-border bg-surface p-md"
+          >
+            <Button type="button" variant="primary" size="sm" tabIndex={-1}>
+              {BRAND_COLOR_COPY.previewButton}
+            </Button>
+            <span className="text-sm font-semibold text-primary underline underline-offset-2">
+              {BRAND_COLOR_COPY.previewLink}
+            </span>
+            <span className="ml-auto inline-flex items-center rounded-full bg-primary-subtle px-md py-2xs text-xs font-semibold uppercase text-primary">
+              {active}
+            </span>
+          </div>
         </div>
-      </div>
+      ) : null}
     </Field>
   );
 }

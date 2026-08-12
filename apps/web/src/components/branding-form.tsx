@@ -7,6 +7,14 @@
  * field's local value, aggregates validity, and provides a save/cancel action
  * bar (save enabled only when there's a valid change to keep).
  *
+ * Layout: on wide screens (`lg` and up) it splits into two columns — the settings
+ * inputs on the left, the live `BrandingPreview` panel on the right (sticky, so it
+ * stays in view while the inputs scroll). Below `lg` the two collapse into a single
+ * vertical stack (inputs first, preview after). The preview reads the on-screen
+ * values, so every pick/keystroke — logo · favicon files and the 대표 색상 — updates
+ * it live; the color picker's own inline sample is therefore suppressed
+ * (`showPreview={false}`) to avoid duplicating the panel.
+ *
  * Persistence (real): on mount it loads `GET /branding` to seed the current 대표
  * 색상. The already-stored logo/favicon are previewed as real thumbnails by each
  * ImageUploader — the form feeds the runtime's current asset URLs (already `?v=`
@@ -31,6 +39,7 @@ import * as React from 'react';
 import { Button } from '@repo/ui';
 import { ImageUploader } from './image-uploader';
 import { BrandColorPicker } from './brand-color-picker';
+import { BrandingPreview } from './branding-preview';
 import { useBranding } from './branding-provider';
 import { isValidHex } from '@/lib/branding';
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
@@ -143,26 +152,48 @@ export function BrandingForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-lg" noValidate>
-      <div className="flex flex-col gap-lg">
-        <ImageUploader
-          id="branding-logo"
-          label={BRANDING_FORM_COPY.logoLabel}
-          value={values.logo}
-          currentUrl={branding.logoUrl}
-          onChange={(file) => update({ logo: file })}
-        />
-        <ImageUploader
-          id="branding-favicon"
-          label={BRANDING_FORM_COPY.faviconLabel}
-          value={values.favicon}
-          currentUrl={branding.faviconUrl}
-          onChange={(file) => update({ favicon: file })}
-        />
-        <BrandColorPicker
-          id="branding-color"
-          value={values.color}
-          onChange={(hex) => update({ color: hex })}
-        />
+      {/* Two-column split on wide screens (left = settings inputs, right = live
+          preview), collapsing to a single vertical stack below `lg`. `items-start`
+          keeps the columns top-aligned so the preview can stick; on the stacked
+          layout the preview simply follows the inputs. */}
+      <div className="grid grid-cols-1 gap-lg lg:grid-cols-2 lg:items-start lg:gap-xl">
+        {/* Left: the settings inputs only — logo · favicon uploaders and the
+            대표 색상 picker (its inline sample is off; the panel owns the preview). */}
+        <div className="flex flex-col gap-lg">
+          <ImageUploader
+            id="branding-logo"
+            label={BRANDING_FORM_COPY.logoLabel}
+            value={values.logo}
+            currentUrl={branding.logoUrl}
+            onChange={(file) => update({ logo: file })}
+          />
+          <ImageUploader
+            id="branding-favicon"
+            label={BRANDING_FORM_COPY.faviconLabel}
+            value={values.favicon}
+            currentUrl={branding.faviconUrl}
+            onChange={(file) => update({ favicon: file })}
+          />
+          <BrandColorPicker
+            id="branding-color"
+            value={values.color}
+            onChange={(hex) => update({ color: hex })}
+            showPreview={false}
+          />
+        </div>
+
+        {/* Right: the live preview panel. Sticks below the header while the left
+            column scrolls on wide screens; on the stacked layout it flows inline.
+            Fed the on-screen values so every keystroke/pick updates it at once. */}
+        <div className="lg:sticky lg:top-xl">
+          <BrandingPreview
+            logoFile={values.logo}
+            faviconFile={values.favicon}
+            logoUrl={branding.logoUrl}
+            faviconUrl={branding.faviconUrl}
+            color={values.color}
+          />
+        </div>
       </div>
 
       {error ? (
