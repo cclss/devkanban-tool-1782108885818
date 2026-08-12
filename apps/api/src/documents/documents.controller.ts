@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Ip,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -28,6 +30,7 @@ import { DocumentsService } from './documents.service';
 import {
   CreateDocumentDto,
   PresignDto,
+  RescheduleDto,
   SaveFieldsDto,
   SendContractDto,
 } from './dto/documents.dto';
@@ -150,6 +153,29 @@ export class DocumentsController {
     @Ip() ip: string,
   ) {
     return this.documents.send(user.id, id, dto, ip);
+  }
+
+  /** Move a pending reservation to a new future instant (예약 변경). */
+  @Patch(':id/schedule')
+  @HttpCode(HttpStatus.OK)
+  reschedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: RescheduleDto,
+    @Ip() ip: string,
+  ) {
+    return this.documents.reschedule(user.id, id, dto, ip);
+  }
+
+  /** Cancel a pending reservation → 작성 중(DRAFT)으로 복귀 (예약 취소). */
+  @Delete(':id/schedule')
+  @HttpCode(HttpStatus.OK)
+  cancelSchedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Ip() ip: string,
+  ) {
+    return this.documents.cancelSchedule(user.id, id, ip);
   }
 }
 

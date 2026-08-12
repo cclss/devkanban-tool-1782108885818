@@ -6,6 +6,7 @@ import {
   IsEmail,
   IsEnum,
   IsInt,
+  IsNotEmpty,
   IsNumber,
   IsOptional,
   IsString,
@@ -124,4 +125,18 @@ export class SendContractDto {
   @IsOptional()
   @IsString()
   scheduledSendAt?: string;
+}
+
+/**
+ * Change the reservation instant of an already-SCHEDULED contract
+ * (`PATCH /documents/:id/schedule`). Unlike `SendContractDto.scheduledSendAt`
+ * the instant is REQUIRED here — a reschedule with no target time is meaningless.
+ * As with the send path, the value's format and "must be in the future" rule are
+ * enforced in the service (reusing `resolveScheduledSendAt`) so the rejection copy
+ * can follow the design-spec tone; here we only require a non-empty string.
+ */
+export class RescheduleDto {
+  @IsString()
+  @IsNotEmpty()
+  scheduledSendAt!: string;
 }

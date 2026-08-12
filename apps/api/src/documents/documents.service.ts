@@ -297,6 +297,134 @@ export class DocumentsService implements ScheduledSendDispatcher {
   }
 
   /**
+   * Change the reservation instant of an already-SCHEDULED contract
+   * (`PATCH /documents/:id/schedule`). Owner-gated and SCHEDULED-only: only a
+   * pending reservation can be moved. The new instant is validated (future, ISO)
+   * with the same `resolveScheduledSendAt` used by `send`, so the rejection copy
+   * matches.
+   *
+   * The recipients captured at the original schedule time travel with the job
+   * (Redis-durable, no DB column), so we `peek()` the pending job to recover them,
+   * remove the old job, register a fresh delayed job under the new delay, then
+   * persist the new instant + job id.
+   *
+   * Ordering — remove old → schedule new → persist — is chosen so a crash never
+   * lets the contract auto-send at the *old* (possibly earlier) time: once the old
+   * job is gone, the worst case is a briefly stranded SCHEDULED row with no job
+   * (recoverable via cancel/reschedule), never a wrongful early send. If the DB
+   * write fails after the new job is registered, that job fires on the still-
+   * SCHEDULED row at the new time and dispatches correctly (the stale DB instant is
+   * cosmetic). No dispatch/notifications happen here — recipients still hear
+   * nothing until the job fires.
+   */
+  async reschedule(
+    ownerId: string,
+    documentId: string,
+    dto: { scheduledSendAt: string },
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.SCHEDULED) {
+      throw new BadRequestException(MESSAGES.send.notScheduled);
+    }
+
+    const now = new Date();
+    const scheduledSendAt = this.resolveScheduledSendAt(dto.scheduledSendAt, now);
+    // The DTO makes the instant required, so `resolveScheduledSendAt` only returns
+    // null for an absent value that class-validation already rejects; guard anyway
+    // so a valid future Date is guaranteed below.
+    if (!scheduledSendAt) {
+      throw new BadRequestException(MESSAGES.send.scheduledInvalid);
+    }
+
+    const previousJobId = document.scheduledJobId;
+    // Recover the recipients from the pending job before removing it. If the job is
+    // gone (e.g. a non-durable fallback timer lost to a restart) we cannot rebuild
+    // the recipient list — steer the sender to cancel and re-create the schedule.
+    const payload = previousJobId
+      ? await this.scheduledSend.peek(previousJobId)
+      : null;
+    if (!payload) {
+      throw new BadRequestException(MESSAGES.send.scheduleUnavailable);
+    }
+
+    if (previousJobId) {
+      await this.scheduledSend.remove(previousJobId);
+    }
+
+    const delayMs = scheduledSendAt.getTime() - now.getTime();
+    const jobId = await this.scheduledSend.schedule(documentId, delayMs, payload);
+
+    const updated = await this.prisma.document.update({
+      where: { id: documentId },
+      data: { scheduledSendAt, scheduledJobId: jobId },
+    });
+
+    await this.writeAudit({
+      documentId,
+      actorId: ownerId,
+      action: 'CONTRACT_RESCHEDULED',
+      ip,
+      metadata: {
+        scheduledSendAt: scheduledSendAt.toISOString(),
+        scheduledJobId: jobId,
+        previousJobId,
+        recipientCount: payload.recipients.length,
+      },
+    });
+
+    return this.toSummary(updated, payload.recipients.length, 0, now);
+  }
+
+  /**
+   * Cancel a pending reservation (`DELETE /documents/:id/schedule`): return the
+   * contract to DRAFT, clear the reservation columns, and remove the delayed job.
+   * Owner-gated and SCHEDULED-only.
+   *
+   * Ordering — persist DRAFT → remove job — is chosen so the send can never slip
+   * through after a cancel: the status flips to DRAFT first, so even if the job
+   * removal fails (or a fired job races the removal), `dispatchScheduled`'s
+   * SCHEDULED-only guard no-ops it. The leftover job, if any, is harmless.
+   */
+  async cancelSchedule(
+    ownerId: string,
+    documentId: string,
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.SCHEDULED) {
+      throw new BadRequestException(MESSAGES.send.notScheduled);
+    }
+
+    const now = new Date();
+    const jobId = document.scheduledJobId;
+
+    const updated = await this.prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: DocumentStatus.DRAFT,
+        scheduledSendAt: null,
+        scheduledJobId: null,
+      },
+    });
+
+    if (jobId) {
+      await this.scheduledSend.remove(jobId);
+    }
+
+    await this.writeAudit({
+      documentId,
+      actorId: ownerId,
+      action: 'CONTRACT_SCHEDULE_CANCELLED',
+      ip,
+      metadata: { previousJobId: jobId },
+    });
+
+    // Back to DRAFT: no queued send, no pending signers.
+    return this.toSummary(updated, 0, 0, now);
+  }
+
+  /**
    * The actual dispatch of a contract, factored out of `send` so both the
    * immediate-send path and the future scheduled-send worker can reuse the exact
    * same mechanics: create one SignRequest per recipient, map fields to

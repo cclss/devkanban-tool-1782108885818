@@ -482,6 +482,202 @@ describe('DocumentsService.send — immediate vs scheduled branch', () => {
   });
 });
 
+/**
+ * Reschedule (PATCH) + cancel (DELETE) of a pending reservation (grain-4).
+ *
+ * PATCH moves the reservation: the recipients captured at schedule time are
+ * recovered from the pending job (`peek`), the old job is removed, a fresh delayed
+ * job is registered under the new delay, and the document's `scheduledSendAt` +
+ * `scheduledJobId` are updated (still SCHEDULED, no dispatch/notifications).
+ * DELETE returns the contract to DRAFT, clears the reservation columns, and
+ * removes the job. Both are owner-gated and SCHEDULED-only.
+ */
+describe('DocumentsService.reschedule / cancelSchedule — manage a reservation', () => {
+  const PAYLOAD = {
+    ownerId: 'owner-1',
+    recipients: [{ email: 'a@ex.com', name: '갑', order: 0, index: 0 }],
+    ip: '10.0.0.1',
+  };
+
+  const SCHEDULED_DOC = {
+    id: 'doc-1',
+    ownerId: 'owner-1',
+    title: '계약서',
+    storageKey: 'owner-1/계약서.pdf',
+    pageCount: 1,
+    status: DocumentStatus.SCHEDULED,
+    sentAt: null,
+    scheduledSendAt: new Date('2026-08-20T09:00:00.000Z'),
+    scheduledJobId: 'job-old',
+    createdAt: new Date('2026-08-12T00:00:00.000Z'),
+    completedAt: null,
+    signedStorageKey: null,
+    certificateStorageKey: null,
+  };
+
+  function makeService(docOverrides: Record<string, unknown> = {}) {
+    const doc = { ...SCHEDULED_DOC, ...docOverrides };
+    const prisma = {
+      document: {
+        findUnique: jest.fn(async () => doc),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          ...doc,
+          ...data,
+        })),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const scheduledSend = {
+      schedule: jest.fn(async () => 'job-new'),
+      remove: jest.fn(async () => undefined),
+      peek: jest.fn(async () => PAYLOAD),
+    };
+    const service = new DocumentsService(
+      prisma as never,
+      {} as never,
+      {} as never,
+      { get: jest.fn(() => undefined) } as never,
+      {} as never,
+      scheduledSend as never,
+    );
+    return { service, prisma, scheduledSend };
+  }
+
+  function futureIso(msAhead = 2 * 60 * 60 * 1000): string {
+    return new Date(Date.now() + msAhead).toISOString();
+  }
+
+  it('re-registers the job at the new instant and updates the reservation columns', async () => {
+    const { service, prisma, scheduledSend } = makeService();
+    const when = futureIso();
+
+    const summary = await service.reschedule('owner-1', 'doc-1', {
+      scheduledSendAt: when,
+    });
+
+    // Recovered the pending job's recipients, removed the old job, then scheduled
+    // a fresh one — in that order.
+    expect(scheduledSend.peek).toHaveBeenCalledWith('job-old');
+    expect(scheduledSend.remove).toHaveBeenCalledWith('job-old');
+    const [docId, delayMs, payload] = scheduledSend.schedule.mock
+      .calls[0] as unknown as [string, number, typeof PAYLOAD];
+    expect(docId).toBe('doc-1');
+    expect(delayMs).toBeGreaterThan(0);
+    // The recovered recipients travel to the new job untouched.
+    expect(payload.recipients).toEqual(PAYLOAD.recipients);
+
+    // The reservation instant + new job id were persisted; status stays SCHEDULED.
+    expect(prisma.document.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          scheduledJobId: 'job-new',
+          scheduledSendAt: expect.any(Date),
+        }),
+      }),
+    );
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'CONTRACT_RESCHEDULED' }),
+      }),
+    );
+    expect(summary.status).toBe(DocumentStatus.SCHEDULED);
+    expect(summary.scheduledSendAt).toBe(new Date(when).toISOString());
+  });
+
+  it('rejects a reschedule on a non-SCHEDULED document, touching no job', async () => {
+    const { service, prisma, scheduledSend } = makeService({
+      status: DocumentStatus.DRAFT,
+    });
+
+    await expect(
+      service.reschedule('owner-1', 'doc-1', { scheduledSendAt: futureIso() }),
+    ).rejects.toThrow(MESSAGES.send.notScheduled);
+    expect(scheduledSend.remove).not.toHaveBeenCalled();
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+    expect(prisma.document.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a reschedule from a non-owner (forbidden)', async () => {
+    const { service, scheduledSend } = makeService();
+
+    await expect(
+      service.reschedule('intruder', 'doc-1', { scheduledSendAt: futureIso() }),
+    ).rejects.toThrow(MESSAGES.document.forbidden);
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+  });
+
+  it('rejects a past reschedule instant with the toned copy, scheduling nothing', async () => {
+    const { service, prisma, scheduledSend } = makeService();
+    const past = new Date(Date.now() - 60 * 1000).toISOString();
+
+    await expect(
+      service.reschedule('owner-1', 'doc-1', { scheduledSendAt: past }),
+    ).rejects.toThrow(MESSAGES.send.scheduledInPast);
+    expect(scheduledSend.remove).not.toHaveBeenCalled();
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+    expect(prisma.document.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the pending job is gone (recipients unrecoverable)', async () => {
+    const { service, prisma, scheduledSend } = makeService();
+    scheduledSend.peek.mockResolvedValueOnce(null as never);
+
+    await expect(
+      service.reschedule('owner-1', 'doc-1', { scheduledSendAt: futureIso() }),
+    ).rejects.toThrow(MESSAGES.send.scheduleUnavailable);
+    // Nothing was removed or re-scheduled since we could not rebuild the job.
+    expect(scheduledSend.remove).not.toHaveBeenCalled();
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+    expect(prisma.document.update).not.toHaveBeenCalled();
+  });
+
+  it('cancels: DRAFT + null reservation columns + job removed', async () => {
+    const { service, prisma, scheduledSend } = makeService();
+
+    const summary = await service.cancelSchedule('owner-1', 'doc-1');
+
+    // Persisted DRAFT + cleared columns BEFORE removing the job (fail-safe order).
+    expect(prisma.document.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: DocumentStatus.DRAFT,
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        }),
+      }),
+    );
+    expect(scheduledSend.remove).toHaveBeenCalledWith('job-old');
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'CONTRACT_SCHEDULE_CANCELLED' }),
+      }),
+    );
+    expect(summary.status).toBe(DocumentStatus.DRAFT);
+    expect(summary.scheduledSendAt).toBeNull();
+  });
+
+  it('rejects a cancel on a non-SCHEDULED document, touching no job', async () => {
+    const { service, prisma, scheduledSend } = makeService({
+      status: DocumentStatus.IN_PROGRESS,
+    });
+
+    await expect(service.cancelSchedule('owner-1', 'doc-1')).rejects.toThrow(
+      MESSAGES.send.notScheduled,
+    );
+    expect(scheduledSend.remove).not.toHaveBeenCalled();
+    expect(prisma.document.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects a cancel from a non-owner (forbidden)', async () => {
+    const { service, scheduledSend } = makeService();
+
+    await expect(service.cancelSchedule('intruder', 'doc-1')).rejects.toThrow(
+      MESSAGES.document.forbidden,
+    );
+    expect(scheduledSend.remove).not.toHaveBeenCalled();
+  });
+});
+
 describe('DocumentsService.notifyScheduledSendFailure — sender alert', () => {
   it('enqueues an email + alimtalk failure notice to the sender', async () => {
     const notifications = { enqueueMany: jest.fn(async () => undefined) };

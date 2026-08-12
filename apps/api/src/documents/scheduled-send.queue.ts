@@ -45,9 +45,14 @@ export class ScheduledSendQueue implements OnModuleInit, OnModuleDestroy {
   private worker: Worker | null = null;
   /**
    * In-memory fallback timers (REDIS_URL unset), keyed by the synthetic job id
-   * returned from `schedule()` so `remove()` can cancel them.
+   * returned from `schedule()` so `remove()` can cancel them. The job payload is
+   * kept alongside the timer so `peek()` can recover the recipients for a
+   * reschedule, exactly as `Queue.getJob(id).data` does on the durable path.
    */
-  private readonly timers = new Map<string, NodeJS.Timeout>();
+  private readonly timers = new Map<
+    string,
+    { timer: NodeJS.Timeout; data: ScheduledSendJobData }
+  >();
 
   constructor(
     private readonly config: ConfigService,
@@ -100,7 +105,7 @@ export class ScheduledSendQueue implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy(): Promise<void> {
-    for (const timer of this.timers.values()) clearTimeout(timer);
+    for (const { timer } of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     await this.worker?.close().catch(() => undefined);
     await this.queue?.close().catch(() => undefined);
@@ -138,14 +143,46 @@ export class ScheduledSendQueue implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
+   * Peek the payload of a pending scheduled-send job without removing it, so a
+   * reschedule can re-register the same recipients under a new delay. Returns the
+   * payload (recipients/owner/ip) minus the document id, or `null` when the job is
+   * already gone (fired/removed, or a non-durable fallback timer lost to a
+   * restart). Mirrors `remove()`: checks the in-memory fallback first, then the
+   * durable queue.
+   */
+  async peek(
+    jobId: string,
+  ): Promise<Omit<ScheduledSendJobData, 'documentId'> | null> {
+    const entry = this.timers.get(jobId);
+    if (entry) {
+      const { documentId: _documentId, ...rest } = entry.data;
+      return rest;
+    }
+
+    if (this.queue) {
+      try {
+        const job = await this.queue.getJob(jobId);
+        if (!job) return null;
+        const { documentId: _documentId, ...rest } = job.data;
+        return rest;
+      } catch (err) {
+        this.logger.warn(`예약 발송 잡 조회 실패 (jobId=${jobId}): ${String(err)}`);
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  /**
    * Remove a pending scheduled-send job by id. No-op (logged) if the job is
    * already gone — safe to call on cancel/reschedule regardless of queue state.
    */
   async remove(jobId: string): Promise<void> {
     // In-memory fallback timer?
-    const timer = this.timers.get(jobId);
-    if (timer) {
-      clearTimeout(timer);
+    const entry = this.timers.get(jobId);
+    if (entry) {
+      clearTimeout(entry.timer);
       this.timers.delete(jobId);
       return;
     }
@@ -171,7 +208,7 @@ export class ScheduledSendQueue implements OnModuleInit, OnModuleDestroy {
     }, delay);
     // A pending scheduled send must not, by itself, keep the process alive.
     timer.unref?.();
-    this.timers.set(jobId, timer);
+    this.timers.set(jobId, { timer, data });
     return jobId;
   }
 
