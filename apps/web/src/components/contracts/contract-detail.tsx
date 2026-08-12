@@ -15,14 +15,23 @@ import * as React from 'react';
 import { Card } from '@repo/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { CompletionDownload } from '@/components/completion-download';
+import { ScheduleManager } from '@/components/contracts/schedule-manager';
 import { CONTRACT_DETAIL_COPY } from '@/lib/contract-detail';
 import { downloadOwnerArtifact, type DocumentDetail } from '@/lib/documents';
 import { ShareLinksSection } from './share-links-section';
 
 const COPY = CONTRACT_DETAIL_COPY;
 
-export function ContractDetail({ document }: { document: DocumentDetail }) {
+export function ContractDetail({
+  document,
+  onChanged,
+}: {
+  document: DocumentDetail;
+  /** Re-fetch the detail after an in-place mutation (e.g. reschedule/cancel). */
+  onChanged?: () => void;
+}) {
   const completed = document.status === 'COMPLETED';
+  const scheduled = document.status === 'SCHEDULED';
 
   return (
     <div className="motion-stagger flex flex-col gap-xl">
@@ -43,6 +52,14 @@ export function ContractDetail({ document }: { document: DocumentDetail }) {
       </header>
 
       <SummaryCard document={document} />
+
+      {scheduled ? (
+        <ScheduleManager
+          documentId={document.id}
+          scheduledSendAt={document.scheduledSendAt}
+          onChanged={() => onChanged?.()}
+        />
+      ) : null}
 
       <ShareLinksSection documentId={document.id} documentTitle={document.title} />
 

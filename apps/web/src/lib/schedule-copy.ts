@@ -89,12 +89,40 @@ export const SCHEDULE_SEND_COPY = {
  * two 취소 meanings sitting side by side.
  */
 export const SCHEDULE_MANAGE_COPY = {
+  /**
+   * The reservation-management block shown on a SCHEDULED contract's detail
+   * screen: a heading and the label for the reservation-instant row (the instant
+   * itself renders separately via `formatScheduledSendAt`, so no date shape lives
+   * here). Mirrors the detail SummaryCard's dt/dd labelling.
+   */
+  section: {
+    /** Heading of the management block. */
+    title: '예약 발송',
+    /** Label of the reservation-instant row (value rendered separately). */
+    instantLabel: '예약 일시',
+  },
   /** Actions offered on a scheduled contract (detail screen / card menu). */
   action: {
     /** Open the reschedule picker. */
     reschedule: '예약 변경',
     /** Open the cancel-confirm dialog. */
     cancel: '예약 취소',
+  },
+  /**
+   * Reschedule modal — the picker dialog opened by 예약 변경, seeded with the
+   * current reservation. Its way-out button is 닫기 (not 취소) for the same reason
+   * the cancel dialog uses 닫기: this dialog is *about* the reservation, so a 취소
+   * button would read as "예약 취소" and collide with the separate cancel flow.
+   */
+  rescheduleDialog: {
+    /** Title of the picker dialog. */
+    title: '예약 일시 변경',
+    /** Confirm the new instant (a primary action). */
+    confirm: '예약 변경',
+    /** In-flight label while the new instant is being applied. */
+    rescheduling: '변경 중',
+    /** Dismiss without changing — 닫기, mirroring the cancel dialog. */
+    dismiss: '닫기',
   },
   /** Cancel-confirm modal (parallels the template delete confirm). */
   cancelDialog: {

@@ -80,7 +80,7 @@ export default function ContractDetailPage() {
         ) : error ? (
           <ErrorState message={error.message} onRetry={() => void load()} />
         ) : document ? (
-          <ContractDetail document={document} />
+          <ContractDetail document={document} onChanged={() => void load()} />
         ) : (
           <DetailSkeleton />
         )}
