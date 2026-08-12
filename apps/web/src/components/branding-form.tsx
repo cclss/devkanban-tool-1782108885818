@@ -46,14 +46,13 @@ import { ApiError, GENERIC_ERROR } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import { fetchBranding, updateBrandColor, uploadBrandingAsset } from '@/lib/web-branding';
 import { BRANDING_FORM_COPY } from '@/lib/settings-copy';
-
-interface BrandingValues {
-  logo: File | null;
-  favicon: File | null;
-  color: string;
-}
-
-const EMPTY: BrandingValues = { logo: null, favicon: null, color: '' };
+import {
+  EMPTY_BRANDING_VALUES,
+  applySavedBranding,
+  canSaveBranding,
+  isBrandingDirty,
+  type BrandingValues,
+} from '@/lib/branding-form-state';
 
 /** Read the brand color currently in force from the live `--brand-primary` token. */
 function readBrandPrimary(): string {
@@ -70,8 +69,8 @@ export function BrandingForm() {
 
   // `baseline` is the last-saved state; `values` is what's on screen. Dirtiness
   // and cancel both compare against the baseline.
-  const [baseline, setBaseline] = React.useState<BrandingValues>(EMPTY);
-  const [values, setValues] = React.useState<BrandingValues>(EMPTY);
+  const [baseline, setBaseline] = React.useState<BrandingValues>(EMPTY_BRANDING_VALUES);
+  const [values, setValues] = React.useState<BrandingValues>(EMPTY_BRANDING_VALUES);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -100,14 +99,10 @@ export function BrandingForm() {
     };
   }, []);
 
-  const isDirty =
-    values.logo !== baseline.logo ||
-    values.favicon !== baseline.favicon ||
-    values.color !== baseline.color;
-  // Form-level validity: images are pre-validated by the uploader (a held file is
-  // valid by construction), so the color's hex validity is the aggregate gate.
-  const isValid = isValidHex(values.color);
-  const canSave = isDirty && isValid && !saving;
+  // Save-cycle gating (dirty · valid · canSave) is DOM-free data logic, extracted
+  // to `lib/branding-form-state.ts` so it is verifiable in the node jest env.
+  const isDirty = isBrandingDirty(values, baseline);
+  const canSave = canSaveBranding(values, baseline, saving);
 
   const update = React.useCallback((patch: Partial<BrandingValues>) => {
     setValues((v) => ({ ...v, ...patch }));
@@ -133,8 +128,9 @@ export function BrandingForm() {
       // New baseline: the color is persisted; the picked files are now stored, so
       // clear them and the form returns clean. The uploaders' saved-asset preview
       // now reads the freshly versioned URL from the refreshed runtime branding.
-      setBaseline({ logo: null, favicon: null, color: values.color });
-      setValues((v) => ({ ...v, logo: null, favicon: null }));
+      const next = applySavedBranding(values);
+      setBaseline(next.baseline);
+      setValues(next.values);
       setSaved(true);
     } catch (err) {
       // Surface the server's Toss-tone copy inline; never expose raw errors.
