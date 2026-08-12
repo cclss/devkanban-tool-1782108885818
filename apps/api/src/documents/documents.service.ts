@@ -566,14 +566,40 @@ export class DocumentsService implements ScheduledSendDispatcher {
   }
 
   /**
-   * Notify the sender that a scheduled send failed for good (grain-2 worker
-   * callback). Never throws — a notification hiccup must not crash the worker's
-   * failure handler.
+   * Handle a scheduled send that failed for good — retries exhausted on the
+   * durable BullMQ path, or an inline-fallback dispatch error (grain-2 worker
+   * callback). Two things happen, in this order:
+   *
+   *   1. Recover the document to a re-sendable state. A permanently-failed
+   *      reservation must not stay stranded in SCHEDULED (no job left to fire),
+   *      or the sender can neither auto-send nor re-send it. We return it to
+   *      DRAFT and null the reservation columns (`scheduledSendAt`,
+   *      `scheduledJobId`) so the normal `send` path works again, and write an
+   *      audit entry for the transition. This is guarded on the *current* status:
+   *      only a still-SCHEDULED row is recovered, so a stale job that final-fails
+   *      after the sender already cancelled or rescheduled (a removed job racing
+   *      the timer) never clobbers the newer state — exactly the guard
+   *      `dispatchScheduled` relies on.
+   *   2. Alert the sender (email + alimtalk) so the failure surfaces and they
+   *      know the contract is back in 작성 중 and can be re-sent.
+   *
+   * Never throws — a DB or notification hiccup here must not crash the worker's
+   * failure handler. The recovery is best-effort and isolated in its own
+   * try/catch so a write failure still lets the alert go out. `reason` is kept as
+   * diagnostic detail (audit metadata + server logs) only; it is deliberately NOT
+   * threaded into the user-facing notification, per the copy tone guide (no
+   * system internals surfaced to the sender).
    */
   async notifyScheduledSendFailure(documentId: string, reason: string): Promise<void> {
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
-      select: { title: true, owner: { select: { email: true, name: true } } },
+      select: {
+        status: true,
+        ownerId: true,
+        scheduledJobId: true,
+        title: true,
+        owner: { select: { email: true, name: true } },
+      },
     });
     if (!document) {
       this.logger.warn(
@@ -582,11 +608,12 @@ export class DocumentsService implements ScheduledSendDispatcher {
       return;
     }
 
+    await this.recoverFailedSchedule(documentId, document, reason);
+
     const webOrigin = this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
     const notifyData = {
       documentTitle: document.title,
       dashboardUrl: `${webOrigin}/dashboard`,
-      reason,
     };
     const to = document.owner.email;
     const toName = document.owner.name;
@@ -595,6 +622,60 @@ export class DocumentsService implements ScheduledSendDispatcher {
       { channel: 'email', to, toName, template: 'scheduled_send_failed', data: notifyData },
     ]);
     this.logger.warn(`예약 발송 실패 — 발송자에게 알림: ${documentId} (${reason})`);
+  }
+
+  /**
+   * Return a permanently-failed scheduled send to a re-sendable DRAFT (status +
+   * cleared reservation columns + audit entry), but only while the row is still
+   * SCHEDULED. Best-effort: any write error is logged and swallowed so the
+   * failure alert still reaches the sender.
+   */
+  private async recoverFailedSchedule(
+    documentId: string,
+    document: { status: DocumentStatus; ownerId: string; scheduledJobId: string | null },
+    reason: string,
+  ): Promise<void> {
+    if (document.status !== DocumentStatus.SCHEDULED) {
+      this.logger.log(
+        `예약 발송 실패 회복 건너뜀 — 더 이상 예약 상태가 아니에요(status=${document.status}): ${documentId}`,
+      );
+      return;
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.document.update({
+          where: { id: documentId },
+          // Back to DRAFT with the reservation cleared so the normal send path
+          // (and a fresh reschedule) works again — the contract is no longer
+          // trapped in 예약됨 with no job to fire it.
+          data: {
+            status: DocumentStatus.DRAFT,
+            scheduledSendAt: null,
+            scheduledJobId: null,
+          },
+        });
+        await tx.auditLog.create({
+          data: {
+            documentId,
+            actorId: document.ownerId,
+            action: 'SCHEDULED_SEND_FAILED',
+            metadata: {
+              reason,
+              previousJobId: document.scheduledJobId,
+              recoveredTo: DocumentStatus.DRAFT,
+            },
+          },
+        });
+      });
+      this.logger.warn(
+        `예약 발송 최종 실패 — 문서를 DRAFT로 회복(재발송 가능): ${documentId}`,
+      );
+    } catch (err) {
+      this.logger.error(
+        `예약 발송 실패 문서 회복 실패: ${documentId}: ${String(err)}`,
+      );
+    }
   }
 
   /** Dashboard list for the signed-in sender, newest first. */

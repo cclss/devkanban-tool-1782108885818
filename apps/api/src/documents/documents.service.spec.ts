@@ -678,16 +678,27 @@ describe('DocumentsService.reschedule / cancelSchedule — manage a reservation'
   });
 });
 
-describe('DocumentsService.notifyScheduledSendFailure — sender alert', () => {
-  it('enqueues an email + alimtalk failure notice to the sender', async () => {
+describe('DocumentsService.notifyScheduledSendFailure — sender alert + recovery', () => {
+  type FailureDoc = {
+    status: DocumentStatus;
+    ownerId: string;
+    scheduledJobId: string | null;
+    title: string;
+    owner: { email: string; name: string | null };
+  };
+
+  function makeService(doc: FailureDoc | null) {
+    const documentUpdate = jest.fn(async () => ({}));
+    const auditCreate = jest.fn(async () => ({}));
+    const tx = {
+      document: { update: documentUpdate },
+      auditLog: { create: auditCreate },
+    };
+    const $transaction = jest.fn(async (fn: (t: typeof tx) => unknown) => fn(tx));
     const notifications = { enqueueMany: jest.fn(async () => undefined) };
     const prisma = {
-      document: {
-        findUnique: jest.fn(async () => ({
-          title: '계약서',
-          owner: { email: 'sender@toss.im', name: '토스' },
-        })),
-      },
+      document: { findUnique: jest.fn(async () => doc) },
+      $transaction,
     };
     const service = new DocumentsService(
       prisma as never,
@@ -697,15 +708,92 @@ describe('DocumentsService.notifyScheduledSendFailure — sender alert', () => {
       {} as never,
       {} as never,
     );
+    return { service, notifications, $transaction, documentUpdate, auditCreate };
+  }
+
+  const SCHEDULED_DOC: FailureDoc = {
+    status: DocumentStatus.SCHEDULED,
+    ownerId: 'owner-1',
+    scheduledJobId: 'job_abc',
+    title: '계약서',
+    owner: { email: 'sender@toss.im', name: '토스' },
+  };
+
+  it('enqueues an email + alimtalk failure notice to the sender', async () => {
+    const { service, notifications } = makeService(SCHEDULED_DOC);
 
     await service.notifyScheduledSendFailure('doc-1', 'Error: boom');
 
     expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
     const jobs = (notifications.enqueueMany.mock.calls[0] as unknown as [
-      Array<{ channel: string; to: string; template: string }>,
+      Array<{ channel: string; to: string; template: string; data: Record<string, unknown> }>,
     ])[0];
     expect(jobs.map((j) => j.channel).sort()).toEqual(['alimtalk', 'email']);
     expect(jobs.every((j) => j.to === 'sender@toss.im')).toBe(true);
     expect(jobs.every((j) => j.template === 'scheduled_send_failed')).toBe(true);
+    // Internal error detail must never leak into the user-facing notification.
+    expect(jobs.every((j) => !('reason' in j.data))).toBe(true);
+  });
+
+  it('recovers a still-SCHEDULED document to a re-sendable DRAFT (reservation columns nulled + audit)', async () => {
+    const { service, $transaction, documentUpdate, auditCreate } =
+      makeService(SCHEDULED_DOC);
+
+    await service.notifyScheduledSendFailure('doc-1', 'Error: boom');
+
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(documentUpdate).toHaveBeenCalledWith({
+      where: { id: 'doc-1' },
+      data: {
+        status: DocumentStatus.DRAFT,
+        scheduledSendAt: null,
+        scheduledJobId: null,
+      },
+    });
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          documentId: 'doc-1',
+          action: 'SCHEDULED_SEND_FAILED',
+        }),
+      }),
+    );
+  });
+
+  it('does NOT recover when the document is no longer SCHEDULED (raced cancel/reschedule), but still alerts', async () => {
+    const { service, notifications, $transaction, documentUpdate } = makeService({
+      ...SCHEDULED_DOC,
+      status: DocumentStatus.DRAFT,
+    });
+
+    await service.notifyScheduledSendFailure('doc-1', 'Error: boom');
+
+    expect($transaction).not.toHaveBeenCalled();
+    expect(documentUpdate).not.toHaveBeenCalled();
+    // The alert still goes out even when recovery is skipped.
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('never throws and still alerts when the recovery write fails', async () => {
+    const { service, notifications } = makeService(SCHEDULED_DOC);
+    // Force the recovery transaction to blow up.
+    (service as unknown as { prisma: { $transaction: jest.Mock } }).prisma.$transaction =
+      jest.fn(async () => {
+        throw new Error('db down');
+      });
+
+    await expect(
+      service.notifyScheduledSendFailure('doc-1', 'Error: boom'),
+    ).resolves.toBeUndefined();
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('skips both recovery and alert when the document is gone', async () => {
+    const { service, notifications, $transaction } = makeService(null);
+
+    await service.notifyScheduledSendFailure('missing', 'Error: boom');
+
+    expect($transaction).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 });
