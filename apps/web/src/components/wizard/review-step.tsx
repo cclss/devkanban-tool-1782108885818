@@ -23,13 +23,18 @@
 import * as React from 'react';
 import { createPortal } from 'react-dom';
 import { useRouter } from 'next/navigation';
-import { Button, Confetti, SuccessCheck } from '@repo/ui';
+import { Button, Checkbox, Confetti, SuccessCheck } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import { writeSentSignal, type DocumentSummary } from '@/lib/documents';
 import { FIELD_TYPE_META, FIELD_TYPES, type SignFieldType } from '@/lib/field-geometry';
 import { recipientLabel } from '@/lib/recipients';
 import { saveFields, sendContract } from '@/lib/send';
+import { isScheduledResult, resolveScheduledSend } from '@/lib/send-plan';
+import { SCHEDULE_SEND_COPY } from '@/lib/schedule-copy';
+import { defaultScheduleValue, type ScheduleValidity } from '@/lib/schedule-time';
+import { scheduledSendMetaText } from '@/lib/todo-copy';
+import { SchedulePicker } from './schedule-picker';
 import { useWizard, type RecipientDraft, type SignFieldDraft } from './wizard-context';
 
 const COPY = {
@@ -57,11 +62,37 @@ export function ReviewStep() {
   const [error, setError] = React.useState<string | null>(null);
   const [sent, setSent] = React.useState<DocumentSummary | null>(null);
 
+  // Scheduled-send fork. `scheduled` toggles the picker; `scheduleNow` is frozen
+  // when the toggle flips on so the picker's `min`/validation and the seeded
+  // default all share one clock. Validity flows up from the picker.
+  const [scheduled, setScheduled] = React.useState(false);
+  const [scheduleNow, setScheduleNow] = React.useState<Date | null>(null);
+  const [scheduleValue, setScheduleValue] = React.useState('');
+  const [scheduleValidity, setScheduleValidity] = React.useState<ScheduleValidity | null>(null);
+
+  const toggleScheduled = React.useCallback((next: boolean) => {
+    setScheduled(next);
+    if (next) {
+      // Seed a guaranteed-valid time (now + 1h) so the button is usable at once,
+      // and anchor the picker to the same instant.
+      const now = new Date();
+      setScheduleNow(now);
+      setScheduleValue(defaultScheduleValue(now));
+    }
+  }, []);
+
+  const decision = resolveScheduledSend(scheduled, scheduleValidity);
   const canSend =
-    document !== null && fields.length > 0 && recipients.length > 0 && status !== 'sending';
+    document !== null &&
+    fields.length > 0 &&
+    recipients.length > 0 &&
+    status !== 'sending' &&
+    decision.canSubmit;
 
   const handleSend = React.useCallback(async () => {
     if (!document) return;
+    const plan = resolveScheduledSend(scheduled, scheduleValidity);
+    if (!plan.canSubmit) return;
     setStatus('sending');
     setError(null);
     try {
@@ -69,8 +100,10 @@ export function ReviewStep() {
       // Fields must be persisted before send: the server maps saved fields to
       // recipients by index. Order matters — save, then dispatch.
       await saveFields(document.id, fields, token);
-      const summary = await sendContract(document.id, recipients, token);
-      // Hand the fresh contract to the dashboard so it shows as '진행 중' at once.
+      const summary = await sendContract(document.id, recipients, token, plan.scheduledSendAt);
+      // Hand the fresh contract to the dashboard so it shows at once — '진행 중'
+      // for an immediate send, '예약됨' for a scheduled one (the server stamps the
+      // status the signal carries).
       writeSentSignal(summary);
       setSent(summary);
     } catch (err) {
@@ -83,13 +116,31 @@ export function ReviewStep() {
       );
       setStatus('error');
     }
-  }, [document, fields, recipients, router]);
+  }, [document, fields, recipients, router, scheduled, scheduleValidity]);
 
   const goToDashboard = React.useCallback(() => router.push('/dashboard'), [router]);
 
   if (sent) {
-    return <SendSuccess onContinue={goToDashboard} />;
+    return isScheduledResult(sent) ? (
+      <CompletionTakeover
+        title={SCHEDULE_SEND_COPY.success.title}
+        body={SCHEDULE_SEND_COPY.success.body}
+        cta={SCHEDULE_SEND_COPY.success.cta}
+        detail={scheduledSendMetaText(sent.scheduledSendAt)}
+        onContinue={goToDashboard}
+      />
+    ) : (
+      <CompletionTakeover
+        title={COPY.successTitle}
+        body={COPY.successBody}
+        cta={COPY.successCta}
+        onContinue={goToDashboard}
+      />
+    );
   }
+
+  const sendLabel = scheduled ? SCHEDULE_SEND_COPY.action.schedule : COPY.send;
+  const sendingLabel = scheduled ? SCHEDULE_SEND_COPY.action.scheduling : COPY.sending;
 
   return (
     <div className="flex flex-col gap-lg">
@@ -101,6 +152,32 @@ export function ReviewStep() {
       <DocumentSummaryCard document={document} fieldCount={fields.length} />
       <FieldsSummaryCard fields={fields} />
       <RecipientsSummaryCard recipients={recipients} />
+
+      <section className="flex flex-col gap-sm rounded-lg border border-border bg-surface p-lg">
+        <Checkbox
+          checked={scheduled}
+          onChange={(e) => toggleScheduled(e.target.checked)}
+          disabled={status === 'sending'}
+        >
+          <span className="flex flex-col gap-2xs">
+            <span className="text-sm font-bold text-foreground-muted">
+              {SCHEDULE_SEND_COPY.toggle.label}
+            </span>
+            <span className="text-sm text-foreground-subtle">
+              {SCHEDULE_SEND_COPY.toggle.description}
+            </span>
+          </span>
+        </Checkbox>
+
+        {scheduled ? (
+          <SchedulePicker
+            value={scheduleValue}
+            onChange={setScheduleValue}
+            onValidityChange={setScheduleValidity}
+            now={scheduleNow ?? undefined}
+          />
+        ) : null}
+      </section>
 
       {status === 'error' && error ? (
         <p
@@ -118,7 +195,7 @@ export function ReviewStep() {
         isLoading={status === 'sending'}
         className="w-full"
       >
-        {status === 'sending' ? COPY.sending : status === 'error' ? COPY.retry : COPY.send}
+        {status === 'sending' ? sendingLabel : status === 'error' ? COPY.retry : sendLabel}
       </Button>
     </div>
   );
@@ -235,14 +312,16 @@ function RecipientsSummaryCard({ recipients }: { recipients: RecipientDraft[] })
   );
 }
 
-// --- success takeover -------------------------------------------------------
+// --- completion takeover ----------------------------------------------------
 
 /**
- * Full-viewport celebration. Covers the wizard chrome (header/footer) so the
- * SuccessCheck + Confetti own the moment. The check ring/tick stroke-draw, the
- * confetti bursts once from the mark's center, and the text fades in staggered
- * just behind them. Under reduced-motion the global fallback collapses every
- * animation to its static end-state (check fully drawn, confetti invisible).
+ * Full-viewport celebration shown once the dispatch lands — immediate send
+ * ("발송 완료") or scheduled send ("예약 완료"). Same treatment for both: the
+ * SuccessCheck + Confetti own the moment and the text fades in staggered just
+ * behind them. A scheduled completion adds a `detail` line (the reservation
+ * instant) between the title and body so the user sees *when* it will go out.
+ * Under reduced-motion the global fallback collapses every animation to its
+ * static end-state (check fully drawn, confetti invisible).
  *
  * Rendered through a portal to <body>: the wizard's step container keeps a
  * `transform` (the wizard-step slide, `both` fill), which would otherwise become
@@ -250,21 +329,39 @@ function RecipientsSummaryCard({ recipients }: { recipients: RecipientDraft[] })
  * the 760px column. The portal escapes that ancestor so the takeover is truly
  * full-viewport.
  */
-function SendSuccess({ onContinue }: { onContinue: () => void }) {
+function CompletionTakeover({
+  title,
+  body,
+  cta,
+  detail,
+  onContinue,
+}: {
+  title: string;
+  body: string;
+  cta: string;
+  /** Optional reservation-time line (scheduled send only). */
+  detail?: string | null;
+  onContinue: () => void;
+}) {
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
   if (!mounted) return null;
+
+  // Fade-in cadence, nudged later when the detail line is present so each item
+  // still enters just behind the one above it.
+  const bodyDelay = detail ? '560ms' : '470ms';
+  const ctaDelay = detail ? '650ms' : '600ms';
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={COPY.successTitle}
+      aria-label={title}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl bg-background px-md text-center"
     >
       <div className="relative flex items-center justify-center">
         <Confetti className="z-0" />
-        <SuccessCheck size={112} className="relative z-10" aria-label={COPY.successTitle} />
+        <SuccessCheck size={112} className="relative z-10" aria-label={title} />
       </div>
 
       <div className="flex max-w-[420px] flex-col items-center gap-sm">
@@ -272,21 +369,29 @@ function SendSuccess({ onContinue }: { onContinue: () => void }) {
           className="animate-fade-in-up text-2xl font-bold text-foreground"
           style={{ animationDelay: '350ms' }}
         >
-          {COPY.successTitle}
+          {title}
         </h1>
+        {detail ? (
+          <p
+            className="animate-fade-in-up text-base font-semibold text-foreground-muted"
+            style={{ animationDelay: '470ms' }}
+          >
+            {detail}
+          </p>
+        ) : null}
         <p
           className="animate-fade-in-up text-base text-foreground-subtle"
-          style={{ animationDelay: '470ms' }}
+          style={{ animationDelay: bodyDelay }}
         >
-          {COPY.successBody}
+          {body}
         </p>
         <Button
           size="lg"
           onClick={onContinue}
           className="animate-fade-in-up mt-sm w-full sm:w-auto"
-          style={{ animationDelay: '600ms' }}
+          style={{ animationDelay: ctaDelay }}
         >
-          {COPY.successCta}
+          {cta}
         </Button>
       </div>
     </div>,

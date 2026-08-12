@@ -17,6 +17,7 @@
 
 import { apiFetch } from './api';
 import type { DocumentSummary } from './documents';
+import { buildSendBody } from './send-plan';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
 
 interface SignFieldPayload {
@@ -27,12 +28,6 @@ interface SignFieldPayload {
   width: number;
   height: number;
   recipientIndex: number;
-}
-
-interface RecipientPayload {
-  email: string;
-  name?: string;
-  order: number;
 }
 
 /** Persist the draft's sign fields (replaces any previously saved set). */
@@ -60,27 +55,24 @@ export function saveFields(
 }
 
 /**
- * Dispatch the contract. Recipient array order *is* the signing order, so we
- * stamp an explicit `order` from the index (the backend also derives it, but
- * being explicit keeps the contract obvious). A blank name is omitted (optional
- * server-side) rather than sent as an empty string.
+ * Dispatch the contract. Body assembly (recipient signing order + the optional
+ * `scheduledSendAt`) lives in the pure `buildSendBody` so both forks are unit-
+ * tested without the network.
+ *
+ * When `scheduledSendAt` (a future UTC ISO string) is supplied the server parks
+ * the document as 예약됨 and registers a delayed job instead of dispatching now;
+ * omit it and the immediate-send path is unchanged. The server enforces the
+ * future/format rule and surfaces its Korean rejection copy verbatim.
  */
 export function sendContract(
   documentId: string,
   recipients: RecipientDraft[],
   token?: string,
+  scheduledSendAt?: string,
 ): Promise<DocumentSummary> {
-  const payload: RecipientPayload[] = recipients.map((r, i) => {
-    const name = r.name.trim();
-    return {
-      email: r.email.trim(),
-      ...(name ? { name } : {}),
-      order: i,
-    };
-  });
   return apiFetch<DocumentSummary>(`/documents/${documentId}/send`, {
     method: 'POST',
-    json: { recipients: payload },
+    json: buildSendBody(recipients, scheduledSendAt),
     token,
   });
 }
