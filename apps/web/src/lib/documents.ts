@@ -158,6 +158,39 @@ export function fetchDocumentDetail(id: string): Promise<DocumentDetail> {
   });
 }
 
+/**
+ * Move a pending reservation to a new future instant (예약 변경). Mirrors
+ * `PATCH /documents/:id/schedule` (`RescheduleDto` → the refreshed
+ * `DocumentSummary`, still `SCHEDULED`). `scheduledSendAt` is a future UTC ISO
+ * string; the server owns the format/"must be in the future" rule and its Korean
+ * rejection copy surfaces verbatim (past/invalid instant, not-scheduled, lost
+ * reservation…), so the caller can show it as-is.
+ */
+export function rescheduleContract(
+  id: string,
+  scheduledSendAt: string,
+): Promise<DocumentSummary> {
+  return apiFetch<DocumentSummary>(`/documents/${encodeURIComponent(id)}/schedule`, {
+    method: 'PATCH',
+    json: { scheduledSendAt },
+    token: getToken() ?? undefined,
+  });
+}
+
+/**
+ * Cancel a pending reservation → 작성 중(DRAFT)으로 복귀 (예약 취소). Mirrors
+ * `DELETE /documents/:id/schedule`, resolving with the refreshed
+ * `DocumentSummary` (now `DRAFT`, reservation fields cleared) so the dashboard can
+ * reflect the return to draft. No request body. Rejects with the server's Korean
+ * copy (e.g. not-scheduled) verbatim.
+ */
+export function cancelSchedule(id: string): Promise<DocumentSummary> {
+  return apiFetch<DocumentSummary>(`/documents/${encodeURIComponent(id)}/schedule`, {
+    method: 'DELETE',
+    token: getToken() ?? undefined,
+  });
+}
+
 export function fetchQuota(): Promise<Quota> {
   return apiFetch<Quota>('/documents/quota', { token: getToken() ?? undefined });
 }

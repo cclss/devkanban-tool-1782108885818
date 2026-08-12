@@ -67,3 +67,59 @@ export const SCHEDULE_SEND_COPY = {
     cta: '대시보드로 가기',
   },
 } as const;
+
+/**
+ * Reservation-management copy — the single source of truth for the strings the
+ * dashboard uses to change or cancel a pending 예약됨 contract from its detail
+ * screen or card menu (design-spec `content/message-schedule-manage-ui.md`). The
+ * API wiring lives in `lib/documents.ts` (`rescheduleContract` / `cancelSchedule`);
+ * the components stay presentational and reference these labels only.
+ *
+ * Two established tones meet here:
+ *   • confirm-dialog (`components/confirm-dialog/base.md`, mirrored by the template
+ *     delete confirm): a `~할까요?` question title, a body that names the
+ *     consequence plainly then reassures, a calm way out.
+ *   • scheduled-send 해요체 (`messages.ts` → `send.*`, `SCHEDULE_SEND_COPY`): calm,
+ *     never blaming, one gentle "무슨 일 + 다음 행동" per line.
+ *
+ * The cancel body spells out the DRAFT return in the server's user-facing word for
+ * that status — 작성 중 — and reassures the contract's contents survive, so the
+ * user knows cancelling is reversible, not destructive. Because the destructive
+ * action itself is "취소", the dialog's way-out button is 닫기 (not 취소) to avoid
+ * two 취소 meanings sitting side by side.
+ */
+export const SCHEDULE_MANAGE_COPY = {
+  /** Actions offered on a scheduled contract (detail screen / card menu). */
+  action: {
+    /** Open the reschedule picker. */
+    reschedule: '예약 변경',
+    /** Open the cancel-confirm dialog. */
+    cancel: '예약 취소',
+  },
+  /** Cancel-confirm modal (parallels the template delete confirm). */
+  cancelDialog: {
+    title: '예약을 취소할까요?',
+    /** Consequence (→ 작성 중 / DRAFT 복귀) stated plainly, then reassurance. */
+    description:
+      '취소하면 예약 발송이 해제되고 계약이 작성 중으로 돌아가요. 작성한 내용은 그대로 있어서 언제든 다시 보내거나 예약할 수 있어요.',
+    /** Confirm the cancellation (a `danger` action in the UI). */
+    confirm: '예약 취소',
+    /** In-flight label while the cancellation is being applied. */
+    cancelling: '취소 중',
+    /** Dismiss without cancelling — 닫기, not 취소, to avoid the doubled 취소. */
+    dismiss: '닫기',
+  },
+  /**
+   * Post-action feedback tone (toast/banner). Server rejection copy surfaces
+   * verbatim via `ApiError`; these are the success lines and the neutral failure
+   * fallback for each action, in the same 해요체 "무슨 일 + 다음 행동" voice.
+   */
+  feedback: {
+    /** Reschedule succeeded — the new instant renders separately on the card. */
+    rescheduled: '예약 일시를 바꿨어요.',
+    /** Cancel succeeded — names the DRAFT (작성 중) return so the move is clear. */
+    cancelled: '예약을 취소하고 작성 중으로 옮겼어요.',
+    rescheduleFailed: '예약 일시를 바꾸지 못했어요. 잠시 후 다시 시도해 주세요.',
+    cancelFailed: '예약을 취소하지 못했어요. 잠시 후 다시 시도해 주세요.',
+  },
+} as const;
