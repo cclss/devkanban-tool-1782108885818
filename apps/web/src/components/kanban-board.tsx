@@ -3,7 +3,8 @@
 import * as React from 'react';
 import { cn } from '@repo/ui';
 import { ContractCard } from '@/components/contract-card';
-import { STATUS_TONE } from '@/components/status-badge';
+import { STATUS_TONE } from '@/lib/status-tone';
+import { groupByStatus, visibleColumns } from '@/lib/kanban';
 import type { DocumentStatus, DocumentSummary } from '@/lib/documents';
 
 /**
@@ -14,13 +15,14 @@ import type { DocumentStatus, DocumentSummary } from '@/lib/documents';
  * context and applies the same filter (same `visible` set → context preserved).
  *
  * Design decisions (design-spec):
- * - Columns follow the lifecycle left→right: 작성 중 → 진행 중 → 완료됨. These three
- *   always render (with an empty-column state) so the board's shape is stable.
- * - CANCELLED handling: 취소됨 is a terminal, inactive state. Rather than a
- *   permanently-empty fourth column (visual noise) or hiding cancelled work
- *   outright, the 취소됨 column renders **only when the visible set actually
- *   contains a cancelled contract** — a calm, de-emphasized (neutral) column shown
- *   on demand.
+ * - Columns follow the lifecycle left→right: 작성 중 → 예약됨 → 진행 중 → 완료됨.
+ *   작성 중 / 진행 중 / 완료됨 always render (with an empty-column state) so the
+ *   board's shape is stable.
+ * - On-demand columns (design-spec/content/status-tone-scheduled.md): 예약됨
+ *   (SCHEDULED) and 취소됨 (CANCELLED) are states a user may never reach. Rather
+ *   than permanently-empty columns (visual noise) or hiding that work outright,
+ *   each renders **only when the visible set actually contains one** — a calm
+ *   column shown on demand. Ordering/visibility live in `lib/kanban.ts`.
  * - Column highlight reuses `STATUS_TONE` from status-badge (the same status reads
  *   with the same hue as its badge; no color re-declared).
  * - Cards reuse ContractCard in its `compact` density (design-spec
@@ -41,22 +43,6 @@ export interface KanbanBoardCopy {
   boardLabel: string;
 }
 
-/** Column order = lifecycle left→right. CANCELLED renders only when present. */
-const COLUMN_ORDER: readonly DocumentStatus[] = ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
-
-function groupByStatus(documents: DocumentSummary[]): Record<DocumentStatus, DocumentSummary[]> {
-  const groups: Record<DocumentStatus, DocumentSummary[]> = {
-    DRAFT: [],
-    IN_PROGRESS: [],
-    COMPLETED: [],
-    CANCELLED: [],
-  };
-  // `documents` is the already urgency-sorted visible set, so each column keeps
-  // that ordering by construction.
-  for (const doc of documents) groups[doc.status]?.push(doc);
-  return groups;
-}
-
 export interface KanbanBoardProps {
   /** The visible (filtered + urgency-sorted) set — the exact list the 목록 view shows. */
   documents: DocumentSummary[];
@@ -69,10 +55,8 @@ export interface KanbanBoardProps {
 
 export function KanbanBoard({ documents, copy, highlightId, className }: KanbanBoardProps) {
   const groups = React.useMemo(() => groupByStatus(documents), [documents]);
-  // 작성 중 / 진행 중 / 완료됨 always render; 취소됨 only when it has cards.
-  const columns = COLUMN_ORDER.filter(
-    (status) => status !== 'CANCELLED' || groups.CANCELLED.length > 0,
-  );
+  // 작성 중 / 진행 중 / 완료됨 always render; 예약됨 · 취소됨 only when they have cards.
+  const columns = React.useMemo(() => visibleColumns(groups), [groups]);
 
   return (
     <div

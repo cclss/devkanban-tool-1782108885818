@@ -19,7 +19,12 @@ import {
   type CompletionArtifact,
 } from './completion-download';
 
-export type DocumentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type DocumentStatus =
+  | 'DRAFT'
+  | 'SCHEDULED'
+  | 'IN_PROGRESS'
+  | 'COMPLETED'
+  | 'CANCELLED';
 
 /**
  * How much attention a contract needs today, derived server-side at read time
@@ -32,11 +37,12 @@ export type Urgency = 'OVERDUE' | 'DUE_SOON' | 'NORMAL';
 /**
  * The single next action the owner can take with a contract, derived
  * server-side from `status` (mirrors the API's `NextAction`):
- * `DRAFT` → `SEND_DRAFT`, `IN_PROGRESS` → `AWAITING_SIGN`,
- * `COMPLETED` → `DOWNLOAD`. `CANCELLED` has no actionable next step and is
- * represented as `null` on the `nextAction` field (see `DocumentSummary`).
+ * `DRAFT` → `SEND_DRAFT`, `SCHEDULED` → `MANAGE_SCHEDULE`,
+ * `IN_PROGRESS` → `AWAITING_SIGN`, `COMPLETED` → `DOWNLOAD`. `CANCELLED` has no
+ * actionable next step and is represented as `null` on the `nextAction` field
+ * (see `DocumentSummary`).
  */
-export type NextAction = 'SEND_DRAFT' | 'AWAITING_SIGN' | 'DOWNLOAD';
+export type NextAction = 'SEND_DRAFT' | 'MANAGE_SCHEDULE' | 'AWAITING_SIGN' | 'DOWNLOAD';
 
 export interface DocumentSummary {
   id: string;
@@ -53,6 +59,13 @@ export interface DocumentSummary {
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;
+  /**
+   * ISO instant the contract is queued to auto-send, present only while the
+   * document is `SCHEDULED`; `null` for every other status. Lets the dashboard
+   * render the reservation time next to the '예약됨' status. Mirrors the API's
+   * `DocumentSummary.scheduledSendAt`.
+   */
+  scheduledSendAt: string | null;
   createdAt: string;
   /** ISO completion timestamp once fully signed (else null). */
   completedAt: string | null;

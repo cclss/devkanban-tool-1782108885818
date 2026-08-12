@@ -47,6 +47,11 @@ export interface NextActionCopy {
 
 const NEXT_ACTION_COPY: Record<NextAction, NextActionCopy> = {
   SEND_DRAFT: { label: '발송하기', kind: 'cta' },
+  // SCHEDULED: the reservation is set and waiting; the owner's live next step is to
+  // review/change/cancel it before it sends — a real action, so a `cta` pill (the
+  // card links to the detail screen where managing lives). '예약 관리' reuses the
+  // established 예약 vocabulary (status label 예약됨), plain noun + verb, calm tone.
+  MANAGE_SCHEDULE: { label: '예약 관리', kind: 'cta' },
   AWAITING_SIGN: { label: '서명 대기 중', kind: 'status' },
   DOWNLOAD: { label: '내려받기', kind: 'cta' },
 };
@@ -115,6 +120,7 @@ export const VIEW_SWITCHER_COPY: ViewSwitcherCopy = {
 export const KANBAN_BOARD_COPY: KanbanBoardCopy = {
   columnLabel: {
     DRAFT: '작성 중',
+    SCHEDULED: '예약됨',
     IN_PROGRESS: '진행 중',
     COMPLETED: '완료됨',
     CANCELLED: '취소됨',
@@ -123,3 +129,31 @@ export const KANBAN_BOARD_COPY: KanbanBoardCopy = {
   emptyColumn: '이 상태의 계약이 없어요.',
   boardLabel: '칸반 보드',
 };
+
+/**
+ * Scheduled-send meta text (design-spec/content/status-tone-scheduled.md). Unlike
+ * the relative "N분 전" wording the card uses for past events (생성/발송), a
+ * reservation points at a *future* instant, so it reads as an absolute local
+ * date-time `YYYY.MM.DD HH:mm` (24h) — the same dotted date shape the card already
+ * falls back to for old timestamps, plus the time the send fires. Prefixed
+ * '예약 일시' so the meta line states plainly what the time means.
+ */
+const SCHEDULED_SEND_META_PREFIX = '예약 일시';
+
+/** Format an ISO instant as the card's absolute `YYYY.MM.DD HH:mm` (local, 24h). */
+export function formatScheduledSendAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}.${p(d.getMonth() + 1)}.${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+}
+
+/**
+ * The '예약 일시 {YYYY.MM.DD HH:mm}' fragment for a SCHEDULED card's meta line, or
+ * `null` when the instant is missing/unparseable (the caller then omits it).
+ */
+export function scheduledSendMetaText(iso: string | null): string | null {
+  if (!iso) return null;
+  const when = formatScheduledSendAt(iso);
+  return when ? `${SCHEDULED_SEND_META_PREFIX} ${when}` : null;
+}

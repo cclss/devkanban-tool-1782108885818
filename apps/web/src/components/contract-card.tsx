@@ -7,7 +7,12 @@ import { StatusBadge } from '@/components/status-badge';
 import { UrgencyBadge } from '@/components/urgency-badge';
 import { CompletionDownload } from '@/components/completion-download';
 import { downloadOwnerArtifact, type DocumentSummary, type NextAction } from '@/lib/documents';
-import { nextActionCopy, pendingSignerLabel, urgencyLabel } from '@/lib/todo-copy';
+import {
+  nextActionCopy,
+  pendingSignerLabel,
+  scheduledSendMetaText,
+  urgencyLabel,
+} from '@/lib/todo-copy';
 
 /**
  * ContractCard — one contract as a card, shared by the dashboard **list** and the
@@ -157,9 +162,16 @@ function metaLine(doc: DocumentSummary): string {
   const pending = pendingSignerLabel(doc.pendingSignerCount);
   if (pending) parts.push(pending);
   if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
-  const sent = doc.status !== 'DRAFT' && doc.sentAt;
-  const when = formatRelative(sent ? (doc.sentAt as string) : doc.createdAt);
-  parts.push(sent ? `${when} 발송` : `${when} 생성`);
+  // A SCHEDULED contract has not been sent yet (sentAt is null); instead of the
+  // "N분 전 생성" relative time, surface the absolute future send instant.
+  const scheduled = doc.status === 'SCHEDULED' ? scheduledSendMetaText(doc.scheduledSendAt) : null;
+  if (scheduled) {
+    parts.push(scheduled);
+  } else {
+    const sent = doc.status !== 'DRAFT' && doc.sentAt;
+    const when = formatRelative(sent ? (doc.sentAt as string) : doc.createdAt);
+    parts.push(sent ? `${when} 발송` : `${when} 생성`);
+  }
   return parts.join(' · ');
 }
 
