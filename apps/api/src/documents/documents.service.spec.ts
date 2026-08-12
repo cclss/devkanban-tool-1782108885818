@@ -1,5 +1,7 @@
 import { DocumentStatus } from '@repo/db';
+import { BadRequestException } from '@nestjs/common';
 import { PDFDocument } from 'pdf-lib';
+import { MESSAGES } from '../common/messages';
 import { DocumentsService } from './documents.service';
 
 /**
@@ -87,6 +89,7 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
       notifications as never,
       config as never,
       sendQuota as never,
+      {} as never,
     );
   });
 
@@ -209,6 +212,7 @@ describe('DocumentsService — scheduledSendAt in summary', () => {
       {} as never,
       { get: jest.fn(() => undefined) } as never,
       {} as never,
+      {} as never,
     );
   }
 
@@ -256,6 +260,7 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
       notifications as never,
       { get: jest.fn(() => undefined) } as never,
       sendQuota as never,
+      {} as never,
     );
     return { service, $transaction, notifications };
   }
@@ -308,6 +313,175 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
   });
 });
 
+/**
+ * `send`'s immediate-vs-scheduled split (grain-3). With no `scheduledSendAt` the
+ * existing immediate path is preserved (dispatch runs, nothing is queued). With a
+ * future `scheduledSendAt` the contract is queued instead: a delayed job is
+ * registered, the document is parked as SCHEDULED with the reservation instant +
+ * job id, an audit entry is written, and NO SignRequests/notifications are
+ * created. Past / unparseable instants are rejected with the design-spec-toned
+ * copy before anything is scheduled.
+ */
+describe('DocumentsService.send — immediate vs scheduled branch', () => {
+  const RECIPIENTS = [{ email: 'A@Ex.com', name: ' 갑 ' }];
+
+  const DRAFT_DOC = {
+    id: 'doc-1',
+    ownerId: 'owner-1',
+    title: '계약서',
+    storageKey: 'owner-1/계약서.pdf',
+    pageCount: 1,
+    status: DocumentStatus.DRAFT,
+    sentAt: null,
+    scheduledSendAt: null,
+    scheduledJobId: null,
+    createdAt: new Date('2026-08-12T00:00:00.000Z'),
+    completedAt: null,
+    signedStorageKey: null,
+    certificateStorageKey: null,
+  };
+
+  function makeService() {
+    const tx = {
+      signRequest: { create: jest.fn(async () => ({ id: 'sr-1' })) },
+      signField: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      document: {
+        update: jest.fn(async () => ({
+          ...DRAFT_DOC,
+          status: DocumentStatus.IN_PROGRESS,
+          sentAt: new Date('2026-08-12T01:00:00.000Z'),
+        })),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const $transaction = jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx));
+    const prisma = {
+      document: {
+        findUnique: jest.fn(async () => DRAFT_DOC),
+        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+          ...DRAFT_DOC,
+          ...data,
+        })),
+      },
+      signField: { count: jest.fn(async () => 2) },
+      auditLog: { create: jest.fn(async () => ({})) },
+      $transaction,
+    };
+    const notifications = { enqueueMany: jest.fn(async () => undefined) };
+    const sendQuota = { assertWithinQuota: jest.fn(async () => undefined) };
+    const scheduledSend = {
+      schedule: jest.fn(async () => 'job-42'),
+      remove: jest.fn(async () => undefined),
+    };
+    const service = new DocumentsService(
+      prisma as never,
+      {} as never,
+      notifications as never,
+      { get: jest.fn(() => undefined) } as never,
+      sendQuota as never,
+      scheduledSend as never,
+    );
+    return { service, prisma, $transaction, notifications, sendQuota, scheduledSend };
+  }
+
+  /** An ISO instant safely in the future relative to the test's wall clock. */
+  function futureIso(msAhead = 60 * 60 * 1000): string {
+    return new Date(Date.now() + msAhead).toISOString();
+  }
+
+  it('dispatches immediately (unchanged path) when no scheduledSendAt is given', async () => {
+    const { service, $transaction, notifications, scheduledSend, sendQuota } =
+      makeService();
+
+    const summary = await service.send('owner-1', 'doc-1', { recipients: RECIPIENTS });
+
+    // The immediate dispatch core ran and notified recipients …
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+    expect(sendQuota.assertWithinQuota).toHaveBeenCalled();
+    // … and nothing was queued.
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+    expect(summary.status).toBe(DocumentStatus.IN_PROGRESS);
+  });
+
+  it('queues a delayed job and parks the document as SCHEDULED for a future instant', async () => {
+    const { service, prisma, $transaction, notifications, scheduledSend } =
+      makeService();
+    const when = futureIso();
+
+    const summary = await service.send('owner-1', 'doc-1', {
+      recipients: RECIPIENTS,
+      scheduledSendAt: when,
+    });
+
+    // A delayed job was registered with the normalized recipients + a ~1h delay.
+    expect(scheduledSend.schedule).toHaveBeenCalledTimes(1);
+    const [docId, delayMs, payload] = scheduledSend.schedule.mock
+      .calls[0] as unknown as [
+      string,
+      number,
+      { ownerId: string; recipients: Array<{ email: string; name: string | null }> },
+    ];
+    expect(docId).toBe('doc-1');
+    expect(delayMs).toBeGreaterThan(0);
+    expect(payload.ownerId).toBe('owner-1');
+    // Recipients were normalized (lowercased email, trimmed name) before queueing.
+    expect(payload.recipients[0]).toMatchObject({ email: 'a@ex.com', name: '갑' });
+
+    // The document was flipped to SCHEDULED with the instant + returned job id.
+    expect(prisma.document.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: DocumentStatus.SCHEDULED,
+          scheduledJobId: 'job-42',
+          scheduledSendAt: expect.any(Date),
+        }),
+      }),
+    );
+    // An audit entry was written, but NO dispatch/notifications happened.
+    expect(prisma.auditLog.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'CONTRACT_SCHEDULED' }),
+      }),
+    );
+    expect($transaction).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+
+    // The summary reflects the reservation.
+    expect(summary.status).toBe(DocumentStatus.SCHEDULED);
+    expect(summary.scheduledSendAt).toBe(new Date(when).toISOString());
+  });
+
+  it('rejects a past scheduledSendAt with the toned copy, scheduling nothing', async () => {
+    const { service, prisma, scheduledSend } = makeService();
+    const past = new Date(Date.now() - 60 * 1000).toISOString();
+
+    await expect(
+      service.send('owner-1', 'doc-1', { recipients: RECIPIENTS, scheduledSendAt: past }),
+    ).rejects.toThrow(MESSAGES.send.scheduledInPast);
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+    expect(prisma.document.update).not.toHaveBeenCalled();
+  });
+
+  it('rejects an unparseable scheduledSendAt with the toned copy', async () => {
+    const { service, scheduledSend } = makeService();
+
+    await expect(
+      service.send('owner-1', 'doc-1', {
+        recipients: RECIPIENTS,
+        scheduledSendAt: 'not-a-real-date',
+      }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+    await expect(
+      service.send('owner-1', 'doc-1', {
+        recipients: RECIPIENTS,
+        scheduledSendAt: 'not-a-real-date',
+      }),
+    ).rejects.toThrow(MESSAGES.send.scheduledInvalid);
+    expect(scheduledSend.schedule).not.toHaveBeenCalled();
+  });
+});
+
 describe('DocumentsService.notifyScheduledSendFailure — sender alert', () => {
   it('enqueues an email + alimtalk failure notice to the sender', async () => {
     const notifications = { enqueueMany: jest.fn(async () => undefined) };
@@ -324,6 +498,7 @@ describe('DocumentsService.notifyScheduledSendFailure — sender alert', () => {
       {} as never,
       notifications as never,
       { get: jest.fn(() => undefined) } as never,
+      {} as never,
       {} as never,
     );
 

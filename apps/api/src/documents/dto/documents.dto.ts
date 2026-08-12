@@ -112,4 +112,16 @@ export class SendContractDto {
   @ValidateNested({ each: true })
   @Type(() => RecipientDto)
   recipients!: RecipientDto[];
+
+  /**
+   * Optional reservation instant (ISO 8601). When present the contract is queued
+   * to auto-send at this time instead of dispatching immediately: the document is
+   * flipped to SCHEDULED and a delayed job is registered. The value's format and
+   * "must be in the future" rule are enforced in the service (`send`) so the
+   * rejection copy can follow the design-spec tone; here we only require a string.
+   * Absent/undefined preserves the existing immediate-send path unchanged.
+   */
+  @IsOptional()
+  @IsString()
+  scheduledSendAt?: string;
 }

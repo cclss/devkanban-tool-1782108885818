@@ -34,7 +34,9 @@ import {
 import type {
   ScheduledSendDispatcher,
   ScheduledSendJobData,
+  ScheduledSendRecipient,
 } from './scheduled-send.constants';
+import { ScheduledSendQueue } from './scheduled-send.queue';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
@@ -49,6 +51,7 @@ export class DocumentsService implements ScheduledSendDispatcher {
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
+    private readonly scheduledSend: ScheduledSendQueue,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -178,15 +181,27 @@ export class DocumentsService implements ScheduledSendDispatcher {
       throw new BadRequestException(MESSAGES.send.noFields);
     }
 
-    await this.sendQuota.assertWithinQuota(ownerId);
-
-    // Normalize recipient order: explicit `order` wins, else input order.
+    // Normalize recipient order: explicit `order` wins, else input order. Done
+    // before the schedule/immediate split so both paths dispatch to the exact
+    // same normalized list (the scheduled list travels with the delayed job).
     const recipients = dto.recipients.map((r, i) => ({
       email: r.email.toLowerCase().trim(),
       name: r.name?.trim() || null,
       order: r.order ?? i,
       index: i,
     }));
+
+    const now = new Date();
+    const scheduledSendAt = this.resolveScheduledSendAt(dto.scheduledSendAt, now);
+
+    // Deferred send: register a delayed job and park the document as 예약됨
+    // instead of dispatching now. No SignRequests/notifications are created yet —
+    // that happens when the job fires (`dispatchScheduled` → `dispatchContract`).
+    if (scheduledSendAt) {
+      return this.scheduleContract(document, recipients, scheduledSendAt, ownerId, now, ip);
+    }
+
+    await this.sendQuota.assertWithinQuota(ownerId);
 
     const { updated, recipientCount } = await this.dispatchContract(
       document,
@@ -197,7 +212,88 @@ export class DocumentsService implements ScheduledSendDispatcher {
 
     // Just sent: every recipient's request was created PENDING, so all of them
     // are still-pending signers.
-    return this.toSummary(updated, recipientCount, recipientCount, new Date());
+    return this.toSummary(updated, recipientCount, recipientCount, now);
+  }
+
+  /**
+   * Parse and validate the optional reservation instant from the send DTO.
+   * Returns `null` when no schedule was requested (immediate send), the parsed
+   * `Date` when a valid future instant was supplied, and throws a
+   * design-spec-toned `BadRequestException` otherwise:
+   *   - unparseable / non-ISO value → `MESSAGES.send.scheduledInvalid`
+   *   - an instant at or before `now` → `MESSAGES.send.scheduledInPast`
+   *
+   * `now` is injected by the caller so the past-check and the eventual job delay
+   * are computed against the same instant (no drift between the two reads).
+   */
+  private resolveScheduledSendAt(raw: string | undefined, now: Date): Date | null {
+    if (raw === undefined || raw === null) return null;
+
+    const when = new Date(raw);
+    if (Number.isNaN(when.getTime())) {
+      throw new BadRequestException(MESSAGES.send.scheduledInvalid);
+    }
+    if (when.getTime() <= now.getTime()) {
+      throw new BadRequestException(MESSAGES.send.scheduledInPast);
+    }
+    return when;
+  }
+
+  /**
+   * Queue a contract for a future auto-send (the deferred branch of `send`).
+   *
+   * Registers a delayed job FIRST, then persists SCHEDULED + the reservation
+   * instant + the returned job id. Ordering matters: if the DB write failed after
+   * the job was registered, the orphan job would fire and find the row still
+   * DRAFT — `dispatchScheduled`'s status guard no-ops it, so nothing double-sends.
+   * The reverse order (persist, then schedule) could strand a SCHEDULED row with
+   * no job. The recipients captured now travel with the job (Redis-durable) so the
+   * fire-time dispatch needs no re-derivation. This writes an audit entry but does
+   * NOT dispatch or notify — recipients hear nothing until the job actually fires.
+   */
+  private async scheduleContract(
+    document: Document,
+    recipients: ScheduledSendRecipient[],
+    scheduledSendAt: Date,
+    ownerId: string,
+    now: Date,
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    const documentId = document.id;
+    const delayMs = scheduledSendAt.getTime() - now.getTime();
+
+    const jobId = await this.scheduledSend.schedule(documentId, delayMs, {
+      ownerId,
+      recipients,
+      ip,
+    });
+
+    const updated = await this.prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: DocumentStatus.SCHEDULED,
+        scheduledSendAt,
+        scheduledJobId: jobId,
+      },
+    });
+
+    await this.writeAudit({
+      documentId,
+      actorId: ownerId,
+      action: 'CONTRACT_SCHEDULED',
+      ip,
+      metadata: {
+        scheduledSendAt: scheduledSendAt.toISOString(),
+        scheduledJobId: jobId,
+        recipientCount: recipients.length,
+        recipients: recipients.map((r) => ({ email: r.email, order: r.order })),
+      },
+    });
+
+    // Not dispatched yet: no SignRequests exist, so there are no pending signers.
+    // `recipientCount` echoes the planned recipients so the caller can confirm
+    // what was queued.
+    return this.toSummary(updated, recipients.length, 0, now);
   }
 
   /**
