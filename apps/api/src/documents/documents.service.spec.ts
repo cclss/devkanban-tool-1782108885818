@@ -231,3 +231,110 @@ describe('DocumentsService — scheduledSendAt in summary', () => {
     expect(summary.scheduledSendAt).toBeNull();
   });
 });
+
+describe('DocumentsService.dispatchScheduled — scheduled-send worker callback', () => {
+  const RECIPIENTS = [{ email: 'a@ex.com', name: '갑', order: 0, index: 0 }];
+
+  /** A prisma double that records whether the dispatch transaction ran. */
+  function makeService(doc: Record<string, unknown> | null) {
+    const tx = {
+      signRequest: { create: jest.fn(async () => ({ id: 'sr-1' })) },
+      signField: { updateMany: jest.fn(async () => ({ count: 0 })) },
+      document: { update: jest.fn(async () => ({ ...doc, status: DocumentStatus.IN_PROGRESS })) },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const $transaction = jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx));
+    const prisma = {
+      document: { findUnique: jest.fn(async () => doc) },
+      $transaction,
+    };
+    const notifications = { enqueueMany: jest.fn(async () => undefined) };
+    const sendQuota = { assertWithinQuota: jest.fn(async () => undefined) };
+    const service = new DocumentsService(
+      prisma as never,
+      {} as never,
+      notifications as never,
+      { get: jest.fn(() => undefined) } as never,
+      sendQuota as never,
+    );
+    return { service, $transaction, notifications };
+  }
+
+  it('dispatches (reuses dispatchContract) for a still-SCHEDULED document', async () => {
+    const { service, $transaction, notifications } = makeService({
+      id: 'doc-1',
+      ownerId: 'owner-1',
+      title: '계약서',
+      status: DocumentStatus.SCHEDULED,
+    });
+
+    await service.dispatchScheduled({
+      documentId: 'doc-1',
+      ownerId: 'owner-1',
+      recipients: RECIPIENTS,
+    });
+
+    // The dispatch core ran inside a transaction and enqueued recipient notices.
+    expect($transaction).toHaveBeenCalledTimes(1);
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+  });
+
+  it('is a no-op for a document no longer SCHEDULED (stale/cancelled job)', async () => {
+    const { service, $transaction, notifications } = makeService({
+      id: 'doc-1',
+      status: DocumentStatus.DRAFT,
+    });
+
+    await service.dispatchScheduled({
+      documentId: 'doc-1',
+      ownerId: 'owner-1',
+      recipients: RECIPIENTS,
+    });
+
+    expect($transaction).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+  });
+
+  it('is a no-op for a missing document', async () => {
+    const { service, $transaction } = makeService(null);
+
+    await service.dispatchScheduled({
+      documentId: 'gone',
+      ownerId: 'owner-1',
+      recipients: RECIPIENTS,
+    });
+
+    expect($transaction).not.toHaveBeenCalled();
+  });
+});
+
+describe('DocumentsService.notifyScheduledSendFailure — sender alert', () => {
+  it('enqueues an email + alimtalk failure notice to the sender', async () => {
+    const notifications = { enqueueMany: jest.fn(async () => undefined) };
+    const prisma = {
+      document: {
+        findUnique: jest.fn(async () => ({
+          title: '계약서',
+          owner: { email: 'sender@toss.im', name: '토스' },
+        })),
+      },
+    };
+    const service = new DocumentsService(
+      prisma as never,
+      {} as never,
+      notifications as never,
+      { get: jest.fn(() => undefined) } as never,
+      {} as never,
+    );
+
+    await service.notifyScheduledSendFailure('doc-1', 'Error: boom');
+
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+    const jobs = (notifications.enqueueMany.mock.calls[0] as unknown as [
+      Array<{ channel: string; to: string; template: string }>,
+    ])[0];
+    expect(jobs.map((j) => j.channel).sort()).toEqual(['alimtalk', 'email']);
+    expect(jobs.every((j) => j.to === 'sender@toss.im')).toBe(true);
+    expect(jobs.every((j) => j.template === 'scheduled_send_failed')).toBe(true);
+  });
+});

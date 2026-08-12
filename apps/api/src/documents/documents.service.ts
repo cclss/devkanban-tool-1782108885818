@@ -31,12 +31,16 @@ import {
   artifactFilename,
   type CompletionArtifact,
 } from '../completion/artifact';
+import type {
+  ScheduledSendDispatcher,
+  ScheduledSendJobData,
+} from './scheduled-send.constants';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
 
 @Injectable()
-export class DocumentsService {
+export class DocumentsService implements ScheduledSendDispatcher {
   private readonly logger = new Logger(DocumentsService.name);
 
   constructor(
@@ -266,7 +270,15 @@ export class DocumentsService {
 
       const updated = await tx.document.update({
         where: { id: documentId },
-        data: { status: DocumentStatus.IN_PROGRESS, sentAt: new Date() },
+        // Clearing the schedule columns keeps them null for the immediate-send
+        // path (already null → no-op) and, crucially, tidies a scheduled send
+        // as it dispatches so the row no longer reads as "예약됨".
+        data: {
+          status: DocumentStatus.IN_PROGRESS,
+          sentAt: new Date(),
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        },
       });
 
       await tx.auditLog.create({
@@ -296,6 +308,69 @@ export class DocumentsService {
     await this.notifications.enqueueMany(jobs);
 
     return { updated: result.updated, recipientCount: result.createdRequests.length };
+  }
+
+  /**
+   * Auto-send a scheduled document when its delayed job fires (grain-2 worker
+   * callback — `ScheduledSendDispatcher`). Reuses the grain-1 `dispatchContract`
+   * core with the recipients captured at schedule time.
+   *
+   * Idempotency / stale-job guard: a job may still fire for a document that was
+   * cancelled, rescheduled, or already sent (a removed job that raced the timer).
+   * We only dispatch when the row is still SCHEDULED; otherwise this is a
+   * logged no-op, so a stale job can never double-send or resurrect a cancel.
+   * Errors propagate so BullMQ retries (and the queue alerts the sender once the
+   * retry budget is spent).
+   */
+  async dispatchScheduled(data: ScheduledSendJobData): Promise<void> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: data.documentId },
+    });
+    if (!document) {
+      this.logger.warn(`예약 발송 건너뜀 — 문서를 찾을 수 없어요: ${data.documentId}`);
+      return;
+    }
+    if (document.status !== DocumentStatus.SCHEDULED) {
+      this.logger.log(
+        `예약 발송 건너뜀 — 더 이상 예약 상태가 아니에요(status=${document.status}): ${data.documentId}`,
+      );
+      return;
+    }
+
+    await this.dispatchContract(document, data.recipients, data.ownerId, data.ip);
+    this.logger.log(`예약 발송 완료: ${data.documentId} (수신자 ${data.recipients.length}명)`);
+  }
+
+  /**
+   * Notify the sender that a scheduled send failed for good (grain-2 worker
+   * callback). Never throws — a notification hiccup must not crash the worker's
+   * failure handler.
+   */
+  async notifyScheduledSendFailure(documentId: string, reason: string): Promise<void> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: documentId },
+      select: { title: true, owner: { select: { email: true, name: true } } },
+    });
+    if (!document) {
+      this.logger.warn(
+        `예약 발송 실패 알림 건너뜀 — 문서를 찾을 수 없어요: ${documentId} (${reason})`,
+      );
+      return;
+    }
+
+    const webOrigin = this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
+    const notifyData = {
+      documentTitle: document.title,
+      dashboardUrl: `${webOrigin}/dashboard`,
+      reason,
+    };
+    const to = document.owner.email;
+    const toName = document.owner.name;
+    await this.notifications.enqueueMany([
+      { channel: 'alimtalk', to, toName, template: 'scheduled_send_failed', data: notifyData },
+      { channel: 'email', to, toName, template: 'scheduled_send_failed', data: notifyData },
+    ]);
+    this.logger.warn(`예약 발송 실패 — 발송자에게 알림: ${documentId} (${reason})`);
   }
 
   /** Dashboard list for the signed-in sender, newest first. */
