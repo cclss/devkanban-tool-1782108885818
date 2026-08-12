@@ -47,7 +47,8 @@ const COPY = {
   retry: '다시 시도',
   successTitle: '템플릿을 저장했어요',
   successBody: "다음에 '내 템플릿'에서 바로 불러올 수 있어요.",
-  successClose: '확인',
+  successContinue: '이어서 발송하기',
+  successGoToTemplates: '템플릿 목록으로 가기',
 } as const;
 
 type SaveState = 'idle' | 'saving' | 'success' | 'error';
@@ -117,9 +118,27 @@ export function SaveTemplateDialog({
               <DialogTitle>{COPY.successTitle}</DialogTitle>
               <DialogDescription>{COPY.successBody}</DialogDescription>
             </DialogHeader>
-            <Button size="md" fullWidth onClick={() => onOpenChange(false)}>
-              {COPY.successClose}
-            </Button>
+            <div className="flex w-full flex-col gap-sm">
+              {/* Continue sending: close the modal only, staying on the field-
+                  placement step exactly as the old '확인' button did. */}
+              <Button size="md" fullWidth onClick={() => onOpenChange(false)}>
+                {COPY.successContinue}
+              </Button>
+              {/* Register-and-leave: close the modal, then route to the template
+                  list. The saved template is already persisted, so this is a
+                  navigation choice only — no save side effects. */}
+              <Button
+                size="md"
+                variant="secondary"
+                fullWidth
+                onClick={() => {
+                  onOpenChange(false);
+                  router.push('/templates');
+                }}
+              >
+                {COPY.successGoToTemplates}
+              </Button>
+            </div>
           </div>
         ) : (
           <form
