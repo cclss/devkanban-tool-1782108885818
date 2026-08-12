@@ -51,6 +51,44 @@ describe('BrandingService', () => {
       expect(result.faviconUrl).toBeNull();
       expect(result.logoUrl).toMatch(/^\/api\/branding\/asset\/logo\?v=[0-9a-f]{12}$/);
     });
+
+    it('busts the cache: replacing an asset (new storageKey) yields a different ?v=', async () => {
+      // Same serving path per kind, but the key-derived `?v=` MUST change when the
+      // stored asset is replaced — otherwise browsers/CDNs keep serving the old image.
+      const versionOf = (url: string | null) => new URL(url!, 'http://x').searchParams.get('v');
+
+      prisma.brandingSettings.findUnique.mockResolvedValueOnce({
+        logoStorageKey: 'branding/logo/first-upload.png',
+        faviconStorageKey: null,
+        brandColor: null,
+      });
+      const before = await service.get();
+
+      prisma.brandingSettings.findUnique.mockResolvedValueOnce({
+        logoStorageKey: 'branding/logo/second-upload.png',
+        faviconStorageKey: null,
+        brandColor: null,
+      });
+      const after = await service.get();
+
+      // The path is stable (client can link it directly)...
+      expect(before.logoUrl!.split('?')[0]).toBe(after.logoUrl!.split('?')[0]);
+      // ...but the cache-busting version differs, forcing a fresh fetch.
+      expect(versionOf(before.logoUrl)).not.toBe(versionOf(after.logoUrl));
+    });
+
+    it('is deterministic: the same storageKey always yields the same ?v=', async () => {
+      // Stability guard — a purely time-based buster (e.g. updatedAt) would fail this;
+      // the key-hash approach is a pure function of the stored key.
+      prisma.brandingSettings.findUnique.mockResolvedValue({
+        logoStorageKey: 'branding/logo/stable.png',
+        faviconStorageKey: null,
+        brandColor: null,
+      });
+      const first = await service.get();
+      const second = await service.get();
+      expect(first.logoUrl).toBe(second.logoUrl);
+    });
   });
 
   describe('saveAsset', () => {
