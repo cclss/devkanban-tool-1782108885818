@@ -52,9 +52,13 @@ function normalize(raw: Branding): Branding {
 /**
  * Fetch current branding from the browser. Used by the client provider's
  * `refresh()` so a just-saved logo/favicon/color re-applies immediately.
+ *
+ * `cache: 'no-store'` (matching {@link fetchBrandingServer}) bypasses the HTTP
+ * cache so `refresh()` always gets the freshly-saved asset URLs — the new `?v=`
+ * cache-buster only helps once this re-fetch itself isn't served stale.
  */
 export async function fetchBranding(): Promise<Branding> {
-  const raw = await apiFetch<Branding>('/branding');
+  const raw = await apiFetch<Branding>('/branding', { cache: 'no-store' });
   return normalize(raw);
 }
 
