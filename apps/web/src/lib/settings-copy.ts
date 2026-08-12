@@ -103,3 +103,34 @@ export const BRAND_COLOR_COPY = {
   previewButton: '서명 요청 보내기',
   previewLink: '계약서 미리보기',
 } as const;
+
+/**
+ * Copy for the 실시간 미리보기 패널 (`BrandingPreview`). This panel mirrors the
+ * form's current values — header logo, browser-tab favicon, and a brand-color
+ * re-skin sample — so the admin sees how the picked values land across the
+ * service before (and after) saving. The panel owns its own microcopy (section
+ * title/intro, per-mockup captions, unset hints, and the color sample's sample
+ * strings), the same ownership rule the uploader/color-picker follow: the
+ * control owns the labels of its own illustrative chrome. Tone follows the
+ * project base voice: plain 해요체, calm, describes what's shown.
+ */
+export const BRANDING_PREVIEW_COPY = {
+  /** Accessible name + heading of the preview region. */
+  title: '미리보기',
+  /** One-line intro: what this panel reflects. */
+  description: '왼쪽에서 고른 값이 서비스에 어떻게 보이는지 실시간으로 확인해요.',
+  /** Caption above the header-logo mockup. */
+  logoLabel: '헤더 로고',
+  /** Shown under the logo mockup when no logo is set (기본 이름 폴백이 보임). */
+  logoEmpty: '아직 로고가 없어 기본 이름으로 보여요.',
+  /** Caption above the browser-tab (favicon) mockup. */
+  faviconLabel: '브라우저 탭',
+  /** Shown under the tab mockup when no favicon is set (기본 아이콘 폴백이 보임). */
+  faviconEmpty: '아직 파비콘이 없어 기본 아이콘으로 보여요.',
+  /** Caption above the brand-color re-skin sample. */
+  colorLabel: '대표 색상',
+  /** Sample primary button inside the color re-skin sample. */
+  colorSampleButton: '서명 요청 보내기',
+  /** Sample link inside the color re-skin sample. */
+  colorSampleLink: '계약서 미리보기',
+} as const;
