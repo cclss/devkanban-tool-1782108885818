@@ -241,11 +241,17 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
 
   /** A prisma double that records whether the dispatch transaction ran. */
   function makeService(doc: Record<string, unknown> | null) {
+    const signRequestCreate = jest.fn(async () => ({ id: 'sr-1' }));
+    const documentUpdate = jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      ...doc,
+      ...data,
+    }));
+    const auditCreate = jest.fn(async () => ({}));
     const tx = {
-      signRequest: { create: jest.fn(async () => ({ id: 'sr-1' })) },
+      signRequest: { create: signRequestCreate },
       signField: { updateMany: jest.fn(async () => ({ count: 0 })) },
-      document: { update: jest.fn(async () => ({ ...doc, status: DocumentStatus.IN_PROGRESS })) },
-      auditLog: { create: jest.fn(async () => ({})) },
+      document: { update: documentUpdate },
+      auditLog: { create: auditCreate },
     };
     const $transaction = jest.fn(async (cb: (t: typeof tx) => unknown) => cb(tx));
     const prisma = {
@@ -262,15 +268,63 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
       sendQuota as never,
       {} as never,
     );
-    return { service, $transaction, notifications };
+    return { service, $transaction, notifications, documentUpdate, signRequestCreate, auditCreate };
   }
 
-  it('dispatches (reuses dispatchContract) for a still-SCHEDULED document', async () => {
-    const { service, $transaction, notifications } = makeService({
-      id: 'doc-1',
+  it('auto-sends a still-SCHEDULED document: IN_PROGRESS transition + one SignRequest per recipient + recipient notices', async () => {
+    const { service, $transaction, notifications, documentUpdate, signRequestCreate, auditCreate } =
+      makeService({
+        id: 'doc-1',
+        ownerId: 'owner-1',
+        title: '계약서',
+        status: DocumentStatus.SCHEDULED,
+      });
+
+    await service.dispatchScheduled({
+      documentId: 'doc-1',
       ownerId: 'owner-1',
-      title: '계약서',
-      status: DocumentStatus.SCHEDULED,
+      recipients: RECIPIENTS,
+    });
+
+    // The dispatch core ran inside a single transaction …
+    expect($transaction).toHaveBeenCalledTimes(1);
+    // … flipping the document to 진행 중 and clearing the reservation columns so it
+    // no longer reads as 예약됨.
+    expect(documentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { id: 'doc-1' },
+        data: expect.objectContaining({
+          status: DocumentStatus.IN_PROGRESS,
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        }),
+      }),
+    );
+    // … creating one SignRequest for the captured recipient and auditing the send …
+    expect(signRequestCreate).toHaveBeenCalledTimes(1);
+    expect(signRequestCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ documentId: 'doc-1', recipientEmail: 'a@ex.com' }),
+      }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ action: 'CONTRACT_SENT' }),
+      }),
+    );
+    // … and notifying that recipient over both channels.
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+    const jobs = (notifications.enqueueMany.mock.calls[0] as unknown as [
+      Array<{ channel: string; to: string }>,
+    ])[0];
+    expect(jobs.map((j) => j.channel).sort()).toEqual(['alimtalk', 'email']);
+    expect(jobs.every((j) => j.to === 'a@ex.com')).toBe(true);
+  });
+
+  it('is a no-op for a document no longer SCHEDULED (stale/cancelled job): no double-send', async () => {
+    const { service, $transaction, notifications, documentUpdate } = makeService({
+      id: 'doc-1',
+      status: DocumentStatus.DRAFT,
     });
 
     await service.dispatchScheduled({
@@ -279,15 +333,15 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
       recipients: RECIPIENTS,
     });
 
-    // The dispatch core ran inside a transaction and enqueued recipient notices.
-    expect($transaction).toHaveBeenCalledTimes(1);
-    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
+    expect($transaction).not.toHaveBeenCalled();
+    expect(documentUpdate).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 
-  it('is a no-op for a document no longer SCHEDULED (stale/cancelled job)', async () => {
+  it('is a no-op for an already-sent (IN_PROGRESS) document: a raced job never re-dispatches', async () => {
     const { service, $transaction, notifications } = makeService({
       id: 'doc-1',
-      status: DocumentStatus.DRAFT,
+      status: DocumentStatus.IN_PROGRESS,
     });
 
     await service.dispatchScheduled({
@@ -300,8 +354,8 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
     expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 
-  it('is a no-op for a missing document', async () => {
-    const { service, $transaction } = makeService(null);
+  it('is a no-op for a missing (deleted) document: no resurrection', async () => {
+    const { service, $transaction, notifications } = makeService(null);
 
     await service.dispatchScheduled({
       documentId: 'gone',
@@ -310,6 +364,8 @@ describe('DocumentsService.dispatchScheduled — scheduled-send worker callback'
     });
 
     expect($transaction).not.toHaveBeenCalled();
+    // A deleted document must never spawn SignRequests or notifications.
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 });
 
@@ -735,8 +791,8 @@ describe('DocumentsService.notifyScheduledSendFailure — sender alert + recover
     expect(jobs.every((j) => !('reason' in j.data))).toBe(true);
   });
 
-  it('recovers a still-SCHEDULED document to a re-sendable DRAFT (reservation columns nulled + audit)', async () => {
-    const { service, $transaction, documentUpdate, auditCreate } =
+  it('recovers a still-SCHEDULED document to a re-sendable DRAFT (reservation columns nulled + audit) AND alerts the sender', async () => {
+    const { service, notifications, $transaction, documentUpdate, auditCreate } =
       makeService(SCHEDULED_DOC);
 
     await service.notifyScheduledSendFailure('doc-1', 'Error: boom');
@@ -758,6 +814,9 @@ describe('DocumentsService.notifyScheduledSendFailure — sender alert + recover
         }),
       }),
     );
+    // The final-failure path runs end-to-end: recovery THEN the sender alert, so a
+    // permanently-failed reservation both frees the document and tells the sender.
+    expect(notifications.enqueueMany).toHaveBeenCalledTimes(1);
   });
 
   it('does NOT recover when the document is no longer SCHEDULED (raced cancel/reschedule), but still alerts', async () => {
