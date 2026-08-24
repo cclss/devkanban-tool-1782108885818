@@ -36,7 +36,35 @@ import { TEMPLATE_ACTIONS_COPY, TEMPLATES_COPY } from '@/lib/templates-copy';
  * login before any data work, and a 401/403 mid-flight clears the session and
  * redirects, mirroring `dashboard/page.tsx`.
  */
-const NEW_CONTRACT_ROUTE = '/contracts/new';
+/**
+ * Destination for the empty-state "발송 시작하기" CTA (and the per-card "이 템플릿으로
+ * 시작" action): the send-wizard entry chooser. A named export so it doubles as the
+ * regression pin for that destination — the wizard-entry route must not drift silently.
+ */
+export const NEW_CONTRACT_ROUTE = '/contracts/new';
+
+/**
+ * Which body the `/templates` list renders, decided purely from load state — no
+ * signal about "new user" vs. "deleted everything" ever enters this decision. Per
+ * the design spec, the empty state is judged by count alone (`templates.length === 0`),
+ * so a first-time visitor and a veteran who deleted their last template see the same
+ * screen.
+ *
+ * Precedence: an error takes over only while there is nothing loaded yet (`!templates`)
+ * — once a list has loaded, a later background-refresh error surfaces via the dismissible
+ * action banner instead of replacing the list.
+ */
+export type TemplatesView = 'error' | 'loading' | 'empty' | 'list';
+
+export function resolveTemplatesView(
+  templates: TemplateSummary[] | null,
+  error: string | null,
+): TemplatesView {
+  if (error && !templates) return 'error';
+  if (templates === null) return 'loading';
+  if (templates.length === 0) return 'empty';
+  return 'list';
+}
 
 export default function TemplatesPage() {
   const router = useRouter();
@@ -248,13 +276,14 @@ function TemplatesBody({
   onRetry: () => void;
   onCreate: () => void;
 }) {
-  if (error && !templates) {
+  const view = resolveTemplatesView(templates, error);
+  if (view === 'error' && error) {
     return <ErrorState message={error} onRetry={onRetry} />;
   }
-  if (templates === null) {
+  if (view === 'loading' || templates === null) {
     return <SkeletonList />;
   }
-  if (templates.length === 0) {
+  if (view === 'empty') {
     return <EmptyState onCreate={onCreate} />;
   }
   return (
