@@ -57,6 +57,11 @@ export const TEMPLATE_ACTIONS_COPY = {
     cancel: '취소',
     save: '저장',
     saving: '저장 중',
+    /** Success step (replaces the form after a save) — two equal-weight choices. */
+    successTitle: '이름을 바꿨어요',
+    successBody: '계속 수정하거나 템플릿 목록으로 이동할 수 있어요.',
+    keepEditing: '계속 수정하기',
+    goToTemplates: '템플릿 목록으로 가기',
   },
 
   /** Delete-confirm modal. */

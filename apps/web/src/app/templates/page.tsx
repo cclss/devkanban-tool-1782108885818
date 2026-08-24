@@ -66,6 +66,24 @@ export function resolveTemplatesView(
   return 'list';
 }
 
+/**
+ * Optimistic-delete step: removes `template` from `list` immediately, before
+ * the server confirms. Pulled out as a pure function — the same reasoning as
+ * `resolveTemplatesView` above — so the spec's "삭제 확인 후에는 목록 화면에 남아
+ * 삭제된 항목만 빠진 최신 목록을 즉시 보여준다" guarantee can be pinned by a
+ * regression test without rendering the page (this app's Jest config runs in
+ * `node`, no jsdom/RTL). `handleDelete` calls this synchronously, before
+ * `deleteTemplate(...)` is even awaited, so the item is already gone from the
+ * list the moment delete is confirmed — independent of when (or whether) the
+ * server responds.
+ */
+export function removeTemplateOptimistically(
+  list: TemplateSummary[] | null,
+  template: TemplateSummary,
+): TemplateSummary[] | null {
+  return list ? list.filter((t) => t.id !== template.id) : list;
+}
+
 export default function TemplatesPage() {
   const router = useRouter();
 
@@ -166,7 +184,7 @@ export default function TemplatesPage() {
       setActionError(null);
       // Remember where it sat so a failed delete can reinsert it in place.
       const index = templates?.findIndex((t) => t.id === template.id) ?? -1;
-      setTemplates((list) => (list ? list.filter((t) => t.id !== template.id) : list));
+      setTemplates((list) => removeTemplateOptimistically(list, template));
       deleteTemplate(template.id).catch((err: unknown) => {
         if (bounceIfUnauthorized(err)) return;
         setTemplates((list) => {

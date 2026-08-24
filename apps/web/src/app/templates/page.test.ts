@@ -13,7 +13,7 @@
  * its literal value guards against silent drift of where that CTA sends a user.
  */
 
-import { NEW_CONTRACT_ROUTE, resolveTemplatesView } from './page';
+import { NEW_CONTRACT_ROUTE, removeTemplateOptimistically, resolveTemplatesView } from './page';
 import type { TemplateSummary } from '@/lib/templates';
 
 function template(over: Partial<TemplateSummary> = {}): TemplateSummary {
@@ -56,5 +56,32 @@ describe('resolveTemplatesView', () => {
 describe('NEW_CONTRACT_ROUTE', () => {
   it('points the empty-state CTA at the send-wizard entry chooser', () => {
     expect(NEW_CONTRACT_ROUTE).toBe('/contracts/new');
+  });
+});
+
+describe('removeTemplateOptimistically (delete regression guard)', () => {
+  // `handleDelete` calls this synchronously right after the delete is confirmed
+  // — before `deleteTemplate(...)` is awaited, let alone resolved. These tests
+  // pin that the deleted item is gone from the returned list immediately,
+  // regardless of whether the server has responded yet.
+  const survivor = template({ id: 'tpl-keep', name: '유지되는 템플릿' });
+  const doomed = template({ id: 'tpl-delete', name: '삭제될 템플릿' });
+
+  it('excludes the confirmed-deleted template from the very next render, before the delete promise settles', () => {
+    const beforeServerResponds = removeTemplateOptimistically([survivor, doomed], doomed);
+    expect(beforeServerResponds).toEqual([survivor]);
+    expect(beforeServerResponds?.some((t) => t.id === doomed.id)).toBe(false);
+  });
+
+  it('leaves other templates and their order untouched', () => {
+    const another = template({ id: 'tpl-other', name: '다른 템플릿' });
+    expect(removeTemplateOptimistically([survivor, doomed, another], doomed)).toEqual([
+      survivor,
+      another,
+    ]);
+  });
+
+  it('is a no-op (identity) when the list has not loaded yet', () => {
+    expect(removeTemplateOptimistically(null, doomed)).toBeNull();
   });
 });
