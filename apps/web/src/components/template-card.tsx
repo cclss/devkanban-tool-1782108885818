@@ -67,14 +67,15 @@ export function TemplateCard({
   disabled = false,
   actions,
 }: TemplateCardProps) {
+  const view = templateCardViewModel(template);
   const summaryRow = (
     <>
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
         <TemplateIcon />
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2xs text-left">
-        <h3 className="truncate text-base font-bold text-foreground">{template.name}</h3>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(template)}</p>
+        <h3 className="truncate text-base font-bold text-foreground">{view.name}</h3>
+        <p className="truncate text-sm text-foreground-subtle">{view.metaText}</p>
       </div>
       {onSelect ? <ChevronIcon /> : null}
     </>
@@ -124,7 +125,7 @@ export function TemplateCard({
             onClick={() => actions.onStart(template)}
             className="ml-auto"
           >
-            {TEMPLATE_ACTIONS_COPY.start}
+            {view.startLabel}
           </Button>
         </div>
       </Card>
@@ -138,7 +139,31 @@ export function TemplateCard({
   );
 }
 
-function metaLine(template: TemplateSummary): string {
+/**
+ * The card's read-only view model: exactly what the summary row and the
+ * manageable Extension's primary action render, derived from a
+ * `TemplateSummary` plus the copy tables. Separated as a pure function (no
+ * JSX) so the name/저장일 문구/시작 라벨 contract can be pinned by a plain
+ * unit test instead of a DOM-rendering one.
+ */
+export interface TemplateCardView {
+  /** Rendered as the card's title (`<h3>`). */
+  name: string;
+  /** Rendered as the muted meta line — `페이지 수 · 필드 수 · 저장일`. */
+  metaText: string;
+  /** Rendered as the manageable Extension's primary action label. */
+  startLabel: string;
+}
+
+export function templateCardViewModel(template: TemplateSummary): TemplateCardView {
+  return {
+    name: template.name,
+    metaText: metaLine(template),
+    startLabel: TEMPLATE_ACTIONS_COPY.start,
+  };
+}
+
+export function metaLine(template: TemplateSummary): string {
   const parts = [
     TEMPLATE_META_COPY.pages(template.pageCount),
     TEMPLATE_META_COPY.fields(template.fieldCount),
@@ -153,7 +178,7 @@ function metaLine(template: TemplateSummary): string {
  * / N시간 전 / N일 전, then an absolute YYYY.MM.DD past a week). Mirrors
  * ContractCard's formatRelative so both lists tell time identically.
  */
-function formatRelative(iso: string): string {
+export function formatRelative(iso: string): string {
   const then = new Date(iso).getTime();
   if (Number.isNaN(then)) return '';
   const diffMs = Date.now() - then;
