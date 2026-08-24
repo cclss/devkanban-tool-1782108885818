@@ -187,6 +187,22 @@ describe('Templates flow (e2e)', () => {
   });
 
   it('lists the owner templates (newest first, no field layout)', async () => {
+    // Prove *position*, not just presence: create a second, differently-named
+    // template after `templateId` and assert it lands at index 0 — the
+    // "newly saved item is always at the top of the list" guarantee behind
+    // the save-success screen's "템플릿 목록으로 가기" flow.
+    const second = await request(app.getHttpServer())
+      .post('/api/templates')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        name: '방금 저장한 템플릿',
+        storageKey: `templates/${userId}/second.pdf`,
+        pageCount: 1,
+        fields: sampleFields,
+      })
+      .expect(201);
+    const secondId: string = second.body.id;
+
     const res = await request(app.getHttpServer())
       .get('/api/templates')
       .set('Authorization', `Bearer ${token}`)
@@ -195,6 +211,13 @@ describe('Templates flow (e2e)', () => {
     expect(found).toBeDefined();
     expect(found.fieldCount).toBe(2);
     expect(found.fields).toBeUndefined();
+
+    expect(res.body[0].id).toBe(secondId);
+    expect(res.body[0].name).toBe('방금 저장한 템플릿');
+
+    // Clean up so the Free-plan cap test below keeps counting from exactly
+    // one pre-existing template (`templateId`), as it already assumes.
+    await prisma.template.delete({ where: { id: secondId } }).catch(() => undefined);
   });
 
   it('fetches a single template incl. its fields and storage key', async () => {
