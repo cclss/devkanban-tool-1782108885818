@@ -40,8 +40,10 @@ import {
   isCancelDisabled,
   isNameInputDisabled,
   isSaveDisabled,
+  resolveSaveSuccessRoute,
   saveTemplateReducer,
   shouldBlockOpenChange,
+  type SaveSuccessChoice,
 } from './save-template-dialog-state';
 
 const COPY = {
@@ -56,7 +58,8 @@ const COPY = {
   retry: '다시 시도',
   successTitle: '템플릿을 저장했어요',
   successBody: "다음에 '내 템플릿'에서 바로 불러올 수 있어요.",
-  successClose: '확인',
+  continueSending: '계속 발송하기',
+  goToTemplates: '템플릿 목록으로 가기',
 } as const;
 
 export interface SaveTemplateDialogProps {
@@ -91,6 +94,33 @@ export function SaveTemplateDialog({
 
   const trimmed = name.trim();
 
+  // The success screen offers two equally-weighted choices and must not
+  // hand focus to either one by default (autoFocus would defeat that). Radix's
+  // focus trap otherwise lands on the first focusable element on mount, so we
+  // move focus to the (non-interactive) container instead.
+  const successViewRef = React.useRef<HTMLDivElement>(null);
+  React.useEffect(() => {
+    if (status === 'success') {
+      successViewRef.current?.focus();
+    }
+  }, [status]);
+
+  // Routes a save-success choice per resolveSaveSuccessRoute: 'continue-sending'
+  // resolves to null, so only the dialog closes and the sender stays on the
+  // wizard's field layout screen with fields untouched; 'go-to-templates'
+  // resolves to a route, so only that navigation happens.
+  const handleSuccessChoice = React.useCallback(
+    (choice: SaveSuccessChoice) => {
+      const route = resolveSaveSuccessRoute(choice);
+      if (route) {
+        router.push(route);
+      } else {
+        onOpenChange(false);
+      }
+    },
+    [router, onOpenChange],
+  );
+
   const handleSave = React.useCallback(async () => {
     if (!canSubmit(form)) return;
     dispatch({ type: 'SUBMIT' });
@@ -123,15 +153,36 @@ export function SaveTemplateDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         {status === 'success' ? (
-          <div className="flex flex-col items-center gap-md py-sm text-center">
+          <div
+            ref={successViewRef}
+            tabIndex={-1}
+            className="flex flex-col items-center gap-md py-sm text-center outline-none"
+          >
             <SuccessCheck size={72} aria-label={COPY.successTitle} />
             <DialogHeader className="items-center pb-0">
               <DialogTitle>{COPY.successTitle}</DialogTitle>
               <DialogDescription>{COPY.successBody}</DialogDescription>
             </DialogHeader>
-            <Button size="md" fullWidth onClick={() => onOpenChange(false)}>
-              {COPY.successClose}
-            </Button>
+            <div className="flex w-full gap-sm">
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                className="flex-1"
+                onClick={() => handleSuccessChoice('continue-sending')}
+              >
+                {COPY.continueSending}
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                size="md"
+                className="flex-1"
+                onClick={() => handleSuccessChoice('go-to-templates')}
+              >
+                {COPY.goToTemplates}
+              </Button>
+            </div>
           </div>
         ) : (
           <form

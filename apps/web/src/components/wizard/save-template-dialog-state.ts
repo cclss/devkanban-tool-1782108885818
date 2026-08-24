@@ -91,3 +91,29 @@ export function isSaveDisabled(state: SaveTemplateFormState): boolean {
 export function shouldBlockOpenChange(status: SaveTemplateStatus, nextOpen: boolean): boolean {
   return status === 'saving' && nextOpen === false;
 }
+
+/**
+ * The two equally-weighted choices offered on the save-success screen. Which
+ * one the sender picks is the only signal we have for "reuse to send now" vs
+ * "archive for later" — the save step itself never asks that question.
+ */
+export type SaveSuccessChoice = 'continue-sending' | 'go-to-templates';
+
+/**
+ * Resolves a save-success choice to its destination.
+ *
+ * `null` means "stay put" — the caller closes the dialog only, leaving the
+ * sender on the wizard's field layout screen with the fields untouched. A
+ * non-null string is the route the caller should push to. Kept as a pure
+ * function so the routing decision is provable without rendering the dialog.
+ */
+export function resolveSaveSuccessRoute(choice: SaveSuccessChoice): string | null {
+  switch (choice) {
+    case 'continue-sending':
+      return null;
+    case 'go-to-templates':
+      return '/templates';
+    default:
+      return null;
+  }
+}

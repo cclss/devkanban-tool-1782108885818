@@ -4,6 +4,7 @@ import {
   isCancelDisabled,
   isNameInputDisabled,
   isSaveDisabled,
+  resolveSaveSuccessRoute,
   saveTemplateReducer,
   shouldBlockOpenChange,
   type SaveTemplateFormState,
@@ -122,5 +123,15 @@ describe('shouldBlockOpenChange', () => {
     expect(shouldBlockOpenChange('idle', false)).toBe(false);
     expect(shouldBlockOpenChange('success', false)).toBe(false);
     expect(shouldBlockOpenChange('error', false)).toBe(false);
+  });
+});
+
+describe('resolveSaveSuccessRoute', () => {
+  it("'continue-sending' resolves to null — the caller only closes the dialog, no navigation", () => {
+    expect(resolveSaveSuccessRoute('continue-sending')).toBeNull();
+  });
+
+  it("'go-to-templates' resolves to the templates route", () => {
+    expect(resolveSaveSuccessRoute('go-to-templates')).toBe('/templates');
   });
 });
