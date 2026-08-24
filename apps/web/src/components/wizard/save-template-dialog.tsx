@@ -34,6 +34,15 @@ import {
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
 import { createTemplate } from '@/lib/templates';
 import type { SignFieldDraft } from './wizard-context';
+import {
+  canSubmit,
+  initialSaveTemplateFormState,
+  isCancelDisabled,
+  isNameInputDisabled,
+  isSaveDisabled,
+  saveTemplateReducer,
+  shouldBlockOpenChange,
+} from './save-template-dialog-state';
 
 const COPY = {
   title: '템플릿으로 저장',
@@ -49,8 +58,6 @@ const COPY = {
   successBody: "다음에 '내 템플릿'에서 바로 불러올 수 있어요.",
   successClose: '확인',
 } as const;
-
-type SaveState = 'idle' | 'saving' | 'success' | 'error';
 
 export interface SaveTemplateDialogProps {
   open: boolean;
@@ -71,44 +78,49 @@ export function SaveTemplateDialog({
   fields,
 }: SaveTemplateDialogProps) {
   const router = useRouter();
-  const [name, setName] = React.useState('');
-  const [status, setStatus] = React.useState<SaveState>('idle');
-  const [error, setError] = React.useState<string | null>(null);
+  const [form, dispatch] = React.useReducer(saveTemplateReducer, initialSaveTemplateFormState);
+  const { name, status, error } = form;
 
   // Reset to a clean form whenever the modal (re)opens, so a prior name/error
   // never leaks into the next save.
   React.useEffect(() => {
     if (open) {
-      setName('');
-      setStatus('idle');
-      setError(null);
+      dispatch({ type: 'OPEN' });
     }
   }, [open]);
 
   const trimmed = name.trim();
-  const canSave = trimmed.length > 0 && status !== 'saving';
 
   const handleSave = React.useCallback(async () => {
-    if (trimmed.length === 0) return;
-    setStatus('saving');
-    setError(null);
+    if (!canSubmit(form)) return;
+    dispatch({ type: 'SUBMIT' });
     try {
       await createTemplate({ name: trimmed, storageKey, pageCount, fields });
-      setStatus('success');
+      dispatch({ type: 'SUCCESS' });
     } catch (err) {
       if (err instanceof ApiError && err.status === 401) {
         router.replace('/login');
         return;
       }
-      setError(err instanceof ApiError ? err.message : GENERIC_ERROR);
-      setStatus('error');
+      dispatch({ type: 'FAILURE', message: err instanceof ApiError ? err.message : GENERIC_ERROR });
     }
-  }, [trimmed, storageKey, pageCount, fields, router]);
+  }, [form, trimmed, storageKey, pageCount, fields, router]);
+
+  // While a save is in flight, the outcome isn't known yet — block every
+  // dismissal path (X button, Esc, backdrop click) so the sender can't leave
+  // the request's result unobserved or trigger a duplicate submit on reopen.
+  const handleOpenChange = React.useCallback(
+    (nextOpen: boolean) => {
+      if (shouldBlockOpenChange(status, nextOpen)) return;
+      onOpenChange(nextOpen);
+    },
+    [status, onOpenChange],
+  );
 
   const inputId = 'save-template-name';
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent>
         {status === 'success' ? (
           <div className="flex flex-col items-center gap-md py-sm text-center">
@@ -137,11 +149,11 @@ export function SaveTemplateDialog({
               <Input
                 id={inputId}
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => dispatch({ type: 'SET_NAME', name: e.target.value })}
                 placeholder={COPY.namePlaceholder}
                 maxLength={80}
                 autoFocus
-                disabled={status === 'saving'}
+                disabled={isNameInputDisabled(form)}
               />
             </Field>
 
@@ -158,12 +170,12 @@ export function SaveTemplateDialog({
               <Button
                 type="button"
                 variant="secondary"
-                onClick={() => onOpenChange(false)}
-                disabled={status === 'saving'}
+                onClick={() => handleOpenChange(false)}
+                disabled={isCancelDisabled(form)}
               >
                 {COPY.cancel}
               </Button>
-              <Button type="submit" disabled={!canSave} isLoading={status === 'saving'}>
+              <Button type="submit" disabled={isSaveDisabled(form)} isLoading={status === 'saving'}>
                 {status === 'saving'
                   ? COPY.saving
                   : status === 'error'
