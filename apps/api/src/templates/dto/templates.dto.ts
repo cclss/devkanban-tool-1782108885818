@@ -1,4 +1,4 @@
-import { Type } from 'class-transformer';
+import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
   IsArray,
@@ -18,6 +18,11 @@ import { SignFieldDto } from '../../documents/dto/documents.dto';
  * with the exact same normalized-geometry rules as a live contract's fields.
  */
 export class CreateTemplateDto {
+  // Trim before length validation so a whitespace-only name ("   ") fails
+  // MinLength(1) here instead of slipping through and being trimmed down to
+  // an empty string later in TemplatesService (which would save a nameless
+  // template with nothing to distinguish it in the list).
+  @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
   @IsString()
   @MinLength(1)
   @MaxLength(100)
