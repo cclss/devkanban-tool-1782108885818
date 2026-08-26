@@ -69,27 +69,21 @@ export class ScheduledSendQueue implements OnModuleInit, OnModuleDestroy {
     const current = await queue.getJob(jobId);
     if (!current) throw new ServiceUnavailableException('예약 발송 잡을 찾을 수 없어요. 다시 예약해 주세요.');
     const nextJob = { ...current.data, jobId: nextJobId } as ScheduledSendJobData;
-    await current.remove();
-    try {
-      const delay = scheduledFor.getTime() - Date.now();
-      if (delay <= 0) throw new ServiceUnavailableException('예약 발송 시각이 이미 지났어요.');
-      await queue.add(SCHEDULED_SEND_JOB, nextJob, {
-        jobId: nextJob.jobId,
-        delay,
-        attempts: 3,
-        backoff: { type: 'exponential', delay: 5000 },
-        removeOnComplete: 1000,
-        removeOnFail: 5000,
-      });
-    } catch (err) {
-      // Best effort restore: the DB remains pointed at the old job until the
-      // caller's update succeeds, so avoid silently losing a reservation.
-      await queue.add(SCHEDULED_SEND_JOB, current.data, {
-        jobId,
-        delay: Math.max(0, current.opts.delay ?? 0),
-      }).catch(() => undefined);
-      throw err;
-    }
+    const delay = scheduledFor.getTime() - Date.now();
+    if (delay <= 0) throw new ServiceUnavailableException('예약 발송 시각이 이미 지났어요.');
+
+    // Keep the current job in place until the service persists the new job ID.
+    // During that short overlap, the document's persisted ID makes the old job
+    // harmless; removing it first could otherwise lose the reservation when
+    // the database update fails.
+    await queue.add(SCHEDULED_SEND_JOB, nextJob, {
+      jobId: nextJob.jobId,
+      delay,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5000 },
+      removeOnComplete: 1000,
+      removeOnFail: 5000,
+    });
   }
 
   async remove(jobId: string): Promise<void> {

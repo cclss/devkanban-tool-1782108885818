@@ -198,9 +198,20 @@ export class DocumentsService {
     const nextJobId = this.newScheduledJobId(documentId);
     await this.scheduledSendQueue.replace(document.scheduledJobId, nextJobId, scheduledFor);
 
-    const updated = await this.prisma.document.update({
-      where: { id: documentId },
-      data: { scheduledSendAt: scheduledFor, scheduledJobId: nextJobId },
+    let updated: Document;
+    try {
+      updated = await this.prisma.document.update({
+        where: { id: documentId },
+        data: { scheduledSendAt: scheduledFor, scheduledJobId: nextJobId },
+      });
+    } catch (err) {
+      // The old persisted job remains authoritative, so remove only the new
+      // delayed job when the database write cannot be completed.
+      await this.scheduledSendQueue.remove(nextJobId).catch(() => undefined);
+      throw err;
+    }
+    await this.scheduledSendQueue.remove(document.scheduledJobId).catch((err) => {
+      this.logger.warn(`기존 예약 발송 잡 제거 실패: docId=${documentId}: ${String(err)}`);
     });
     await this.writeAudit({
       documentId,
@@ -222,7 +233,6 @@ export class DocumentsService {
     if (document.status !== DocumentStatus.SCHEDULED || !document.scheduledJobId) {
       throw new BadRequestException('예약된 계약만 예약을 취소할 수 있어요.');
     }
-    await this.scheduledSendQueue.remove(document.scheduledJobId);
     const updated = await this.prisma.document.update({
       where: { id: documentId },
       data: {
@@ -230,6 +240,12 @@ export class DocumentsService {
         scheduledSendAt: null,
         scheduledJobId: null,
       },
+    });
+    // Clearing the persisted job ID first makes a concurrently promoted job a
+    // no-op. If Redis is temporarily unavailable, it can never dispatch this
+    // cancelled document and will be removed when the queue becomes available.
+    await this.scheduledSendQueue.remove(document.scheduledJobId).catch((err) => {
+      this.logger.warn(`취소된 예약 발송 잡 제거 실패: docId=${documentId}: ${String(err)}`);
     });
     await this.writeAudit({ documentId, actorId: ownerId, action: 'CONTRACT_SCHEDULE_CANCELLED', ip });
     return this.toSummary(updated, 0, 0, new Date());

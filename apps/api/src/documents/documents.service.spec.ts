@@ -269,6 +269,7 @@ describe('DocumentsService — scheduled dispatch', () => {
     expect(prisma.document.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ scheduledSendAt: new Date(next) }) }),
     );
+    expect(queue.remove).toHaveBeenCalledWith('old-job');
     expect(result.status).toBe(DocumentStatus.SCHEDULED);
     expect(result.scheduledSendAt).toBe(next);
   });
@@ -286,6 +287,19 @@ describe('DocumentsService — scheduled dispatch', () => {
     );
     expect(result.status).toBe(DocumentStatus.DRAFT);
     expect(result.scheduledSendAt).toBeNull();
+  });
+
+  it('removes the replacement job if its database update fails', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.update.mockRejectedValueOnce(new Error('database unavailable'));
+    const next = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    await expect(service.updateSchedule(ownerId, documentId, { scheduledSendAt: next }))
+      .rejects.toThrow('database unavailable');
+
+    const [[, nextJobId]] = queue.replace.mock.calls as unknown as Array<[string, string]>;
+    expect(queue.remove).toHaveBeenCalledWith(nextJobId);
+    expect(queue.remove).not.toHaveBeenCalledWith('old-job');
   });
 
   it('rejects a past schedule without adding a job or changing the document', async () => {
