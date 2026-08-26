@@ -125,6 +125,27 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
   resetFallbackReport: () => void;
 } {
   const missing = new Map<string, MissingWebTranslationEntry>();
+  const warned = new Set<WebTranslationKey>();
+
+  /**
+   * Surfaces the first fallback for each key while developing, so gaps are noticed
+   * before shipping. Reports only the key, requested locale, and reason—never the
+   * rendered copy or interpolation vars—so no user data reaches the console. Muted
+   * in production, where the structured fallback report is the diagnostics channel.
+   */
+  const warnOnceInDev = (
+    requestedLocale: SupportedLocale,
+    fallbackLocale: SupportedLocale,
+    key: WebTranslationKey,
+    reason: MissingWebTranslationReason,
+  ) => {
+    if (process.env.NODE_ENV === 'production') return;
+    if (warned.has(key)) return;
+    warned.add(key);
+    console.warn(
+      `[web-translations] Missing copy for "${key}" (locale "${requestedLocale}", ${reason}); using "${fallbackLocale}" fallback.`,
+    );
+  };
 
   const recordMissing = (
     requestedLocale: SupportedLocale,
@@ -132,6 +153,7 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
     reason: MissingWebTranslationReason,
   ) => {
     const fallbackLocale: SupportedLocale = 'ko';
+    warnOnceInDev(requestedLocale, fallbackLocale, key, reason);
     const id = `${requestedLocale}\u0000${fallbackLocale}\u0000${key}\u0000${reason}`;
     const previous = missing.get(id);
     if (previous) {
@@ -159,6 +181,7 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
     },
     resetFallbackReport() {
       missing.clear();
+      warned.clear();
     },
   };
 }

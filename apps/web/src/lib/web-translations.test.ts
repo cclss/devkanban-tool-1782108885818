@@ -88,6 +88,69 @@ describe('web translation fallback runtime', () => {
   });
 });
 
+describe('dev-mode fallback warning', () => {
+  const env = process.env as Record<string, string | undefined>;
+  const withNodeEnv = (value: string | undefined, run: () => void) => {
+    const previous = env.NODE_ENV;
+    if (value === undefined) delete env.NODE_ENV;
+    else env.NODE_ENV = value;
+    try {
+      run();
+    } finally {
+      if (previous === undefined) delete env.NODE_ENV;
+      else env.NODE_ENV = previous;
+    }
+  };
+
+  it('warns once per unique key on first fallback, not on repeats', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      withNodeEnv('development', () => {
+        const runtime = createWebTranslationRuntime({
+          ko: { auth: { welcome: '환영합니다', bye: '안녕히 가세요' } },
+          en: { auth: {} },
+        });
+
+        runtime.translate('en', 'auth.welcome');
+        runtime.translate('en', 'auth.welcome');
+        runtime.translate('ko', 'auth.welcome');
+        runtime.translate('en', 'auth.bye');
+
+        expect(warn).toHaveBeenCalledTimes(2);
+        const messages = warn.mock.calls.map((call) => String(call[0]));
+        expect(messages.some((m) => m.includes('auth.welcome') && m.includes('en') && m.includes('missing'))).toBe(true);
+        expect(messages.some((m) => m.includes('auth.bye'))).toBe(true);
+        // Never leaks the rendered fallback copy or interpolation vars.
+        for (const message of messages) {
+          expect(message).not.toContain('환영합니다');
+          expect(message).not.toContain('안녕히 가세요');
+        }
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
+  it('stays silent in production', () => {
+    const warn = jest.spyOn(console, 'warn').mockImplementation(() => {});
+    try {
+      withNodeEnv('production', () => {
+        const runtime = createWebTranslationRuntime({
+          ko: { auth: { welcome: '환영합니다' } },
+          en: { auth: {} },
+        });
+
+        expect(runtime.translate('en', 'auth.welcome')).toBe('환영합니다');
+        expect(warn).not.toHaveBeenCalled();
+        // The structured report still records the fallback in production.
+        expect(runtime.getFallbackReport().missingKeys).toEqual(['auth.welcome']);
+      });
+    } finally {
+      warn.mockRestore();
+    }
+  });
+});
+
 describe('interpolate', () => {
   it('substitutes a single placeholder with a string value', () => {
     expect(interpolate('{name}님이 전송함', { name: '김' })).toBe('김님이 전송함');
