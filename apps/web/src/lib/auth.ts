@@ -85,7 +85,11 @@ export function isAuthenticated(): boolean {
 
 /** Update the persisted sender preference and notify locale consumers immediately. */
 export async function updateLocale(locale: SessionUser['locale']): Promise<SessionUser> {
-  const user = await apiFetch<SessionUser>('/auth/locale', { method: 'POST', json: { locale } });
+  const user = await apiFetch<SessionUser>('/auth/locale', {
+    method: 'POST',
+    json: { locale },
+    token: getToken() ?? undefined,
+  });
   if (isBrowser()) {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
     notifySessionChange();
