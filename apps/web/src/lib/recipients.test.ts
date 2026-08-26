@@ -4,13 +4,19 @@ import {
   moveIndexMap,
   moveRecipient,
   normalizeEmail,
+  recipientLabel,
+  recipientMessagesFor,
   recipientsComplete,
   remapFieldRecipients,
   removeIndexMap,
   validateRecipients,
-  RECIPIENT_MESSAGES,
+  RECIPIENT_COPY_CATALOGS,
 } from './recipients';
+import { hasCopyParity } from './copy-locale';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
+
+const KO = recipientMessagesFor('ko');
+const EN = recipientMessagesFor('en');
 
 function r(id: string, email: string, name = ''): RecipientDraft {
   return { id, email, name };
@@ -39,27 +45,57 @@ describe('email validation', () => {
 });
 
 describe('validateRecipients', () => {
-  it('flags empty, malformed, and duplicate emails', () => {
-    const errors = validateRecipients([
-      r('1', ''),
-      r('2', 'bad'),
-      r('3', 'dup@x.com'),
-      r('4', 'DUP@x.com'),
-    ]);
-    expect(errors['1']?.email).toBe(RECIPIENT_MESSAGES.emailRequired);
-    expect(errors['2']?.email).toBe(RECIPIENT_MESSAGES.emailInvalid);
+  it('flags empty, malformed, and duplicate emails (Korean)', () => {
+    const errors = validateRecipients(
+      [r('1', ''), r('2', 'bad'), r('3', 'dup@x.com'), r('4', 'DUP@x.com')],
+      'ko',
+    );
+    expect(errors['1']?.email).toBe(KO.emailRequired);
+    expect(errors['2']?.email).toBe(KO.emailInvalid);
     expect(errors['3']).toBeUndefined(); // first occurrence stays clean
-    expect(errors['4']?.email).toBe(RECIPIENT_MESSAGES.emailDuplicate);
+    expect(errors['4']?.email).toBe(KO.emailDuplicate);
   });
 
-  it('treats a fully valid distinct list as complete', () => {
+  it('flags the same faults with English wording under the en locale', () => {
+    const errors = validateRecipients(
+      [r('1', ''), r('2', 'bad'), r('3', 'dup@x.com'), r('4', 'DUP@x.com')],
+      'en',
+    );
+    expect(errors['1']?.email).toBe(EN.emailRequired);
+    expect(errors['2']?.email).toBe(EN.emailInvalid);
+    expect(errors['4']?.email).toBe(EN.emailDuplicate);
+    // The English message must actually differ from the Korean one (no silent fallback).
+    expect(EN.emailRequired).not.toBe(KO.emailRequired);
+  });
+
+  it('treats a fully valid distinct list as complete (locale-independent)', () => {
     const list = [r('1', 'a@x.com'), r('2', 'b@x.com')];
-    expect(validateRecipients(list)).toEqual({});
+    expect(validateRecipients(list, 'ko')).toEqual({});
     expect(recipientsComplete(list)).toBe(true);
   });
 
   it('is incomplete when empty', () => {
     expect(recipientsComplete([])).toBe(false);
+  });
+});
+
+describe('recipientLabel', () => {
+  it('shows a user-typed name verbatim in either locale', () => {
+    expect(recipientLabel(r('1', 'a@x.com', '홍길동'), 0, 'ko')).toBe('홍길동');
+    expect(recipientLabel(r('1', 'a@x.com', '홍길동'), 0, 'en')).toBe('홍길동');
+  });
+
+  it('falls back to an order-based label in the resolved locale', () => {
+    expect(recipientLabel(r('1', ''), 2, 'ko')).toBe('받는 분 3');
+    expect(recipientLabel(r('1', ''), 2, 'en')).toBe('Recipient 3');
+  });
+});
+
+describe('recipient copy parity gate', () => {
+  it('has full ko/en key parity for every localized surface', () => {
+    for (const [surface, { ko, en }] of Object.entries(RECIPIENT_COPY_CATALOGS)) {
+      expect({ surface, parity: hasCopyParity(ko, en) }).toEqual({ surface, parity: true });
+    }
   });
 });
 

@@ -24,10 +24,9 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@repo/ui';
-import { SHARE_COPY } from '@/lib/sharing';
+import { shareCopyFor } from '@/lib/sharing';
+import { useLocale } from '@/components/locale-provider';
 import { ShareLinkBody } from './share-link-body';
-
-const COPY = SHARE_COPY;
 
 export interface ShareLinkDialogProps {
   open: boolean;
@@ -45,6 +44,7 @@ export function ShareLinkDialog({
   documentId,
   onCreated,
 }: ShareLinkDialogProps) {
+  const COPY = shareCopyFor(useLocale().locale);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">

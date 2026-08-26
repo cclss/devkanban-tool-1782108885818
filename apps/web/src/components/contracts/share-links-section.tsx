@@ -19,21 +19,20 @@
 import * as React from 'react';
 import { Button, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
-import { CONTRACT_DETAIL_COPY } from '@/lib/contract-detail';
+import { useLocale } from '@/components/locale-provider';
+import { contractDetailCopyFor } from '@/lib/contract-detail';
 import {
   copyToClipboard,
   expiryNote,
   listShareLinks,
   passwordTriggerLabel,
   revokeShareLink,
-  SHARE_COPY,
+  shareCopyFor,
   type ShareLink,
   type ShareLinkState,
 } from '@/lib/sharing';
 import { ShareLinkDialog } from './share-link-dialog';
 import { ShareLinkPasswordEditor } from './share-link-password';
-
-const COPY = CONTRACT_DETAIL_COPY.share;
 
 export interface ShareLinksSectionProps {
   documentId: string;
@@ -41,6 +40,9 @@ export interface ShareLinksSectionProps {
 }
 
 export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSectionProps) {
+  const { locale } = useLocale();
+  const COPY = contractDetailCopyFor(locale).share;
+  const shareCopy = shareCopyFor(locale);
   const [shareOpen, setShareOpen] = React.useState(false);
   const [links, setLinks] = React.useState<ShareLink[] | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
@@ -51,9 +53,9 @@ export function ShareLinksSection({ documentId, documentTitle }: ShareLinksSecti
       setLinks(next);
       setLoadError(null);
     } catch (err) {
-      setLoadError(err instanceof ApiError ? err.message : SHARE_COPY.list.loadError);
+      setLoadError(err instanceof ApiError ? err.message : shareCopy.list.loadError);
     }
-  }, [documentId]);
+  }, [documentId, shareCopy]);
 
   React.useEffect(() => {
     void refresh();
@@ -150,6 +152,8 @@ function ShareLinkRow({
   onRevoke: (link: ShareLink) => Promise<void>;
   onPasswordChanged: (updated: ShareLink) => void;
 }) {
+  const { locale } = useLocale();
+  const COPY = shareCopyFor(locale);
   const [copied, setCopied] = React.useState(false);
   const [copyError, setCopyError] = React.useState<string | null>(null);
   const [revoking, setRevoking] = React.useState(false);
@@ -174,9 +178,9 @@ function ShareLinkRow({
       resetTimer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
-      setCopyError(SHARE_COPY.errors.copy);
+      setCopyError(COPY.errors.copy);
     }
-  }, [link.url]);
+  }, [link.url, COPY]);
 
   const revoke = React.useCallback(async () => {
     if (revoking) return;
@@ -187,12 +191,12 @@ function ShareLinkRow({
       // to surface an error if the server rejects (the section rolls the row back).
       await onRevoke(link);
     } catch (err) {
-      setRevokeError(err instanceof ApiError ? err.message : SHARE_COPY.list.revokeError);
+      setRevokeError(err instanceof ApiError ? err.message : COPY.list.revokeError);
       setRevoking(false);
     }
-  }, [link, onRevoke, revoking]);
+  }, [link, onRevoke, revoking, COPY]);
 
-  const label = link.label ?? SHARE_COPY.result.linkLabel;
+  const label = link.label ?? COPY.result.linkLabel;
   const isActive = link.status === 'active';
 
   return (
@@ -202,7 +206,7 @@ function ShareLinkRow({
         {link.requiresPassword ? (
           <span className="inline-flex items-center gap-2xs rounded-full bg-grey-100 px-xs py-2xs text-2xs font-semibold text-foreground-subtle">
             <LockIcon />
-            {SHARE_COPY.list.passwordTag}
+            {COPY.list.passwordTag}
           </span>
         ) : null}
       </div>
@@ -212,17 +216,17 @@ function ShareLinkRow({
       </p>
       {/* Only active links carry the forward-looking "…까지 열 수 있어요" note; for
           expired/revoked/completed rows the state pill already tells the story. */}
-      {isActive ? <p className="text-xs text-foreground-subtle">{expiryNote(link)}</p> : null}
+      {isActive ? <p className="text-xs text-foreground-subtle">{expiryNote(link, locale)}</p> : null}
 
       <div className="mt-2xs flex flex-wrap items-center gap-xs">
         <Button type="button" variant="secondary" size="sm" onClick={() => void copy()}>
           {copied ? (
             <>
               <CheckIcon />
-              {SHARE_COPY.result.copied}
+              {COPY.result.copied}
             </>
           ) : (
-            SHARE_COPY.result.copy
+            COPY.result.copy
           )}
         </Button>
         {isActive ? (
@@ -233,9 +237,9 @@ function ShareLinkRow({
             onClick={() => setPwOpen((v) => !v)}
             aria-expanded={pwOpen}
             aria-controls={pwPanelId}
-            aria-label={SHARE_COPY.passwordAdmin.triggerAria(label)}
+            aria-label={COPY.passwordAdmin.triggerAria(label)}
           >
-            {pwOpen ? SHARE_COPY.passwordAdmin.close : passwordTriggerLabel(link.requiresPassword)}
+            {pwOpen ? COPY.passwordAdmin.close : passwordTriggerLabel(link.requiresPassword, locale)}
           </Button>
         ) : null}
         {isActive ? (
@@ -245,10 +249,10 @@ function ShareLinkRow({
             size="sm"
             onClick={() => void revoke()}
             isLoading={revoking}
-            aria-label={SHARE_COPY.list.revokeAria(label)}
+            aria-label={COPY.list.revokeAria(label)}
             className="text-danger hover:bg-danger-subtle"
           >
-            {revoking ? SHARE_COPY.list.revoking : SHARE_COPY.list.revoke}
+            {revoking ? COPY.list.revoking : COPY.list.revoke}
           </Button>
         ) : null}
       </div>
@@ -266,7 +270,7 @@ function ShareLinkRow({
 
       <div role="status" aria-live="polite" className="min-h-4">
         {copied ? (
-          <span className="text-xs font-semibold text-success">{SHARE_COPY.result.copyToast}</span>
+          <span className="text-xs font-semibold text-success">{COPY.result.copyToast}</span>
         ) : copyError ? (
           <span className="text-xs text-danger">{copyError}</span>
         ) : revokeError ? (
@@ -293,6 +297,7 @@ const STATE_TONE: Record<ShareLinkState, { tint: string; dot: string; text: stri
 
 function StatePill({ state }: { state: ShareLinkState }) {
   const tone = STATE_TONE[state];
+  const stateLabels = shareCopyFor(useLocale().locale).state;
   return (
     <span
       className={cn(
@@ -302,17 +307,18 @@ function StatePill({ state }: { state: ShareLinkState }) {
       )}
     >
       <span className={cn('h-1.5 w-1.5 rounded-full', tone.dot)} aria-hidden="true" />
-      {SHARE_COPY.state[state]}
+      {stateLabels[state]}
     </span>
   );
 }
 
 function EmptyLinks() {
+  const copy = contractDetailCopyFor(useLocale().locale).share;
   return (
     <div className="flex flex-col items-center gap-2xs rounded-md border border-dashed border-border bg-surface-muted px-lg py-2xl text-center">
       <LinkGlyph />
-      <p className="mt-xs text-base font-semibold text-foreground">{COPY.emptyTitle}</p>
-      <p className="text-sm text-foreground-subtle">{COPY.emptyBody}</p>
+      <p className="mt-xs text-base font-semibold text-foreground">{copy.emptyTitle}</p>
+      <p className="text-sm text-foreground-subtle">{copy.emptyBody}</p>
     </div>
   );
 }

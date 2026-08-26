@@ -14,13 +14,13 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { Button, Card, Skeleton } from '@repo/ui';
 import { ContractDetail } from '@/components/contracts/contract-detail';
+import { useLocale } from '@/components/locale-provider';
 import { ApiError } from '@/lib/api';
 import { clearSession, getToken } from '@/lib/auth';
-import { CONTRACT_DETAIL_COPY } from '@/lib/contract-detail';
+import { contractDetailCopyFor } from '@/lib/contract-detail';
 import { fetchDocumentDetail, type DocumentDetail } from '@/lib/documents';
 
 const DASHBOARD_ROUTE = '/dashboard';
-const COPY = CONTRACT_DETAIL_COPY;
 
 type LoadError = { kind: 'notFound' } | { kind: 'generic'; message: string };
 
@@ -90,6 +90,7 @@ export default function ContractDetailPage() {
 }
 
 function DetailHeader() {
+  const COPY = contractDetailCopyFor(useLocale().locale);
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface">
       <div className="mx-auto flex w-full max-w-[720px] items-center px-md py-sm">
@@ -135,6 +136,7 @@ function DetailSkeleton() {
 }
 
 function NotFoundState() {
+  const COPY = contractDetailCopyFor(useLocale().locale);
   return (
     <Card className="motion-stagger flex flex-col items-center gap-md px-lg py-3xl text-center">
       <div className="flex flex-col gap-2xs">

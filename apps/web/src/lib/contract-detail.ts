@@ -4,11 +4,20 @@
  * Centralized here like `SIGNER_COPY` / `COMPLETION_DOWNLOAD_COPY` so the screen
  * binds to a single source of truth. Toss-tone 해요체 (design-spec
  * `messaging/contract-detail.md`). The share-link *creation* modal and the link
- * list rendering live in grain-5; this module only owns the detail-screen shell,
- * the share entry point, and the empty/placeholder copy.
+ * list rendering live in `sharing.ts`; this module only owns the detail-screen
+ * shell, the share entry point, and the empty/placeholder copy.
+ *
+ * Locale: `contractDetailCopyFor(locale)` returns the Korean catalog for `'ko'`
+ * and the type-checked English catalog for `'en'` (the standard adopted in
+ * messaging/locale-copy-convention.md, mirroring `signerCopyFor`). The Korean
+ * catalog is the `as const` base (single source of tone); the English branch is
+ * type-checked against its widened shape, so a missing/misshapen English key is
+ * a compile error — the miss can never silently fall back to Korean.
  */
 
-export const CONTRACT_DETAIL_COPY = {
+import { copyForLocale, type SupportedCopyLocale } from './copy-locale';
+
+const CONTRACT_DETAIL_COPY_KO = {
   /** Back affordance → dashboard. */
   back: '계약 목록',
   backAria: '계약 목록으로 돌아가기',
@@ -41,3 +50,41 @@ export const CONTRACT_DETAIL_COPY = {
   notFoundBody: '이미 삭제되었거나 접근할 수 없는 계약이에요.',
   notFoundAction: '계약 목록으로',
 } as const;
+
+/** Contract-detail copy in the locale resolved for the screen. */
+export const contractDetailCopyFor = copyForLocale<typeof CONTRACT_DETAIL_COPY_KO>(
+  CONTRACT_DETAIL_COPY_KO,
+  {
+    back: 'Contracts',
+    backAria: 'Back to contracts',
+    summary: {
+      recipients: 'Recipients',
+      pages: 'Length',
+      created: 'Created',
+      sent: 'Sent',
+      completed: 'Completed',
+      linkOnly: 'Link sharing',
+      recipientCount: (n: number) => `${n} recipients`,
+      pageCount: (n: number) => `${n} pages`,
+    },
+    share: {
+      sectionTitle: 'Share links',
+      sectionHelp:
+        'Create a link and send it to your recipient so they can open and fill out the contract without signing in.',
+      createButton: 'Share via link',
+      emptyTitle: 'No share links yet',
+      emptyBody: 'Select “Share via link” to create your first link.',
+    },
+    notFoundTitle: 'We could not find this contract',
+    notFoundBody: 'It may have been deleted, or you may not have access to it.',
+    notFoundAction: 'Back to contracts',
+  },
+);
+
+/** The locale-branched copy for this surface as `{ ko, en }` for the parity gate. */
+export const CONTRACT_DETAIL_COPY_CATALOGS = {
+  detail: { ko: contractDetailCopyFor('ko'), en: contractDetailCopyFor('en') },
+} as const satisfies Record<string, { ko: unknown; en: unknown }>;
+
+export type ContractDetailCopy = ReturnType<typeof contractDetailCopyFor>;
+export type { SupportedCopyLocale };

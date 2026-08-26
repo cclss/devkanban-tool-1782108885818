@@ -25,14 +25,14 @@ import { useRouter } from 'next/navigation';
 import { Button } from '@repo/ui';
 import { getToken } from '@/lib/auth';
 import { saveFields } from '@/lib/send';
-import { SHARE_COPY } from '@/lib/sharing';
+import { shareCopyFor } from '@/lib/sharing';
+import { useLocale } from '@/components/locale-provider';
 import { ShareLinkBody } from '@/components/contracts/share-link-body';
 import { useWizard } from './wizard-context';
 
-const COPY = SHARE_COPY.wizard;
-
 export function LinkShareStep() {
   const router = useRouter();
+  const COPY = shareCopyFor(useLocale().locale).wizard;
   const { state } = useWizard();
   const { document, fields } = state;
 

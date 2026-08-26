@@ -15,11 +15,10 @@ import * as React from 'react';
 import { Card } from '@repo/ui';
 import { StatusBadge } from '@/components/status-badge';
 import { CompletionDownload } from '@/components/completion-download';
-import { CONTRACT_DETAIL_COPY } from '@/lib/contract-detail';
+import { useLocale } from '@/components/locale-provider';
+import { contractDetailCopyFor } from '@/lib/contract-detail';
 import { downloadOwnerArtifact, type DocumentDetail } from '@/lib/documents';
 import { ShareLinksSection } from './share-links-section';
-
-const COPY = CONTRACT_DETAIL_COPY;
 
 export function ContractDetail({ document }: { document: DocumentDetail }) {
   const completed = document.status === 'COMPLETED';
@@ -62,6 +61,7 @@ export function ContractDetail({ document }: { document: DocumentDetail }) {
 }
 
 function SummaryCard({ document }: { document: DocumentDetail }) {
+  const COPY = contractDetailCopyFor(useLocale().locale);
   const sent = document.status !== 'DRAFT' && Boolean(document.sentAt);
   const recipientValue =
     document.recipientCount > 0

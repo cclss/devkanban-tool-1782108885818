@@ -28,18 +28,17 @@ import * as React from 'react';
 import { Button, Field } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { PasswordInput } from '@/components/password-input';
+import { useLocale } from '@/components/locale-provider';
 import {
   getShareLinkPassword,
   passwordEditorInitialValue,
   passwordStateHint,
-  SHARE_COPY,
+  shareCopyFor,
   SHARE_PASSWORD_MIN_LENGTH,
   updateShareLinkPassword,
   type ShareLink,
   type ShareLinkPasswordView,
 } from '@/lib/sharing';
-
-const COPY = SHARE_COPY.passwordAdmin;
 
 type Feedback = { tone: 'success' | 'error'; text: string } | null;
 type Busy = 'save' | 'remove' | null;
@@ -59,6 +58,8 @@ export function ShareLinkPasswordEditor({
   id,
   onChanged,
 }: ShareLinkPasswordEditorProps) {
+  const { locale } = useLocale();
+  const COPY = shareCopyFor(locale).passwordAdmin;
   const [view, setView] = React.useState<ShareLinkPasswordView | null>(null);
   const [loadError, setLoadError] = React.useState<string | null>(null);
   const [value, setValue] = React.useState('');
@@ -88,7 +89,7 @@ export function ShareLinkPasswordEditor({
     return () => {
       active = false;
     };
-  }, [documentId, link.id]);
+  }, [documentId, link.id, COPY]);
 
   const trimmed = value.trim();
   // Save is meaningful only for a non-empty value that differs from what loaded
@@ -123,7 +124,7 @@ export function ShareLinkPasswordEditor({
     } finally {
       setBusy(null);
     }
-  }, [documentId, link.id, onChanged, trimmed, view]);
+  }, [documentId, link.id, onChanged, trimmed, view, COPY]);
 
   const remove = React.useCallback(async () => {
     setPwError(null);
@@ -144,7 +145,7 @@ export function ShareLinkPasswordEditor({
     } finally {
       setBusy(null);
     }
-  }, [documentId, link.id, onChanged]);
+  }, [documentId, link.id, onChanged, COPY]);
 
   return (
     <div id={id} className="flex flex-col gap-sm rounded-md border border-border bg-surface-muted p-md">
@@ -161,7 +162,7 @@ export function ShareLinkPasswordEditor({
           <Field
             htmlFor={fieldId}
             label={COPY.label}
-            hint={passwordStateHint(view)}
+            hint={passwordStateHint(view, locale)}
             error={pwError ?? undefined}
           >
             <PasswordInput

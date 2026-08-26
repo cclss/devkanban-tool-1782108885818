@@ -30,6 +30,7 @@ import * as React from 'react';
 import { Button, Field, cn } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { PasswordInput } from '@/components/password-input';
+import { useLocale } from '@/components/locale-provider';
 import {
   copyToClipboard,
   createShareLink,
@@ -38,12 +39,10 @@ import {
   expiryInput,
   expiryNote,
   findExpiryPreset,
-  SHARE_COPY,
+  shareCopyFor,
   SHARE_PASSWORD_MIN_LENGTH,
   type ShareLink,
 } from '@/lib/sharing';
-
-const COPY = SHARE_COPY;
 
 export interface ShareLinkBodyProps {
   /** The contract these links belong to. */
@@ -66,7 +65,9 @@ export function ShareLinkBody({
   beforeCreate,
   resultFooter,
 }: ShareLinkBodyProps) {
-  const [presetKey, setPresetKey] = React.useState(DEFAULT_EXPIRY_PRESET_KEY);
+  const { locale } = useLocale();
+  const COPY = shareCopyFor(locale);
+  const [presetKey, setPresetKey] = React.useState<string>(DEFAULT_EXPIRY_PRESET_KEY);
   const [passwordOn, setPasswordOn] = React.useState(false);
   const [password, setPassword] = React.useState('');
   const [pwError, setPwError] = React.useState<string | null>(null);
@@ -104,7 +105,7 @@ export function ShareLinkBody({
     } finally {
       setSubmitting(false);
     }
-  }, [beforeCreate, documentId, onCreated, password, passwordOn, preset, submitting]);
+  }, [beforeCreate, documentId, onCreated, password, passwordOn, preset, submitting, COPY]);
 
   if (link) return <LinkResult link={link} footer={resultFooter} />;
 
@@ -116,9 +117,15 @@ export function ShareLinkBody({
         void submit();
       }}
     >
-      <ExpiryPresetSelector value={presetKey} onChange={setPresetKey} disabled={submitting} />
+      <ExpiryPresetSelector
+        value={presetKey}
+        onChange={setPresetKey}
+        disabled={submitting}
+        copy={COPY}
+      />
 
       <PasswordSection
+        copy={COPY}
         on={passwordOn}
         onToggle={(next) => {
           setPasswordOn(next);
@@ -154,15 +161,17 @@ function ExpiryPresetSelector({
   value,
   onChange,
   disabled,
+  copy,
 }: {
   value: string;
   onChange: (key: string) => void;
   disabled?: boolean;
+  copy: ReturnType<typeof shareCopyFor>;
 }) {
   return (
     <fieldset className="flex flex-col gap-xs" disabled={disabled}>
-      <legend className="text-sm font-semibold text-foreground-muted">{COPY.expiry.label}</legend>
-      <div role="radiogroup" aria-label={COPY.expiry.label} className="flex flex-wrap gap-2xs">
+      <legend className="text-sm font-semibold text-foreground-muted">{copy.expiry.label}</legend>
+      <div role="radiogroup" aria-label={copy.expiry.label} className="flex flex-wrap gap-2xs">
         {EXPIRY_PRESETS.map((p) => {
           const selected = p.key === value;
           return (
@@ -183,12 +192,12 @@ function ExpiryPresetSelector({
                   : 'border-border bg-surface-muted text-foreground-muted hover:text-foreground',
               )}
             >
-              {p.label}
+              {copy.expiry.presets[p.key]}
             </button>
           );
         })}
       </div>
-      <p className="text-sm text-foreground-subtle">{COPY.expiry.help}</p>
+      <p className="text-sm text-foreground-subtle">{copy.expiry.help}</p>
     </fieldset>
   );
 }
@@ -196,6 +205,7 @@ function ExpiryPresetSelector({
 // --- password section -------------------------------------------------------
 
 function PasswordSection({
+  copy,
   on,
   onToggle,
   password,
@@ -204,6 +214,7 @@ function PasswordSection({
   passwordId,
   disabled,
 }: {
+  copy: ReturnType<typeof shareCopyFor>;
   on: boolean;
   onToggle: (next: boolean) => void;
   password: string;
@@ -216,7 +227,7 @@ function PasswordSection({
     <div className="flex flex-col gap-xs">
       <div className="flex items-center justify-between gap-md">
         <span id={`${passwordId}-toggle-label`} className="text-sm font-semibold text-foreground">
-          {COPY.password.toggle}
+          {copy.password.toggle}
         </span>
         <Switch
           checked={on}
@@ -229,15 +240,15 @@ function PasswordSection({
       {on ? (
         <Field
           htmlFor={passwordId}
-          label={COPY.password.label}
-          hint={COPY.password.hint}
+          label={copy.password.label}
+          hint={copy.password.hint}
           error={error ?? undefined}
         >
           <PasswordInput
             id={passwordId}
             value={password}
             onChange={(e) => onPasswordChange(e.target.value)}
-            placeholder={COPY.password.placeholder}
+            placeholder={copy.password.placeholder}
             autoComplete="new-password"
             invalid={Boolean(error)}
             disabled={disabled}
@@ -292,6 +303,8 @@ function Switch({
 // --- generated phase: link + copy ------------------------------------------
 
 function LinkResult({ link, footer }: { link: ShareLink; footer?: React.ReactNode }) {
+  const { locale } = useLocale();
+  const COPY = shareCopyFor(locale);
   const [copied, setCopied] = React.useState(false);
   const [copyError, setCopyError] = React.useState<string | null>(null);
   const resetTimer = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -312,9 +325,9 @@ function LinkResult({ link, footer }: { link: ShareLink; footer?: React.ReactNod
       resetTimer.current = setTimeout(() => setCopied(false), 2000);
     } catch {
       setCopied(false);
-      setCopyError(SHARE_COPY.errors.copy);
+      setCopyError(COPY.errors.copy);
     }
-  }, [link.url]);
+  }, [link.url, COPY]);
 
   return (
     <div className="flex flex-col gap-sm">
@@ -344,7 +357,7 @@ function LinkResult({ link, footer }: { link: ShareLink; footer?: React.ReactNod
         </Button>
       </div>
 
-      <p className="text-sm text-foreground-subtle">{expiryNote(link)}</p>
+      <p className="text-sm text-foreground-subtle">{expiryNote(link, locale)}</p>
 
       {/* Copy feedback announced to assistive tech. The visible toast appears
           briefly; the error is sticky until the next copy attempt. */}

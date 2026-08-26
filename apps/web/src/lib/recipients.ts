@@ -16,6 +16,7 @@
  * directly — the part most likely to silently corrupt the field↔signer mapping.
  */
 
+import { copyForLocale, type SupportedCopyLocale } from './copy-locale';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
 
 /** Backend caps a single contract at 20 recipients (SendContractDto). */
@@ -51,10 +52,19 @@ export function createRecipient(): RecipientDraft {
   return { id: nextRecipientId(), email: '', name: '' };
 }
 
-/** Display name for a recipient, falling back to an order-based label. */
-export function recipientLabel(recipient: RecipientDraft, index: number): string {
+/**
+ * Display name for a recipient, falling back to an order-based label. The
+ * fallback reads in the resolved locale ("받는 분 3" / "Recipient 3"); a
+ * user-typed name is shown verbatim regardless of locale.
+ */
+export function recipientLabel(
+  recipient: RecipientDraft,
+  index: number,
+  locale: SupportedCopyLocale,
+): string {
   const name = recipient.name.trim();
-  return name.length > 0 ? name : `받는 분 ${index + 1}`;
+  if (name.length > 0) return name;
+  return locale === 'ko' ? `받는 분 ${index + 1}` : `Recipient ${index + 1}`;
 }
 
 export type RecipientFieldKey = 'email';
@@ -63,11 +73,30 @@ export interface RecipientError {
   email?: string;
 }
 
-export const RECIPIENT_MESSAGES = {
+const RECIPIENT_MESSAGES_KO = {
   emailRequired: '이메일을 입력해 주세요.',
   emailInvalid: '이메일 형식을 다시 확인해 주세요.',
   emailDuplicate: '이미 추가된 이메일이에요.',
 } as const;
+
+/**
+ * Per-recipient validation messages in the resolved locale. English wording is
+ * aligned with the shared auth field errors in `web-translations` so the same
+ * mistake reads the same across the app.
+ */
+export const recipientMessagesFor = copyForLocale<typeof RECIPIENT_MESSAGES_KO>(
+  RECIPIENT_MESSAGES_KO,
+  {
+    emailRequired: 'Enter your email address.',
+    emailInvalid: 'Check your email address.',
+    emailDuplicate: 'This email has already been added.',
+  },
+);
+
+/** The locale-branched copy for this surface as `{ ko, en }` for the parity gate. */
+export const RECIPIENT_COPY_CATALOGS = {
+  messages: { ko: recipientMessagesFor('ko'), en: recipientMessagesFor('en') },
+} as const satisfies Record<string, { ko: unknown; en: unknown }>;
 
 /**
  * Per-recipient validation, keyed by recipient id. Email is required and
@@ -77,23 +106,25 @@ export const RECIPIENT_MESSAGES = {
  */
 export function validateRecipients(
   recipients: RecipientDraft[],
+  locale: SupportedCopyLocale,
 ): Record<string, RecipientError> {
+  const messages = recipientMessagesFor(locale);
   const errors: Record<string, RecipientError> = {};
   const seen = new Set<string>();
 
   for (const r of recipients) {
     const raw = r.email.trim();
     if (raw.length === 0) {
-      errors[r.id] = { email: RECIPIENT_MESSAGES.emailRequired };
+      errors[r.id] = { email: messages.emailRequired };
       continue;
     }
     if (!isValidEmail(raw)) {
-      errors[r.id] = { email: RECIPIENT_MESSAGES.emailInvalid };
+      errors[r.id] = { email: messages.emailInvalid };
       continue;
     }
     const key = normalizeEmail(raw);
     if (seen.has(key)) {
-      errors[r.id] = { email: RECIPIENT_MESSAGES.emailDuplicate };
+      errors[r.id] = { email: messages.emailDuplicate };
       continue;
     }
     seen.add(key);
@@ -102,10 +133,14 @@ export function validateRecipients(
   return errors;
 }
 
-/** True when there is ≥1 recipient and none has a validation error. */
+/**
+ * True when there is ≥1 recipient and none has a validation error. Completeness
+ * is a structural fact (which ids carry an error), independent of the message
+ * wording, so it needs no locale — the messages are irrelevant to the count.
+ */
 export function recipientsComplete(recipients: RecipientDraft[]): boolean {
   if (recipients.length === 0) return false;
-  return Object.keys(validateRecipients(recipients)).length === 0;
+  return Object.keys(validateRecipients(recipients, 'ko')).length === 0;
 }
 
 /**
