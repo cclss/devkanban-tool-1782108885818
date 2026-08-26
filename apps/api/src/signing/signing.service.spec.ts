@@ -43,10 +43,10 @@ describe('SigningService.meta locale contract', () => {
     expect(meta.locale).toBe('en');
   });
 
-  it('returns Korean when neither sender nor browser supplies a supported locale', async () => {
+  it('returns English when neither sender nor browser supplies a supported locale', async () => {
     const meta = await serviceFor(undefined).meta('sign-token', 'fr-FR,ja;q=0.8');
 
-    expect(meta.locale).toBe('ko');
+    expect(meta.locale).toBe('en');
   });
 });
 

@@ -427,11 +427,11 @@ describe('document metadata catalog', () => {
       title: 'eSign',
       description: 'Electronic contract SaaS',
     });
-    // No usable signal → Korean default.
+    // No usable signal → English default.
     expect(seed({})).toEqual({
-      locale: 'ko',
-      title: '전자계약',
-      description: '전자계약 SaaS',
+      locale: 'en',
+      title: 'eSign',
+      description: 'Electronic contract SaaS',
     });
   });
 });

@@ -12,7 +12,7 @@ import { WebTranslationDiagnostics } from '@/components/web-translation-diagnost
 /**
  * Resolve the locale for the server's initial paint from request state: the
  * saved-locale cookie (a signed-in user's stored preference) first, then the
- * browser's `Accept-Language`, then Korean. The client `LocaleProvider` re-runs
+ * browser's `Accept-Language`, then English. The client `LocaleProvider` re-runs
  * the full precedence once mounted and keeps the live switch, so this is only
  * the no-flash seed for `<html lang>` and the document metadata.
  */

@@ -39,13 +39,13 @@ export function localeFromBrowserLanguages(
   return languages?.map(parseLocale).find((locale): locale is SupportedLocale => !!locale);
 }
 
-/** Resolve: signed-in user → public-link sender → browser → Korean. */
+/** Resolve: signed-in user → public-link sender → browser → English. */
 export function resolveLocale(input: LocaleResolutionInput = {}): SupportedLocale {
   return (
     parseLocale(input.userLocale) ??
     parseLocale(input.senderLocale) ??
     localeFromBrowserLanguages(input.browserLanguages) ??
-    'ko'
+    'en'
   );
 }
 
@@ -82,7 +82,7 @@ export function parseAcceptLanguage(header?: string | null): readonly string[] {
 /**
  * Server-side locale for the initial paint. Precedence mirrors
  * {@link resolveLocale}: the saved-locale cookie (a signed-in user's stored
- * preference) → `Accept-Language` browser order → Korean. Keeping it pure lets
+ * preference) → `Accept-Language` browser order → English. Keeping it pure lets
  * SSR follow the same contract as the client without importing request APIs.
  */
 export function resolveServerLocale(input: {
