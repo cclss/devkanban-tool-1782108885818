@@ -256,6 +256,43 @@ describe('catalog parity', () => {
   });
 });
 
+describe('share and common namespaces', () => {
+  it('exposes the share and common namespaces in both locales', () => {
+    for (const locale of ['ko', 'en'] as const) {
+      expect(Object.keys(WEB_TRANSLATIONS[locale])).toEqual(
+        expect.arrayContaining(['share', 'common']),
+      );
+    }
+  });
+
+  it('localizes representative share copy per locale', () => {
+    expect(translateWeb('ko', 'share.gateTitle')).toBe('비밀번호를 입력해 주세요');
+    expect(translateWeb('en', 'share.gateTitle')).toBe('Enter the password');
+    expect(translateWeb('en', 'share.doneTitle')).toBe('Submission complete!');
+  });
+
+  it('interpolates share placeholders in both locales', () => {
+    expect(translateWeb('ko', 'share.gateTooShort', { min: 4 })).toBe(
+      '비밀번호는 4자 이상으로 입력해 주세요.',
+    );
+    expect(translateWeb('en', 'share.gateTooShort', { min: 4 })).toBe(
+      'Enter at least 4 characters.',
+    );
+    expect(translateWeb('en', 'share.viewerProgress', { total: 3, done: 1 })).toBe(
+      'Completed 1 of 3 fields.',
+    );
+    expect(translateWeb('en', 'share.viewerPageError', { page: 2 })).toBe(
+      'We could not load page 2.',
+    );
+  });
+
+  it('localizes cross-cutting common copy per locale', () => {
+    expect(translateWeb('ko', 'common.cancel')).toBe('취소');
+    expect(translateWeb('en', 'common.cancel')).toBe('Cancel');
+    expect(translateWeb('en', 'common.retry')).toBe('Try again');
+  });
+});
+
 describe('document metadata catalog', () => {
   it('localizes the document title and description per locale', () => {
     expect(translateWeb('ko', 'meta.title')).toBe('전자계약');
