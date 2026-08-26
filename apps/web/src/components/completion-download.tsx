@@ -18,10 +18,11 @@ import { StatusBadge } from '@/components/status-badge';
 import { ApiError } from '@/lib/api';
 import {
   COMPLETION_ARTIFACTS,
-  COMPLETION_DOWNLOAD_COPY,
+  completionDownloadCopyFor,
   formatKstDateTime,
   type CompletionArtifact,
 } from '@/lib/completion-download';
+import { useLocale } from '@/components/locale-provider';
 
 export interface CompletionDownloadProps {
   /** Whether artifacts are stored and downloadable; false → "준비 중" skeleton. */
@@ -40,28 +41,31 @@ export interface CompletionDownloadProps {
 export function CompletionDownload({
   ready,
   completedAt,
-  statusLabel = '완료됨',
+  statusLabel,
   showBadge = true,
   onDownload,
   className,
 }: CompletionDownloadProps) {
+  const { locale } = useLocale();
+  const copy = completionDownloadCopyFor(locale);
   const completedLabel = formatKstDateTime(completedAt ?? null);
+  const resolvedStatusLabel = statusLabel ?? (locale === 'en' ? 'Completed' : '완료됨');
 
   return (
     <section
       className={cn('flex flex-col gap-sm text-left', className)}
-      aria-label={COMPLETION_DOWNLOAD_COPY.sectionTitle}
+      aria-label={copy.sectionTitle}
     >
       <div className="flex items-center justify-between gap-xs">
         <h4 className="text-sm font-bold text-foreground">
-          {COMPLETION_DOWNLOAD_COPY.sectionTitle}
+          {copy.sectionTitle}
         </h4>
-        {showBadge ? <StatusBadge status="COMPLETED" label={statusLabel} /> : null}
+        {showBadge ? <StatusBadge status="COMPLETED" label={resolvedStatusLabel} /> : null}
       </div>
 
       {completedLabel ? (
         <p className="text-sm text-foreground-subtle">
-          {COMPLETION_DOWNLOAD_COPY.notice(completedLabel)}
+          {copy.notice(completedLabel)}
         </p>
       ) : null}
 
@@ -69,12 +73,12 @@ export function CompletionDownload({
         <ul className="flex flex-col gap-sm">
           {COMPLETION_ARTIFACTS.map((kind) => (
             <li key={kind}>
-              <DownloadRow kind={kind} onDownload={onDownload} />
+              <DownloadRow kind={kind} onDownload={onDownload} copy={copy} />
             </li>
           ))}
         </ul>
       ) : (
-        <PreparingPlaceholder />
+        <PreparingPlaceholder copy={copy} />
       )}
     </section>
   );
@@ -83,11 +87,13 @@ export function CompletionDownload({
 function DownloadRow({
   kind,
   onDownload,
+  copy,
 }: {
   kind: CompletionArtifact;
   onDownload: (kind: CompletionArtifact) => Promise<void>;
+  copy: ReturnType<typeof completionDownloadCopyFor>;
 }) {
-  const item = COMPLETION_DOWNLOAD_COPY.items[kind];
+  const item = copy.items[kind];
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -97,7 +103,7 @@ function DownloadRow({
     try {
       await onDownload(kind);
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : COMPLETION_DOWNLOAD_COPY.error);
+      setError(err instanceof ApiError ? err.message : copy.error);
     } finally {
       setLoading(false);
     }
@@ -117,7 +123,7 @@ function DownloadRow({
           onClick={handle}
           className="shrink-0"
         >
-          {COMPLETION_DOWNLOAD_COPY.cta}
+          {copy.cta}
         </Button>
       </div>
       {error ? (
@@ -130,7 +136,7 @@ function DownloadRow({
 }
 
 /** Skeleton-shimmer placeholder shown while post-processing stores the files. */
-function PreparingPlaceholder() {
+function PreparingPlaceholder({ copy }: { copy: ReturnType<typeof completionDownloadCopyFor> }) {
   return (
     <div className="flex flex-col gap-sm">
       {[0, 1].map((i) => (
@@ -145,7 +151,7 @@ function PreparingPlaceholder() {
           <Skeleton shape="rect" className="h-9 w-20" />
         </div>
       ))}
-      <p className="text-sm text-foreground-subtle">{COMPLETION_DOWNLOAD_COPY.preparing}</p>
+      <p className="text-sm text-foreground-subtle">{copy.preparing}</p>
     </div>
   );
 }

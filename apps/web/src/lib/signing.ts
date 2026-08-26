@@ -19,7 +19,7 @@
 
 import { ApiError, apiDownload, apiFetch, apiUrl } from './api';
 import {
-  COMPLETION_DOWNLOAD_COPY,
+  completionDownloadCopyFor,
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
@@ -331,6 +331,7 @@ export async function downloadSignerArtifact(
   accessToken: string,
   kind: CompletionArtifact,
   fallbackTitle: string,
+  locale: 'ko' | 'en' = 'ko',
 ): Promise<void> {
   const session = getSignerSession(accessToken);
   if (!session) throw new ApiError(SIGNER_COPY.completeError, 401);
@@ -338,7 +339,8 @@ export async function downloadSignerArtifact(
   const { blob, filename } = await apiDownload(`${base(accessToken)}/download/${kind}`, {
     token: session,
   });
-  saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
+  const copy = completionDownloadCopyFor(locale);
+  saveBlob(blob, filename ?? `${fallbackTitle} (${copy.items[kind].title}).pdf`);
 }
 
 /**

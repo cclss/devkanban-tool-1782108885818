@@ -282,10 +282,10 @@ export function SignerProvider({
       complete,
       copy: signerFillCopy(signerCopy),
       download: {
-        onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
+        onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle, locale),
       },
     };
-  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, signerCopy]);
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, signerCopy, locale]);
 
   return (
     <SignerContext.Provider value={value}>

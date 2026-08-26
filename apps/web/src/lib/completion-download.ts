@@ -39,6 +39,27 @@ export const COMPLETION_DOWNLOAD_COPY = {
   error: '내려받지 못했어요. 잠시 후 다시 시도해 주세요.',
 } as const;
 
+/** Completion-download chrome in the locale resolved for the current surface. */
+export function completionDownloadCopyFor(locale: 'ko' | 'en') {
+  if (locale === 'ko') return COMPLETION_DOWNLOAD_COPY;
+
+  return {
+    sectionTitle: 'Completed documents',
+    notice: (completedAtLabel: string) =>
+      `Completed on ${completedAtLabel}. We also emailed it to all participants.`,
+    items: {
+      signed: { title: 'Signed contract', description: 'The completed contract with every signature.' },
+      certificate: {
+        title: 'Audit trail certificate',
+        description: 'A record that verifies the contract history and integrity.',
+      },
+    } satisfies Record<CompletionArtifact, { title: string; description: string }>,
+    cta: 'Download',
+    preparing: 'We are preparing the completed documents. Please check again shortly.',
+    error: 'We could not download the document. Please try again shortly.',
+  };
+}
+
 /** Ordered list of artifacts for rendering the two download rows. */
 export const COMPLETION_ARTIFACTS: CompletionArtifact[] = ['signed', 'certificate'];
 
