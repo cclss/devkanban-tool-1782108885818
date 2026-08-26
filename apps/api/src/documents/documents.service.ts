@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomBytes, randomInt } from 'crypto';
+import { randomBytes, randomInt, randomUUID } from 'crypto';
 import {
   DocumentStatus,
   Prisma,
@@ -32,6 +32,12 @@ import {
   type CompletionArtifact,
 } from '../completion/artifact';
 import type { CreateDocumentDto, SaveFieldsDto, SendContractDto } from './dto/documents.dto';
+import type { UpdateScheduleDto } from './dto/documents.dto';
+import {
+  ScheduledSendQueue,
+  type ScheduledSendJobData,
+  type ScheduledSendRecipient,
+} from './scheduled-send.queue';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
 
@@ -45,6 +51,7 @@ export class DocumentsService {
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
+    private readonly scheduledSendQueue: ScheduledSendQueue,
   ) {}
 
   /** Multipart upload path: validate the PDF, persist bytes, create a DRAFT. */
@@ -169,20 +176,124 @@ export class DocumentsService {
       throw new BadRequestException(MESSAGES.send.alreadySent);
     }
 
-    const fieldCount = await this.prisma.signField.count({ where: { documentId } });
-    if (fieldCount === 0) {
-      throw new BadRequestException(MESSAGES.send.noFields);
+    const recipients = this.normalizeRecipients(dto);
+    if (dto.scheduledSendAt) {
+      return this.schedule(ownerId, document, recipients, dto.scheduledSendAt, ip);
     }
+    return this.dispatch(ownerId, document, recipients, ip);
+  }
 
-    await this.sendQuota.assertWithinQuota(ownerId);
+  /** Replace a scheduled document's delayed job with one at a new future time. */
+  async updateSchedule(
+    ownerId: string,
+    documentId: string,
+    dto: UpdateScheduleDto,
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.SCHEDULED || !document.scheduledJobId) {
+      throw new BadRequestException('예약된 계약만 예약 시간을 변경할 수 있어요.');
+    }
+    const scheduledFor = this.parseFutureSchedule(dto.scheduledSendAt);
+    const nextJobId = this.newScheduledJobId(documentId);
+    await this.scheduledSendQueue.replace(document.scheduledJobId, nextJobId, scheduledFor);
 
-    // Normalize recipient order: explicit `order` wins, else input order.
-    const recipients = dto.recipients.map((r, i) => ({
-      email: r.email.toLowerCase().trim(),
-      name: r.name?.trim() || null,
-      order: r.order ?? i,
-      index: i,
-    }));
+    const updated = await this.prisma.document.update({
+      where: { id: documentId },
+      data: { scheduledSendAt: scheduledFor, scheduledJobId: nextJobId },
+    });
+    await this.writeAudit({
+      documentId,
+      actorId: ownerId,
+      action: 'CONTRACT_SCHEDULE_UPDATED',
+      ip,
+      metadata: { scheduledSendAt: scheduledFor.toISOString() },
+    });
+    return this.toSummary(updated, 0, 0, new Date());
+  }
+
+  /** Remove a delayed dispatch and make the document editable as a draft again. */
+  async cancelSchedule(
+    ownerId: string,
+    documentId: string,
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    const document = await this.requireOwnedDocument(ownerId, documentId);
+    if (document.status !== DocumentStatus.SCHEDULED || !document.scheduledJobId) {
+      throw new BadRequestException('예약된 계약만 예약을 취소할 수 있어요.');
+    }
+    await this.scheduledSendQueue.remove(document.scheduledJobId);
+    const updated = await this.prisma.document.update({
+      where: { id: documentId },
+      data: {
+        status: DocumentStatus.DRAFT,
+        scheduledSendAt: null,
+        scheduledJobId: null,
+      },
+    });
+    await this.writeAudit({ documentId, actorId: ownerId, action: 'CONTRACT_SCHEDULE_CANCELLED', ip });
+    return this.toSummary(updated, 0, 0, new Date());
+  }
+
+  /** Called only by the BullMQ worker when a delayed dispatch becomes due. */
+  async dispatchScheduled(data: ScheduledSendJobData): Promise<void> {
+    const document = await this.prisma.document.findUnique({ where: { id: data.documentId } });
+    // A replacement/cancellation can race an already-promoted delayed job.
+    // The persisted ID is the authority, so an obsolete job is a no-op.
+    if (
+      !document ||
+      document.ownerId !== data.ownerId ||
+      document.status !== DocumentStatus.SCHEDULED ||
+      document.scheduledJobId !== data.jobId
+    ) {
+      return;
+    }
+    await this.dispatch(data.ownerId, document, data.recipients, undefined);
+  }
+
+  private async schedule(
+    ownerId: string,
+    document: Document,
+    recipients: ScheduledSendRecipient[],
+    scheduledSendAt: string,
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    await this.assertDispatchable(ownerId, document.id);
+    const scheduledFor = this.parseFutureSchedule(scheduledSendAt);
+    const jobId = this.newScheduledJobId(document.id);
+    const job: ScheduledSendJobData = { documentId: document.id, ownerId, jobId, recipients };
+    await this.scheduledSendQueue.add(job, scheduledFor);
+
+    try {
+      const updated = await this.prisma.document.update({
+        where: { id: document.id },
+        data: {
+          status: DocumentStatus.SCHEDULED,
+          scheduledSendAt: scheduledFor,
+          scheduledJobId: jobId,
+        },
+      });
+      await this.writeAudit({
+        documentId: document.id,
+        actorId: ownerId,
+        action: 'CONTRACT_SCHEDULED',
+        ip,
+        metadata: { scheduledSendAt: scheduledFor.toISOString(), recipientCount: recipients.length },
+      });
+      return this.toSummary(updated, 0, 0, new Date());
+    } catch (err) {
+      await this.scheduledSendQueue.remove(jobId).catch(() => undefined);
+      throw err;
+    }
+  }
+
+  private async dispatch(
+    ownerId: string,
+    document: Document,
+    recipients: ScheduledSendRecipient[],
+    ip?: string,
+  ): Promise<DocumentSummary> {
+    await this.assertDispatchable(ownerId, document.id);
 
     const webOrigin = this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
 
@@ -196,7 +307,7 @@ export class DocumentsService {
         const verifyCode = String(randomInt(0, 1_000_000)).padStart(6, '0');
         const signRequest = await tx.signRequest.create({
           data: {
-            documentId,
+            documentId: document.id,
             recipientEmail: r.email,
             recipientName: r.name,
             order: r.order,
@@ -209,7 +320,7 @@ export class DocumentsService {
 
         // Assign this recipient's fields (by index) to their request.
         await tx.signField.updateMany({
-          where: { documentId, recipientIndex: r.index, signRequestId: null },
+          where: { documentId: document.id, recipientIndex: r.index, signRequestId: null },
           data: { signRequestId: signRequest.id },
         });
       }
@@ -219,19 +330,24 @@ export class DocumentsService {
       const first = createdRequests[0];
       if (first) {
         await tx.signField.updateMany({
-          where: { documentId, signRequestId: null },
+          where: { documentId: document.id, signRequestId: null },
           data: { signRequestId: first.signRequestId },
         });
       }
 
       const updated = await tx.document.update({
-        where: { id: documentId },
-        data: { status: DocumentStatus.IN_PROGRESS, sentAt: new Date() },
+        where: { id: document.id },
+        data: {
+          status: DocumentStatus.IN_PROGRESS,
+          sentAt: new Date(),
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        },
       });
 
       await tx.auditLog.create({
         data: {
-          documentId,
+          documentId: document.id,
           actorId: ownerId,
           action: 'CONTRACT_SENT',
           ipAddress: ip,
@@ -378,6 +494,36 @@ export class DocumentsService {
     return document;
   }
 
+  private normalizeRecipients(dto: SendContractDto): ScheduledSendRecipient[] {
+    return dto.recipients.map((r, index) => ({
+      email: r.email.toLowerCase().trim(),
+      name: r.name?.trim() || null,
+      order: r.order ?? index,
+      index,
+    }));
+  }
+
+  private parseFutureSchedule(value: string): Date {
+    const scheduledFor = new Date(value);
+    if (Number.isNaN(scheduledFor.getTime()) || scheduledFor.getTime() <= Date.now()) {
+      throw new BadRequestException('예약 발송 시각은 현재보다 미래여야 해요.');
+    }
+    return scheduledFor;
+  }
+
+  private newScheduledJobId(documentId: string): string {
+    // BullMQ custom IDs cannot contain `:`, so use only document CUID + UUID.
+    return `${documentId}-${randomUUID()}`;
+  }
+
+  private async assertDispatchable(ownerId: string, documentId: string): Promise<void> {
+    const fieldCount = await this.prisma.signField.count({ where: { documentId } });
+    if (fieldCount === 0) {
+      throw new BadRequestException(MESSAGES.send.noFields);
+    }
+    await this.sendQuota.assertWithinQuota(ownerId);
+  }
+
   private async writeAudit(input: {
     documentId?: string;
     signRequestId?: string;
@@ -488,6 +634,9 @@ export class DocumentsService {
       pageCount: document.pageCount,
       recipientCount,
       sentAt: document.sentAt ? document.sentAt.toISOString() : null,
+      scheduledSendAt: document.scheduledSendAt
+        ? document.scheduledSendAt.toISOString()
+        : null,
       createdAt: document.createdAt.toISOString(),
       completedAt: document.completedAt ? document.completedAt.toISOString() : null,
       // The dashboard download area only appears once post-processing has stored
@@ -519,6 +668,8 @@ export interface DocumentSummary {
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;
+  /** ISO-8601 target dispatch time while this document is SCHEDULED. */
+  scheduledSendAt: string | null;
   createdAt: string;
   /** ISO completion timestamp once the contract is fully signed (else null). */
   completedAt: string | null;

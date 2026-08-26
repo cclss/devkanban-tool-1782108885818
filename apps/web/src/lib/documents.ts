@@ -53,6 +53,8 @@ export interface DocumentSummary {
   pageCount: number;
   recipientCount: number;
   sentAt: string | null;
+  /** ISO target dispatch time while the document is scheduled, otherwise null. */
+  scheduledSendAt: string | null;
   createdAt: string;
   /** ISO completion timestamp once fully signed (else null). */
   completedAt: string | null;

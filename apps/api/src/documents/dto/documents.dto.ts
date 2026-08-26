@@ -3,6 +3,7 @@ import {
   ArrayMaxSize,
   ArrayMinSize,
   IsArray,
+  IsDateString,
   IsEmail,
   IsEnum,
   IsInt,
@@ -112,4 +113,15 @@ export class SendContractDto {
   @ValidateNested({ each: true })
   @Type(() => RecipientDto)
   recipients!: RecipientDto[];
+
+  /** When supplied, dispatch is registered as a BullMQ delayed job. */
+  @IsOptional()
+  @IsDateString()
+  scheduledSendAt?: string;
+}
+
+/** Replace the dispatch time of an already scheduled document. */
+export class UpdateScheduleDto {
+  @IsDateString()
+  scheduledSendAt!: string;
 }

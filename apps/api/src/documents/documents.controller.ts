@@ -30,6 +30,7 @@ import {
   PresignDto,
   SaveFieldsDto,
   SendContractDto,
+  UpdateScheduleDto,
 } from './dto/documents.dto';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
@@ -150,6 +151,28 @@ export class DocumentsController {
     @Ip() ip: string,
   ) {
     return this.documents.send(user.id, id, dto, ip);
+  }
+
+  /** Replace the delayed BullMQ job for a scheduled contract. */
+  @Put(':id/schedule')
+  updateSchedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateScheduleDto,
+    @Ip() ip: string,
+  ) {
+    return this.documents.updateSchedule(user.id, id, dto, ip);
+  }
+
+  /** Remove a delayed dispatch and return the document to its editable draft. */
+  @Post(':id/schedule/cancel')
+  @HttpCode(HttpStatus.OK)
+  cancelSchedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Ip() ip: string,
+  ) {
+    return this.documents.cancelSchedule(user.id, id, ip);
   }
 }
 
