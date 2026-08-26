@@ -22,6 +22,7 @@
 
 import * as React from 'react';
 import { ApiError } from '@/lib/api';
+import { useLocale } from '@/components/locale-provider';
 import {
   completeSigning,
   downloadSignerArtifact,
@@ -172,6 +173,7 @@ export function SignerProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialState);
+  const { setSenderLocale } = useLocale();
 
   // Load pre-auth metadata once per link, then route to verify / blocked.
   React.useEffect(() => {
@@ -179,12 +181,14 @@ export function SignerProvider({
     fetchMeta(token)
       .then((meta) => {
         if (!active) return;
+        setSenderLocale(meta.sender.locale);
         const reason = blockReasonFor(meta);
         if (reason) dispatch({ type: 'BLOCK', reason, meta });
         else dispatch({ type: 'META_OK', meta });
       })
       .catch((error) => {
         if (!active) return;
+        setSenderLocale(null);
         // A 404 (or any meta failure) means the link itself isn't usable.
         const reason: BlockReason =
           error instanceof ApiError && error.status === 404
@@ -194,8 +198,9 @@ export function SignerProvider({
       });
     return () => {
       active = false;
+      setSenderLocale(null);
     };
-  }, [token]);
+  }, [token, setSenderLocale]);
 
   const verify = React.useCallback(
     async (code: string) => {
@@ -251,7 +256,7 @@ export function SignerProvider({
   const fillValue = React.useMemo<FillContextValue>(() => {
     const documentTitle = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
     return {
-      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null },
+      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null, locale: 'ko' },
       brandColor: state.meta?.sender.brandColor ?? null,
       documentTitle,
       payload: state.payload

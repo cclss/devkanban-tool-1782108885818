@@ -40,6 +40,7 @@ export interface SignerSender {
   name: string | null;
   brandColor: string | null;
   brandLogoUrl: string | null;
+  locale: 'ko' | 'en';
 }
 
 /** Pre-verification metadata for the landing screen (no PDF / fields). */
@@ -48,6 +49,8 @@ export interface SigningMeta {
   pageCount: number;
   documentStatus: SigningDocumentStatus;
   sender: SignerSender;
+  /** Server-resolved public-link locale, useful to non-React consumers. */
+  locale: 'ko' | 'en';
   recipientNameMasked: string | null;
   status: SignRequestStatus;
   alreadySigned: boolean;

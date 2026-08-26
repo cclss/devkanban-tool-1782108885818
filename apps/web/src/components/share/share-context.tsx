@@ -22,6 +22,7 @@
 
 import * as React from 'react';
 import { ApiError } from '@/lib/api';
+import { useLocale } from '@/components/locale-provider';
 import { SIGNER_COPY } from '@/lib/signing';
 import {
   fetchShareMeta,
@@ -136,6 +137,7 @@ export function ShareProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialState);
+  const { setSenderLocale } = useLocale();
 
   const unlock = React.useCallback(
     async (password?: string) => {
@@ -169,6 +171,7 @@ export function ShareProvider({
     fetchShareMeta(token)
       .then((meta) => {
         if (!active) return;
+        setSenderLocale(meta.sender.locale);
         dispatch({ type: 'META', meta });
         // An open link (no password) unlocks immediately behind the skeleton.
         if (!meta.alreadySubmitted && !meta.requiresPassword) {
@@ -178,12 +181,16 @@ export function ShareProvider({
         }
       })
       .catch((error) => {
-        if (active) dispatch({ type: 'BLOCK', reason: metaBlockReason(error) });
+        if (active) {
+          setSenderLocale(null);
+          dispatch({ type: 'BLOCK', reason: metaBlockReason(error) });
+        }
       });
     return () => {
       active = false;
+      setSenderLocale(null);
     };
-  }, [token, unlock]);
+  }, [token, unlock, setSenderLocale]);
 
   const openField = React.useCallback(
     (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
@@ -224,7 +231,7 @@ export function ShareProvider({
   const fillValue = React.useMemo<FillContextValue>(() => {
     const documentTitle = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
     return {
-      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null },
+      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null, locale: 'ko' },
       brandColor: state.meta?.sender.brandColor ?? null,
       documentTitle,
       payload: state.payload

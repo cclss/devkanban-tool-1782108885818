@@ -42,12 +42,17 @@ function clearCookie(): void {
   document.cookie = `${COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
+function notifySessionChange(): void {
+  window.dispatchEvent(new Event('esign:session-change'));
+}
+
 /** Persist the session after a successful login. */
 export function setSession(session: LoginResponse): void {
   if (!isBrowser()) return;
   localStorage.setItem(TOKEN_KEY, session.accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(session.user));
   writeCookie(session.accessToken);
+  notifySessionChange();
 }
 
 export function clearSession(): void {
@@ -55,6 +60,7 @@ export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   clearCookie();
+  notifySessionChange();
 }
 
 export function getToken(): string | null {

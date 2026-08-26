@@ -31,6 +31,8 @@ import type { SignFieldType, SignerSender, SignRequestStatus } from './signing';
 export interface ShareMeta {
   documentTitle: string;
   sender: SignerSender;
+  /** Server-resolved public-link locale, useful to non-React consumers. */
+  locale: 'ko' | 'en';
   /** Whether `/unlock` requires the link password (the value is never returned). */
   requiresPassword: boolean;
   /** ISO expiry instant, or null for "만료 없음". */

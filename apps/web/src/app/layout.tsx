@@ -3,6 +3,7 @@ import './globals.css';
 import { brandStyle } from '@/lib/branding';
 import { fetchBrandingServer } from '@/lib/web-branding';
 import { BrandingProvider } from '@/components/branding-provider';
+import { LocaleProvider } from '@/components/locale-provider';
 
 export const metadata: Metadata = {
   title: '전자계약',
@@ -36,7 +37,9 @@ export default async function RootLayout({
         ) : null}
       </head>
       <body>
-        <BrandingProvider initial={branding}>{children}</BrandingProvider>
+        <LocaleProvider>
+          <BrandingProvider initial={branding}>{children}</BrandingProvider>
+        </LocaleProvider>
       </body>
     </html>
   );
