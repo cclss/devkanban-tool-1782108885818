@@ -262,19 +262,37 @@ export class DocumentsService {
     if (document.status !== DocumentStatus.SCHEDULED || !document.scheduledJobId) {
       throw new BadRequestException('예약된 계약만 예약을 취소할 수 있어요.');
     }
-    const claimed = await this.prisma.document.updateMany({
-      where: {
-        id: documentId,
-        ownerId,
-        status: DocumentStatus.SCHEDULED,
-        scheduledJobId: document.scheduledJobId,
-      },
-      data: {
-        status: DocumentStatus.DRAFT,
-        scheduledSendAt: null,
-        scheduledJobId: null,
-      },
-    });
+    // Cancel the delayed job before returning the document to DRAFT. If Redis
+    // rejects removal (for example, the job has just become active), the
+    // persisted reservation stays authoritative and the contract cannot be
+    // dispatched accidentally after a supposedly successful cancellation.
+    const removedJob = await this.scheduledSendQueue.remove(document.scheduledJobId);
+
+    let claimed: { count: number };
+    try {
+      claimed = await this.prisma.document.updateMany({
+        where: {
+          id: documentId,
+          ownerId,
+          status: DocumentStatus.SCHEDULED,
+          scheduledJobId: document.scheduledJobId,
+        },
+        data: {
+          status: DocumentStatus.DRAFT,
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        },
+      });
+    } catch (err) {
+      // The queue is removed first by design. Restore its original payload if
+      // the DB write fails so a SCHEDULED record is never left without a job.
+      if (removedJob && document.scheduledSendAt) {
+        await this.scheduledSendQueue.add(removedJob, document.scheduledSendAt).catch((restoreErr) => {
+          this.logger.error(`예약 발송 잡 복구 실패: docId=${documentId}: ${String(restoreErr)}`);
+        });
+      }
+      throw err;
+    }
     if (claimed.count !== 1) {
       throw new BadRequestException('예약이 변경되었어요. 목록을 새로고침한 뒤 다시 시도해 주세요.');
     }
@@ -284,12 +302,6 @@ export class DocumentsService {
       scheduledSendAt: null,
       scheduledJobId: null,
     };
-    // Clearing the persisted job ID first makes a concurrently promoted job a
-    // no-op. If Redis is temporarily unavailable, it can never dispatch this
-    // cancelled document and will be removed when the queue becomes available.
-    await this.scheduledSendQueue.remove(document.scheduledJobId).catch((err) => {
-      this.logger.warn(`취소된 예약 발송 잡 제거 실패: docId=${documentId}: ${String(err)}`);
-    });
     await this.writeAudit({ documentId, actorId: ownerId, action: 'CONTRACT_SCHEDULE_CANCELLED', ip });
     return this.toSummary(updated, 0, 0, new Date());
   }

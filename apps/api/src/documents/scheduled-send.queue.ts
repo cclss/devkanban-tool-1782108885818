@@ -86,9 +86,17 @@ export class ScheduledSendQueue implements OnModuleInit, OnModuleDestroy {
     });
   }
 
-  async remove(jobId: string): Promise<void> {
+  /**
+   * Remove a queued dispatch and return its payload when it was still present.
+   * Returning the payload lets the caller compensate for a database failure
+   * after the queue-side removal, without inventing a new job identity.
+   */
+  async remove(jobId: string): Promise<ScheduledSendJobData | null> {
     const job = await this.requireQueue().getJob(jobId);
-    if (job) await job.remove();
+    if (!job) return null;
+    const data = job.data as ScheduledSendJobData;
+    await job.remove();
+    return data;
   }
 
   private requireQueue(): Queue {

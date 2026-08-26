@@ -219,7 +219,7 @@ describe('DocumentsService — scheduled dispatch', () => {
       signField: { count: jest.fn(async () => 1) },
       auditLog: { create: jest.fn(async () => ({})) },
     };
-    const queue = {
+    const queue: { add: jest.Mock; replace: jest.Mock; remove: jest.Mock } = {
       add: jest.fn(async () => undefined),
       replace: jest.fn(async () => undefined),
       remove: jest.fn(async () => undefined),
@@ -286,10 +286,20 @@ describe('DocumentsService — scheduled dispatch', () => {
 
   it('removes the delayed job and returns the document to DRAFT on cancellation', async () => {
     const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    const callOrder: string[] = [];
+    queue.remove.mockImplementationOnce(async () => {
+      callOrder.push('remove');
+      return undefined;
+    });
+    prisma.document.updateMany.mockImplementationOnce(async () => {
+      callOrder.push('draft');
+      return { count: 1 };
+    });
 
     const result = await service.cancelSchedule(ownerId, documentId);
 
     expect(queue.remove).toHaveBeenCalledWith('old-job');
+    expect(callOrder).toEqual(['remove', 'draft']);
     expect(prisma.document.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: { status: DocumentStatus.DRAFT, scheduledSendAt: null, scheduledJobId: null },
@@ -297,6 +307,31 @@ describe('DocumentsService — scheduled dispatch', () => {
     );
     expect(result.status).toBe(DocumentStatus.DRAFT);
     expect(result.scheduledSendAt).toBeNull();
+  });
+
+  it('restores the removed job when cancelling cannot persist DRAFT', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    const queuedJob = {
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    };
+    queue.remove.mockResolvedValueOnce(queuedJob);
+    prisma.document.updateMany.mockRejectedValueOnce(new Error('database unavailable'));
+
+    await expect(service.cancelSchedule(ownerId, documentId)).rejects.toThrow('database unavailable');
+
+    expect(queue.add).toHaveBeenCalledWith(queuedJob, new Date(future));
+  });
+
+  it('keeps the document scheduled when the delayed job cannot be removed', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    queue.remove.mockRejectedValueOnce(new Error('redis unavailable'));
+
+    await expect(service.cancelSchedule(ownerId, documentId)).rejects.toThrow('redis unavailable');
+
+    expect(prisma.document.updateMany).not.toHaveBeenCalled();
   });
 
   it('removes the replacement job if its database update fails', async () => {
