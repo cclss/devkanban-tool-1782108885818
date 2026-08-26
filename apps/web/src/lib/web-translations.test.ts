@@ -8,6 +8,7 @@ import {
   translateWeb,
   type WebTranslationKey,
 } from './web-translations';
+import { resolveServerLocale } from './locale';
 
 describe('web translation fallback runtime', () => {
   it('uses Korean base copy and reports a missing English key without exposing the key', () => {
@@ -351,5 +352,57 @@ describe('document metadata catalog', () => {
     expect(translateWeb('ko', 'meta.description')).toBe('전자계약 SaaS');
     expect(translateWeb('en', 'meta.title')).toBe('eSign');
     expect(translateWeb('en', 'meta.description')).toBe('Electronic contract SaaS');
+  });
+
+  it('exposes the identical meta keys in ko and en (metadata parity)', () => {
+    expect(Object.keys(WEB_TRANSLATIONS.en.meta).sort()).toEqual(
+      Object.keys(WEB_TRANSLATIONS.ko.meta).sort(),
+    );
+    // The document metadata the root layout seeds must exist in both catalogs.
+    expect(Object.keys(WEB_TRANSLATIONS.ko.meta).sort()).toEqual(['description', 'title']);
+  });
+
+  it('has non-empty meta title and description in every supported locale', () => {
+    for (const locale of ['ko', 'en'] as const) {
+      for (const key of ['title', 'description'] as const) {
+        const value = translateWeb(locale, `meta.${key}`);
+        expect(value.trim().length).toBeGreaterThan(0);
+        // A seeded fallback placeholder or raw key must never reach <head>.
+        expect(value).not.toBe(UNKNOWN_WEB_TRANSLATION_FALLBACK);
+        expect(value).not.toContain('meta.');
+      }
+    }
+  });
+
+  it('seeds the same localized metadata that generateMetadata composes per request', () => {
+    // Mirrors the root layout: resolveServerLocale picks the request locale and
+    // translateWeb('meta.*') fills <html lang> title/description from the catalog.
+    const seed = (input: { cookieLocale?: string | null; acceptLanguage?: string | null }) => {
+      const locale = resolveServerLocale(input);
+      return {
+        locale,
+        title: translateWeb(locale, 'meta.title'),
+        description: translateWeb(locale, 'meta.description'),
+      };
+    };
+
+    // Saved-locale cookie wins over the browser header.
+    expect(seed({ cookieLocale: 'en', acceptLanguage: 'ko-KR,ko;q=0.9' })).toEqual({
+      locale: 'en',
+      title: 'eSign',
+      description: 'Electronic contract SaaS',
+    });
+    // No cookie → Accept-Language decides.
+    expect(seed({ acceptLanguage: 'en-US,en;q=0.9' })).toEqual({
+      locale: 'en',
+      title: 'eSign',
+      description: 'Electronic contract SaaS',
+    });
+    // No usable signal → Korean default.
+    expect(seed({})).toEqual({
+      locale: 'ko',
+      title: '전자계약',
+      description: '전자계약 SaaS',
+    });
   });
 });
