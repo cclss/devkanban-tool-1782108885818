@@ -8,6 +8,8 @@ import { UrgencyBadge } from '@/components/urgency-badge';
 import { CompletionDownload } from '@/components/completion-download';
 import { downloadOwnerArtifact, type DocumentSummary, type NextAction } from '@/lib/documents';
 import { nextActionCopy, pendingSignerLabel, urgencyLabel } from '@/lib/todo-copy';
+import { useLocale } from '@/components/locale-provider';
+import type { SupportedLocale } from '@/lib/locale';
 
 /**
  * ContractCard — one contract as a card, shared by the dashboard **list** and the
@@ -38,6 +40,7 @@ export interface ContractCardProps {
 }
 
 export function ContractCard({ document, variant = 'default', highlighted = false }: ContractCardProps) {
+  const { locale } = useLocale();
   const compact = variant === 'compact';
   const completed = document.status === 'COMPLETED';
   const href = `/contracts/${document.id}`;
@@ -57,7 +60,7 @@ export function ContractCard({ document, variant = 'default', highlighted = fals
           href={href}
           className="-m-2xs flex items-center gap-md rounded-md p-2xs transition-colors duration-fast ease-standard hover:bg-surface-muted focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
         >
-          <CardHeaderRow document={document} completed variant={variant} />
+          <CardHeaderRow document={document} completed variant={variant} locale={locale} />
         </Link>
         <CompletionDownload
           className="border-t border-border pt-md"
@@ -78,7 +81,7 @@ export function ContractCard({ document, variant = 'default', highlighted = fals
     >
       <Card interactive className={cardClass}>
         <div className={cn('flex items-center', compact ? 'gap-sm' : 'gap-md')}>
-          <CardHeaderRow document={document} completed={completed} variant={variant} />
+          <CardHeaderRow document={document} completed={completed} variant={variant} locale={locale} />
         </div>
       </Card>
     </Link>
@@ -89,10 +92,12 @@ function CardHeaderRow({
   document,
   completed,
   variant,
+  locale,
 }: {
   document: DocumentSummary;
   completed: boolean;
   variant: ContractCardVariant;
+  locale: SupportedLocale;
 }) {
   const compact = variant === 'compact';
   // The list's completed card carries the 완료됨 badge inside its download region,
@@ -112,15 +117,15 @@ function CardHeaderRow({
           ) : null}
           {/* Urgency rides on a separate axis next to the lifecycle status; it
               renders nothing for NORMAL (incl. completed/cancelled). */}
-          <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency)} />
+          <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency, locale)} />
         </div>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
+        <p className="truncate text-sm text-foreground-subtle">{metaLine(document, locale)}</p>
       </div>
       {/* The single next action as a compact hint. Completed cards render DOWNLOAD
           via the list's download region (and the compact card defers it to the
           detail screen), so the hint is shown only for non-completed cards — the
           same DOWNLOAD-not-in-header treatment in both densities. */}
-      {!completed ? <NextActionHint action={document.nextAction} /> : null}
+      {!completed ? <NextActionHint action={document.nextAction} locale={locale} /> : null}
       {/* The chevron is a list-only entry affordance; the board's column cards drop
           it (denser, and the card itself is the link). */}
       {!compact ? <ChevronIcon /> : null}
@@ -135,8 +140,14 @@ function CardHeaderRow({
  * affordance, not a nested interactive. `AWAITING_SIGN` is a passive status label
  * (no owner action right now — no reminder feature); CANCELLED renders nothing.
  */
-function NextActionHint({ action }: { action: NextAction | null }) {
-  const copy = nextActionCopy(action);
+function NextActionHint({
+  action,
+  locale,
+}: {
+  action: NextAction | null;
+  locale: SupportedLocale;
+}) {
+  const copy = nextActionCopy(action, locale);
   if (!copy) return null;
   if (copy.kind === 'status') {
     return (
@@ -150,11 +161,11 @@ function NextActionHint({ action }: { action: NextAction | null }) {
   );
 }
 
-function metaLine(doc: DocumentSummary): string {
+function metaLine(doc: DocumentSummary, locale: SupportedLocale): string {
   const parts: string[] = [];
   if (doc.recipientCount > 0) parts.push(`받는 분 ${doc.recipientCount}명`);
   // Signers still awaited (omitted at 0 — see todo-copy.md).
-  const pending = pendingSignerLabel(doc.pendingSignerCount);
+  const pending = pendingSignerLabel(doc.pendingSignerCount, locale);
   if (pending) parts.push(pending);
   if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
   const sent = doc.status !== 'DRAFT' && doc.sentAt;

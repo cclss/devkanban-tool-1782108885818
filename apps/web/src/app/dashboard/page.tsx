@@ -39,12 +39,12 @@ import {
   type Urgency,
 } from '@/lib/documents';
 import {
-  FILTERED_EMPTY_COPY,
-  KANBAN_BOARD_COPY,
-  SUMMARY_COPY,
-  VIEW_SWITCHER_COPY,
+  filteredEmptyCopyFor,
+  kanbanBoardCopyFor,
+  summaryCopyFor,
+  viewSwitcherCopyFor,
 } from '@/lib/todo-copy';
-import { useTranslation } from '@/components/locale-provider';
+import { useLocale, useTranslation } from '@/components/locale-provider';
 
 /**
  * Dashboard list ordering by urgency (design-spec/components/urgency-badge/base.md
@@ -64,6 +64,7 @@ const TEMPLATES_ROUTE = '/templates';
 export default function DashboardPage() {
   const router = useRouter();
   const t = useTranslation();
+  const { locale } = useLocale();
 
   const [ready, setReady] = React.useState(false);
   const [user, setUser] = React.useState<SessionUser | null>(null);
@@ -223,12 +224,12 @@ export default function DashboardPage() {
                 <ViewSwitcher
                   value={viewMode}
                   onChange={changeViewMode}
-                  copy={VIEW_SWITCHER_COPY}
+                  copy={viewSwitcherCopyFor(locale)}
                 />
               </div>
               <DashboardSummary
                 documents={documents}
-                copy={SUMMARY_COPY}
+                copy={summaryCopyFor(locale)}
                 selected={filter}
                 onSelect={setFilter}
               />
@@ -244,7 +245,7 @@ export default function DashboardPage() {
           {documents && documents.length > 0 && viewMode === 'kanban' && visible ? (
             <KanbanBoard
               documents={visible}
-              copy={KANBAN_BOARD_COPY}
+              copy={kanbanBoardCopyFor(locale)}
               highlightId={highlightId}
             />
           ) : (
@@ -464,11 +465,13 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
 }
 
 function FilteredEmptyState({ onClearFilter }: { onClearFilter: () => void }) {
+  const { locale } = useLocale();
+  const copy = filteredEmptyCopyFor(locale);
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
-      <p className="text-base text-foreground-subtle">{FILTERED_EMPTY_COPY.message}</p>
+      <p className="text-base text-foreground-subtle">{copy.message}</p>
       <Button variant="secondary" onClick={onClearFilter}>
-        {FILTERED_EMPTY_COPY.clear}
+        {copy.clear}
       </Button>
     </Card>
   );
