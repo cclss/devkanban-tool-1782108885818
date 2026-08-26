@@ -407,6 +407,7 @@ describe('DocumentsService — scheduled dispatch', () => {
       expect.any(Array),
       undefined,
       DocumentStatus.SCHEDULED,
+      'old-job',
     );
     expect(notifications.enqueueMany).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -448,7 +449,7 @@ describe('DocumentsService — scheduled dispatch', () => {
 
     expect(quota.assertWithinQuota).toHaveBeenCalledWith(ownerId, transaction);
     expect(transaction.document.updateMany).toHaveBeenCalledWith({
-      where: { id: documentId, status: DocumentStatus.SCHEDULED },
+      where: { id: documentId, status: DocumentStatus.SCHEDULED, scheduledJobId: 'old-job' },
       data: expect.objectContaining({
         status: DocumentStatus.IN_PROGRESS,
         scheduledSendAt: null,
@@ -511,6 +512,45 @@ describe('DocumentsService — scheduled dispatch', () => {
     });
 
     expect(dispatch).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+  });
+
+  it('does not let a worker that read an old reservation dispatch after a replacement', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    const scheduled = document(DocumentStatus.SCHEDULED, {
+      owner: { email: 'owner@example.com', name: '발신자' },
+    });
+    prisma.document.findUnique.mockResolvedValue(scheduled);
+    const transaction = {
+      signRequest: { create: jest.fn(async () => ({ id: 'request-1' })) },
+      signField: { updateMany: jest.fn(async () => ({ count: 1 })) },
+      // The reschedule won after the worker read the document, so the old
+      // job-ID conditional claim cannot transition it to IN_PROGRESS.
+      document: {
+        updateMany: jest.fn(async () => ({ count: 0 })),
+        findUniqueOrThrow: jest.fn(),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    (prisma as unknown as { $transaction: jest.Mock }).$transaction = jest.fn(
+      async (callback) => callback(transaction),
+    );
+
+    await expect(service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    })).rejects.toThrow('이미 발송된 계약이에요.');
+
+    expect(transaction.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: DocumentStatus.SCHEDULED,
+          scheduledJobId: 'old-job',
+        }),
+      }),
+    );
     expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 

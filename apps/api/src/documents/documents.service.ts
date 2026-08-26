@@ -328,6 +328,7 @@ export class DocumentsService {
       data.recipients,
       undefined,
       DocumentStatus.SCHEDULED,
+      data.jobId,
     );
     await this.notifyScheduledOwner(document, 'scheduled_send_succeeded');
   }
@@ -409,6 +410,7 @@ export class DocumentsService {
     recipients: ScheduledSendRecipient[],
     ip?: string,
     expectedStatus: DocumentStatus = DocumentStatus.DRAFT,
+    expectedScheduledJobId?: string,
   ): Promise<DocumentSummary> {
     await this.assertDispatchable(ownerId, document.id);
 
@@ -454,10 +456,17 @@ export class DocumentsService {
 
       // BullMQ can redeliver a stalled job. Claim the state transition inside
       // the same transaction as SignRequest creation so only one execution can
-      // create recipients and dispatch notifications. A losing execution
-      // throws, rolling its whole transaction back for a later retry/no-op.
+      // create recipients and dispatch notifications. For a scheduled send,
+      // the persisted job ID is part of that claim: a worker that read the old
+      // reservation just before it was rescheduled must not dispatch it.
+      // A losing execution throws, rolling its whole transaction back for a
+      // later retry/no-op.
       const claimed = await tx.document.updateMany({
-        where: { id: document.id, status: expectedStatus },
+        where: {
+          id: document.id,
+          status: expectedStatus,
+          ...(expectedScheduledJobId ? { scheduledJobId: expectedScheduledJobId } : {}),
+        },
         data: {
           status: DocumentStatus.IN_PROGRESS,
           sentAt: new Date(),
