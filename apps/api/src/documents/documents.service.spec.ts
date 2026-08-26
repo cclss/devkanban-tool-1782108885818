@@ -351,11 +351,88 @@ describe('DocumentsService — scheduled dispatch', () => {
     );
   });
 
+  it('moves a due scheduled document to IN_PROGRESS before notifying its sender', async () => {
+    const { service, prisma, notifications, quota } = setup(DocumentStatus.SCHEDULED);
+    const scheduled = document(DocumentStatus.SCHEDULED, {
+      owner: { email: 'owner@example.com', name: '발신자' },
+    });
+    prisma.document.findUnique.mockResolvedValue(scheduled);
+    const transaction = {
+      signRequest: { create: jest.fn(async () => ({ id: 'request-1' })) },
+      signField: { updateMany: jest.fn(async () => ({ count: 1 })) },
+      document: {
+        updateMany: jest.fn(async () => ({ count: 1 })),
+        findUniqueOrThrow: jest.fn(async () => ({
+          ...scheduled,
+          status: DocumentStatus.IN_PROGRESS,
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        })),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    (prisma as unknown as { $transaction: jest.Mock }).$transaction = jest.fn(
+      async (callback) => callback(transaction),
+    );
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(quota.assertWithinQuota).toHaveBeenCalledWith(ownerId, transaction);
+    expect(transaction.document.updateMany).toHaveBeenCalledWith({
+      where: { id: documentId, status: DocumentStatus.SCHEDULED },
+      data: expect.objectContaining({
+        status: DocumentStatus.IN_PROGRESS,
+        scheduledSendAt: null,
+        scheduledJobId: null,
+      }),
+    });
+    expect(notifications.enqueueMany).toHaveBeenNthCalledWith(
+      1,
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'signer@example.com', template: 'sign_request' }),
+      ]),
+    );
+    expect(notifications.enqueueMany).toHaveBeenNthCalledWith(
+      2,
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_succeeded' }),
+      ]),
+    );
+  });
+
   it('ignores an obsolete delayed job whose persisted job ID no longer matches', async () => {
     const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
     prisma.document.findUnique.mockResolvedValue(
       document(DocumentStatus.SCHEDULED, {
         scheduledJobId: 'replacement-job',
+        owner: { email: 'owner@example.com', name: '발신자' },
+      }),
+    );
+    const dispatch = jest.fn(async () => undefined);
+    (service as unknown as { dispatch: jest.Mock }).dispatch = dispatch;
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+  });
+
+  it('ignores a delayed job that was cancelled and returned to DRAFT', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.DRAFT);
+    prisma.document.findUnique.mockResolvedValue(
+      document(DocumentStatus.DRAFT, {
+        scheduledSendAt: null,
+        scheduledJobId: null,
         owner: { email: 'owner@example.com', name: '발신자' },
       }),
     );
