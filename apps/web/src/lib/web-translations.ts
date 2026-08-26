@@ -48,6 +48,43 @@ export interface WebTranslationFallbackReport {
 /** Last-resort Korean text when even the Korean base catalog is incomplete. */
 export const UNKNOWN_WEB_TRANSLATION_FALLBACK = '내용을 준비하고 있습니다.';
 
+/**
+ * Values a copy placeholder may be filled with. Numbers are stringified with the
+ * runtime default so callers never have to pre-format simple counts or amounts.
+ */
+export type InterpolationValue = string | number;
+export type InterpolationVars = Readonly<Record<string, InterpolationValue>>;
+
+/**
+ * Matches, in a single left-to-right pass: an escaped opening brace `{{`, an
+ * escaped closing brace `}}`, or a `{token}` placeholder whose name is a plain
+ * identifier. Ordering the escapes first keeps `{{name}}` a literal `{name}`.
+ */
+const INTERPOLATION_PATTERN = /\{\{|\}\}|\{(\w+)\}/g;
+
+/**
+ * Substitutes `{token}` placeholders in `template` with matching `vars`.
+ *
+ * Standard for browser copy interpolation:
+ * - `{name}` is replaced by `vars.name`; numbers are stringified.
+ * - A placeholder with no matching var (missing key, `null`, or `undefined`) is
+ *   left verbatim as `{name}`, so an omission stays visible instead of turning
+ *   into an empty gap or a thrown error.
+ * - `{{` and `}}` are escapes for literal `{` and `}`.
+ * - Substitution is single pass: a value that itself contains braces is never
+ *   re-scanned, so injected copy cannot trigger further interpolation.
+ */
+export function interpolate(template: string, vars?: InterpolationVars): string {
+  if (!vars) return template;
+  return template.replace(INTERPOLATION_PATTERN, (match, token: string | undefined) => {
+    if (match === '{{') return '{';
+    if (match === '}}') return '}';
+    const value = vars[token!];
+    if (value == null) return match;
+    return typeof value === 'number' ? String(value) : value;
+  });
+}
+
 function lookup(catalog: WebTranslationCatalog | undefined, key: WebTranslationKey): TranslationLeaf {
   const separator = key.indexOf('.');
   if (separator < 1 || separator === key.length - 1) return undefined;
@@ -69,7 +106,7 @@ function isUsableTranslation(value: TranslationLeaf): value is string {
  * and coverage jobs independent of the shared browser report.
  */
 export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = WEB_TRANSLATIONS): {
-  translate: (locale: SupportedLocale, key: WebTranslationKey) => string;
+  translate: (locale: SupportedLocale, key: WebTranslationKey, vars?: InterpolationVars) => string;
   getFallbackReport: () => WebTranslationFallbackReport;
   resetFallbackReport: () => void;
 } {
@@ -91,13 +128,13 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
   };
 
   return {
-    translate(locale, key) {
+    translate(locale, key, vars) {
       const localized = lookup(catalogs[locale], key);
-      if (isUsableTranslation(localized)) return localized;
+      if (isUsableTranslation(localized)) return interpolate(localized, vars);
 
       recordMissing(locale, key, missingReason(localized)!);
       const korean = lookup(catalogs.ko, key);
-      return isUsableTranslation(korean) ? korean : UNKNOWN_WEB_TRANSLATION_FALLBACK;
+      return interpolate(isUsableTranslation(korean) ? korean : UNKNOWN_WEB_TRANSLATION_FALLBACK, vars);
     },
     getFallbackReport() {
       const entries = [...missing.values()].map((entry) => ({ ...entry }));
@@ -115,9 +152,16 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
 /** Shared browser runtime used by hooks and direct UI translation calls. */
 export const webTranslationRuntime = createWebTranslationRuntime();
 
-/** Returns localized copy, Korean base copy, or a safe Korean placeholder—never a key or blank string. */
-export function translateWeb(locale: SupportedLocale, key: WebTranslationKey): string {
-  return webTranslationRuntime.translate(locale, key);
+/**
+ * Returns localized copy, Korean base copy, or a safe Korean placeholder—never a
+ * key or blank string. Optional `vars` fill `{token}` placeholders in the copy.
+ */
+export function translateWeb(
+  locale: SupportedLocale,
+  key: WebTranslationKey,
+  vars?: InterpolationVars,
+): string {
+  return webTranslationRuntime.translate(locale, key, vars);
 }
 
 /** Snapshot the missing/empty localized keys replaced by Korean at runtime. */
