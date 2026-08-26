@@ -30,6 +30,43 @@ export const SERVER_TRANSLATIONS = {
       logo: '로고',
       attachments: '첨부',
     },
+    auditCertificate: {
+      title: '감사 추적 인증서',
+      senderFallback: '발신자',
+      issuedAt: '발급 일시',
+      certificateId: '인증서 고유 ID',
+      documentId: '대상 문서 ID',
+      contractSummary: '계약 요약',
+      contractName: '계약명',
+      originalPageCount: '{count}쪽',
+      sender: '발신자',
+      senderEmail: '발신자 이메일',
+      sentAt: '발송 일시',
+      completedAt: '완료 일시',
+      finalStatus: '최종 상태',
+      completed: '완료됨',
+      participants: '참여자',
+      noParticipants: '등록된 서명자가 없어요.',
+      verification: '본인확인',
+      verificationMethod: '6자리 인증코드',
+      signedAt: '서명 완료',
+      unsigned: '서명 전',
+      timeline: '이벤트 타임라인',
+      integrity: '문서 무결성 지문',
+      hashAlgorithm: '해시 알고리즘',
+      certificateIssued: '인증서 발급',
+      originalContract: '원본 계약서',
+      finalContract: '최종 계약서',
+      system: '시스템',
+      actionDocumentUploaded: '업로드됨',
+      actionContractSent: '발송됨',
+      actionSignRequestViewed: '열람함',
+      actionSignRequestVerified: '본인확인 완료',
+      actionSignVerifyFailed: '본인확인 실패',
+      actionSignRequestSigned: '서명 완료',
+      actionDocumentCompleted: '계약 완료',
+      actionFallback: '기타 활동',
+    },
   },
   en: {
     common: { sender: 'Sender', signer: 'Signer', completed: 'Completed.' },
@@ -59,6 +96,43 @@ export const SERVER_TRANSLATIONS = {
       logo: 'logo',
       attachments: 'Attachments',
     },
+    auditCertificate: {
+      title: 'Audit Trail Certificate',
+      senderFallback: 'Sender',
+      issuedAt: 'Issued at',
+      certificateId: 'Certificate ID',
+      documentId: 'Document ID',
+      contractSummary: 'Contract summary',
+      contractName: 'Contract name',
+      originalPageCount: '{count} pages',
+      sender: 'Sender',
+      senderEmail: 'Sender email',
+      sentAt: 'Sent at',
+      completedAt: 'Completed at',
+      finalStatus: 'Final status',
+      completed: 'Completed',
+      participants: 'Participants',
+      noParticipants: 'There are no registered signers.',
+      verification: 'Identity verification',
+      verificationMethod: '6-digit verification code',
+      signedAt: 'Signed at',
+      unsigned: 'Not signed',
+      timeline: 'Event timeline',
+      integrity: 'Document integrity fingerprint',
+      hashAlgorithm: 'Hash algorithm',
+      certificateIssued: 'Certificate issued',
+      originalContract: 'Original contract',
+      finalContract: 'Final contract',
+      system: 'System',
+      actionDocumentUploaded: 'Document uploaded',
+      actionContractSent: 'Contract sent',
+      actionSignRequestViewed: 'Signing request viewed',
+      actionSignRequestVerified: 'Identity verified',
+      actionSignVerifyFailed: 'Identity verification failed',
+      actionSignRequestSigned: 'Signing completed',
+      actionDocumentCompleted: 'Contract completed',
+      actionFallback: 'Other activity',
+    },
   },
 } as const;
 
@@ -84,7 +158,42 @@ export type TranslationKey =
   | 'completionEmail.serviceName'
   | 'completionEmail.sender'
   | 'completionEmail.logo'
-  | 'completionEmail.attachments';
+  | 'completionEmail.attachments'
+  | 'auditCertificate.title'
+  | 'auditCertificate.senderFallback'
+  | 'auditCertificate.issuedAt'
+  | 'auditCertificate.certificateId'
+  | 'auditCertificate.documentId'
+  | 'auditCertificate.contractSummary'
+  | 'auditCertificate.contractName'
+  | 'auditCertificate.originalPageCount'
+  | 'auditCertificate.sender'
+  | 'auditCertificate.senderEmail'
+  | 'auditCertificate.sentAt'
+  | 'auditCertificate.completedAt'
+  | 'auditCertificate.finalStatus'
+  | 'auditCertificate.completed'
+  | 'auditCertificate.participants'
+  | 'auditCertificate.noParticipants'
+  | 'auditCertificate.verification'
+  | 'auditCertificate.verificationMethod'
+  | 'auditCertificate.signedAt'
+  | 'auditCertificate.unsigned'
+  | 'auditCertificate.timeline'
+  | 'auditCertificate.integrity'
+  | 'auditCertificate.hashAlgorithm'
+  | 'auditCertificate.certificateIssued'
+  | 'auditCertificate.originalContract'
+  | 'auditCertificate.finalContract'
+  | 'auditCertificate.system'
+  | 'auditCertificate.actionDocumentUploaded'
+  | 'auditCertificate.actionContractSent'
+  | 'auditCertificate.actionSignRequestViewed'
+  | 'auditCertificate.actionSignRequestVerified'
+  | 'auditCertificate.actionSignVerifyFailed'
+  | 'auditCertificate.actionSignRequestSigned'
+  | 'auditCertificate.actionDocumentCompleted'
+  | 'auditCertificate.actionFallback';
 
 /** Returns a translated string, with Korean as the guaranteed safe fallback. */
 export function translate(locale: SupportedLocale, key: TranslationKey): string {

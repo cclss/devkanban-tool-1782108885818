@@ -224,7 +224,13 @@ describe('CompletionService.runPostProcessing', () => {
 
     await h.service.runPostProcessing('doc_xyz789', 'en');
 
-    expect(certificate.generate).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }));
+    expect(certificate.generate).toHaveBeenCalledWith(expect.objectContaining({
+      locale: 'en',
+      serviceName: 'eContract',
+      participants: expect.arrayContaining([
+        expect.objectContaining({ verificationMethod: '6-digit verification code' }),
+      ]),
+    }));
   });
 
   it('sends English completion email copy when completion locale is English', async () => {

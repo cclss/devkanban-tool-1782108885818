@@ -23,12 +23,7 @@ import {
 import type { CompletionResult } from './completion.constants';
 import { artifactFilename } from './artifact';
 import { resolveLocale, type SupportedLocale } from '../i18n/locale-resolver';
-
-/** Human-readable identity-verification method used across the signer flow. */
-const VERIFICATION_METHOD = '6자리 인증코드';
-
-/** Footer / subject service name (matches the web product name). */
-const SERVICE_NAME = '전자계약';
+import { translate } from '../i18n/server-translations';
 
 /**
  * Completion post-processing orchestrator (grain-5).
@@ -205,7 +200,7 @@ export class CompletionService {
       // email is null. The certificate masks an empty address to '—'.
       email: sr.recipientEmail ?? '',
       order: i + 1,
-      verificationMethod: VERIFICATION_METHOD,
+      verificationMethod: verificationMethod(locale),
       signedAt: sr.signedAt,
     }));
 
@@ -253,7 +248,7 @@ export class CompletionService {
       finalPdfSha256: sha256(signedPdf),
       issuedAt,
       certificateId: buildCertificateId(document.id, completedAt),
-      serviceName: SERVICE_NAME,
+      serviceName: translate(locale, 'completionEmail.serviceName'),
       locale,
     };
   }
@@ -269,7 +264,7 @@ export class CompletionService {
       { filename: artifactFilename(document.title, 'signed'), content: signedPdf },
       { filename: artifactFilename(document.title, 'certificate'), content: certificatePdf },
     ];
-    const senderName = document.owner.name ?? '발신자';
+    const senderName = document.owner.name ?? translate(locale, 'completionEmail.sender');
     const dashboardUrl = `${this.webOrigin()}/dashboard`;
 
     const build = (
@@ -322,6 +317,10 @@ export class CompletionService {
   private artifactKey(ownerId: string, documentId: string, kind: 'signed' | 'certificate'): string {
     return `documents/${ownerId}/completed/${documentId}-${kind}.pdf`;
   }
+}
+
+function verificationMethod(locale: SupportedLocale): string {
+  return translate(locale, 'auditCertificate.verificationMethod');
 }
 
 /** Shape consumed by the certificate/email helpers (subset of the query). */
