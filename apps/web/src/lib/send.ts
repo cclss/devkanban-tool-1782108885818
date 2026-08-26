@@ -69,6 +69,7 @@ export function sendContract(
   documentId: string,
   recipients: RecipientDraft[],
   token?: string,
+  scheduledSendAt?: string,
 ): Promise<DocumentSummary> {
   const payload: RecipientPayload[] = recipients.map((r, i) => {
     const name = r.name.trim();
@@ -80,7 +81,10 @@ export function sendContract(
   });
   return apiFetch<DocumentSummary>(`/documents/${documentId}/send`, {
     method: 'POST',
-    json: { recipients: payload },
+    json: {
+      recipients: payload,
+      ...(scheduledSendAt ? { scheduledSendAt } : {}),
+    },
     token,
   });
 }

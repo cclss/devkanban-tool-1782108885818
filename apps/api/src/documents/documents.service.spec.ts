@@ -35,8 +35,10 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
   };
   let storage: { buildKey: jest.Mock; save: jest.Mock };
   let notifications: { enqueueMany: jest.Mock };
+  let email: { send: jest.Mock };
   let config: { get: jest.Mock };
   let sendQuota: { assertWithinQuota: jest.Mock; quota: jest.Mock };
+  let scheduledSendQueue: { add: jest.Mock; replace: jest.Mock; remove: jest.Mock };
 
   /** A real, pdf-lib-loadable one-page PDF (magic bytes + valid structure). */
   let pdfBuffer: Buffer;
@@ -75,18 +77,26 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
       save: jest.fn(async () => undefined),
     };
     notifications = { enqueueMany: jest.fn(async () => undefined) };
+    email = { send: jest.fn(async () => ({ delivered: true })) };
     config = { get: jest.fn(() => undefined) };
     sendQuota = {
       assertWithinQuota: jest.fn(async () => undefined),
       quota: jest.fn(),
+    };
+    scheduledSendQueue = {
+      add: jest.fn(async () => undefined),
+      replace: jest.fn(async () => undefined),
+      remove: jest.fn(async () => undefined),
     };
 
     service = new DocumentsService(
       prisma as never,
       storage as never,
       notifications as never,
+      email as never,
       config as never,
       sendQuota as never,
+      scheduledSendQueue as never,
     );
   });
 
@@ -166,5 +176,406 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
 
     expect(result.title).toBe('café');
     expect(storage.buildKey).toHaveBeenCalledWith('owner-1', 'café.pdf');
+  });
+});
+
+describe('DocumentsService — scheduled dispatch', () => {
+  const ownerId = 'owner-1';
+  const documentId = 'doc-1';
+  const future = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+  function document(status: DocumentStatus, overrides: Record<string, unknown> = {}) {
+    return {
+      id: documentId,
+      ownerId,
+      title: '예약 계약',
+      storageKey: 'documents/owner-1/original.pdf',
+      pageCount: 1,
+      status,
+      sentAt: null,
+      scheduledSendAt: status === DocumentStatus.SCHEDULED ? new Date(future) : null,
+      scheduledJobId: status === DocumentStatus.SCHEDULED ? 'old-job' : null,
+      signedStorageKey: null,
+      certificateStorageKey: null,
+      completedAt: null,
+      createdAt: new Date('2026-08-01T00:00:00.000Z'),
+      updatedAt: new Date('2026-08-01T00:00:00.000Z'),
+      ...overrides,
+    };
+  }
+
+  function setup(status: DocumentStatus) {
+    const row = document(status);
+    let persisted = row;
+    const prisma = {
+      document: {
+        findUnique: jest.fn(async () => row),
+        findUniqueOrThrow: jest.fn(async () => persisted),
+        updateMany: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          persisted = { ...persisted, ...data };
+          return { count: 1 };
+        }),
+      },
+      signField: { count: jest.fn(async () => 1) },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    const queue: { add: jest.Mock; replace: jest.Mock; remove: jest.Mock } = {
+      add: jest.fn(async () => undefined),
+      replace: jest.fn(async () => undefined),
+      remove: jest.fn(async () => undefined),
+    };
+    const quota = { assertWithinQuota: jest.fn(async () => undefined), quota: jest.fn() };
+    const notifications = { enqueueMany: jest.fn(async () => undefined) };
+    const email = { send: jest.fn(async () => ({ delivered: true })) };
+    const service = new DocumentsService(
+      prisma as never,
+      {} as never,
+      notifications as never,
+      email as never,
+      { get: jest.fn(() => 'http://localhost:3000') } as never,
+      quota as never,
+      queue as never,
+    );
+    return { service, prisma, queue, quota, notifications, email };
+  }
+
+  const recipients = [{ email: 'signer@example.com', name: '서명자' }];
+
+  it('stores SCHEDULED data only after adding a delayed job', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.DRAFT);
+
+    const result = await service.send(ownerId, documentId, { recipients, scheduledSendAt: future });
+
+    expect(queue.add).toHaveBeenCalledWith(
+      expect.objectContaining({
+        documentId,
+        ownerId,
+        recipients: [expect.objectContaining({ email: 'signer@example.com', order: 0 })],
+      }),
+      new Date(future),
+    );
+    const [[addedJob]] = queue.add.mock.calls as unknown as Array<[{ jobId: string }]>;
+    const jobId = addedJob.jobId;
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: DocumentStatus.SCHEDULED,
+          scheduledSendAt: new Date(future),
+          scheduledJobId: jobId,
+        }),
+      }),
+    );
+    expect(result.status).toBe(DocumentStatus.SCHEDULED);
+    expect(result.scheduledSendAt).toBe(future);
+  });
+
+  it('replaces the old job ID when the scheduled time changes', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    const next = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    const result = await service.updateSchedule(ownerId, documentId, { scheduledSendAt: next });
+
+    expect(queue.replace).toHaveBeenCalledWith('old-job', expect.any(String), new Date(next));
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ scheduledSendAt: new Date(next) }) }),
+    );
+    expect(queue.remove).toHaveBeenCalledWith('old-job');
+    expect(result.status).toBe(DocumentStatus.SCHEDULED);
+    expect(result.scheduledSendAt).toBe(next);
+  });
+
+  it('removes the delayed job and returns the document to DRAFT on cancellation', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    const callOrder: string[] = [];
+    queue.remove.mockImplementationOnce(async () => {
+      callOrder.push('remove');
+      return undefined;
+    });
+    prisma.document.updateMany.mockImplementationOnce(async () => {
+      callOrder.push('draft');
+      return { count: 1 };
+    });
+
+    const result = await service.cancelSchedule(ownerId, documentId);
+
+    expect(queue.remove).toHaveBeenCalledWith('old-job');
+    expect(callOrder).toEqual(['remove', 'draft']);
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: { status: DocumentStatus.DRAFT, scheduledSendAt: null, scheduledJobId: null },
+      }),
+    );
+    expect(result.status).toBe(DocumentStatus.DRAFT);
+    expect(result.scheduledSendAt).toBeNull();
+  });
+
+  it('restores the removed job when cancelling cannot persist DRAFT', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    const queuedJob = {
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    };
+    queue.remove.mockResolvedValueOnce(queuedJob);
+    prisma.document.updateMany.mockRejectedValueOnce(new Error('database unavailable'));
+
+    await expect(service.cancelSchedule(ownerId, documentId)).rejects.toThrow('database unavailable');
+
+    expect(queue.add).toHaveBeenCalledWith(queuedJob, new Date(future));
+  });
+
+  it('keeps the document scheduled when the delayed job cannot be removed', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    queue.remove.mockRejectedValueOnce(new Error('redis unavailable'));
+
+    await expect(service.cancelSchedule(ownerId, documentId)).rejects.toThrow('redis unavailable');
+
+    expect(prisma.document.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('removes the replacement job if its database update fails', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.updateMany.mockRejectedValueOnce(new Error('database unavailable'));
+    const next = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    await expect(service.updateSchedule(ownerId, documentId, { scheduledSendAt: next }))
+      .rejects.toThrow('database unavailable');
+
+    const [[, nextJobId]] = queue.replace.mock.calls as unknown as Array<[string, string]>;
+    expect(queue.remove).toHaveBeenCalledWith(nextJobId);
+    expect(queue.remove).not.toHaveBeenCalledWith('old-job');
+  });
+
+  it('removes a new job when a concurrent schedule change wins the DB claim', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.updateMany.mockResolvedValueOnce({ count: 0 });
+    const next = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    await expect(service.updateSchedule(ownerId, documentId, { scheduledSendAt: next }))
+      .rejects.toThrow('예약이 변경되었어요');
+
+    const [[, nextJobId]] = queue.replace.mock.calls as unknown as Array<[string, string]>;
+    expect(queue.remove).toHaveBeenCalledWith(nextJobId);
+    expect(queue.remove).not.toHaveBeenCalledWith('old-job');
+  });
+
+  it('removes a queued job when a concurrent send has already claimed the draft', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.DRAFT);
+    prisma.document.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.send(ownerId, documentId, { recipients, scheduledSendAt: future }))
+      .rejects.toThrow('이미 발송된 계약이에요.');
+
+    const [[job]] = queue.add.mock.calls as unknown as Array<[{ jobId: string }]>;
+    expect(queue.remove).toHaveBeenCalledWith(job.jobId);
+  });
+
+  it('rejects a past schedule without adding a job or changing the document', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.DRAFT);
+
+    await expect(
+      service.send(ownerId, documentId, {
+        recipients,
+        scheduledSendAt: new Date(Date.now() - 1000).toISOString(),
+      }),
+    ).rejects.toThrow('예약 발송 시각은 현재보다 미래여야 해요.');
+
+    expect(queue.add).not.toHaveBeenCalled();
+    expect(prisma.document.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('dispatches a due job through the normal send path and notifies its sender', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    const scheduled = document(DocumentStatus.SCHEDULED, {
+      owner: { email: 'owner@example.com', name: '발신자' },
+    });
+    prisma.document.findUnique.mockResolvedValue(scheduled);
+    const dispatch = jest.fn(async () => undefined);
+    (service as unknown as { dispatch: jest.Mock }).dispatch = dispatch;
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      ownerId,
+      expect.objectContaining({ id: documentId }),
+      expect.any(Array),
+      undefined,
+      DocumentStatus.SCHEDULED,
+      'old-job',
+    );
+    expect(notifications.enqueueMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_succeeded' }),
+      ]),
+    );
+  });
+
+  it('moves a due scheduled document to IN_PROGRESS before notifying its sender', async () => {
+    const { service, prisma, notifications, quota } = setup(DocumentStatus.SCHEDULED);
+    const scheduled = document(DocumentStatus.SCHEDULED, {
+      owner: { email: 'owner@example.com', name: '발신자' },
+    });
+    prisma.document.findUnique.mockResolvedValue(scheduled);
+    const transaction = {
+      signRequest: { create: jest.fn(async () => ({ id: 'request-1' })) },
+      signField: { updateMany: jest.fn(async () => ({ count: 1 })) },
+      document: {
+        updateMany: jest.fn(async () => ({ count: 1 })),
+        findUniqueOrThrow: jest.fn(async () => ({
+          ...scheduled,
+          status: DocumentStatus.IN_PROGRESS,
+          scheduledSendAt: null,
+          scheduledJobId: null,
+        })),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    (prisma as unknown as { $transaction: jest.Mock }).$transaction = jest.fn(
+      async (callback) => callback(transaction),
+    );
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(quota.assertWithinQuota).toHaveBeenCalledWith(ownerId, transaction);
+    expect(transaction.document.updateMany).toHaveBeenCalledWith({
+      where: { id: documentId, status: DocumentStatus.SCHEDULED, scheduledJobId: 'old-job' },
+      data: expect.objectContaining({
+        status: DocumentStatus.IN_PROGRESS,
+        scheduledSendAt: null,
+        scheduledJobId: null,
+      }),
+    });
+    expect(notifications.enqueueMany).toHaveBeenNthCalledWith(
+      1,
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'signer@example.com', template: 'sign_request' }),
+      ]),
+    );
+    expect(notifications.enqueueMany).toHaveBeenNthCalledWith(
+      2,
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_succeeded' }),
+      ]),
+    );
+  });
+
+  it('ignores an obsolete delayed job whose persisted job ID no longer matches', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.findUnique.mockResolvedValue(
+      document(DocumentStatus.SCHEDULED, {
+        scheduledJobId: 'replacement-job',
+        owner: { email: 'owner@example.com', name: '발신자' },
+      }),
+    );
+    const dispatch = jest.fn(async () => undefined);
+    (service as unknown as { dispatch: jest.Mock }).dispatch = dispatch;
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+  });
+
+  it('ignores a delayed job that was cancelled and returned to DRAFT', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.DRAFT);
+    prisma.document.findUnique.mockResolvedValue(
+      document(DocumentStatus.DRAFT, {
+        scheduledSendAt: null,
+        scheduledJobId: null,
+        owner: { email: 'owner@example.com', name: '발신자' },
+      }),
+    );
+    const dispatch = jest.fn(async () => undefined);
+    (service as unknown as { dispatch: jest.Mock }).dispatch = dispatch;
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+  });
+
+  it('does not let a worker that read an old reservation dispatch after a replacement', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    const scheduled = document(DocumentStatus.SCHEDULED, {
+      owner: { email: 'owner@example.com', name: '발신자' },
+    });
+    prisma.document.findUnique.mockResolvedValue(scheduled);
+    const transaction = {
+      signRequest: { create: jest.fn(async () => ({ id: 'request-1' })) },
+      signField: { updateMany: jest.fn(async () => ({ count: 1 })) },
+      // The reschedule won after the worker read the document, so the old
+      // job-ID conditional claim cannot transition it to IN_PROGRESS.
+      document: {
+        updateMany: jest.fn(async () => ({ count: 0 })),
+        findUniqueOrThrow: jest.fn(),
+      },
+      auditLog: { create: jest.fn(async () => ({})) },
+    };
+    (prisma as unknown as { $transaction: jest.Mock }).$transaction = jest.fn(
+      async (callback) => callback(transaction),
+    );
+
+    await expect(service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    })).rejects.toThrow('이미 발송된 계약이에요.');
+
+    expect(transaction.document.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          status: DocumentStatus.SCHEDULED,
+          scheduledJobId: 'old-job',
+        }),
+      }),
+    );
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
+  });
+
+  it('notifies the sender after the worker exhausts a scheduled send job', async () => {
+    const { service, prisma, notifications, email } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.findUnique.mockResolvedValue(
+      document(DocumentStatus.SCHEDULED, {
+        owner: { email: 'owner@example.com', name: '발신자' },
+      }),
+    );
+
+    await service.notifyScheduledDispatchFailed({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [],
+    });
+
+    expect(email.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: [{ email: 'owner@example.com', name: '발신자' }],
+        subject: expect.stringContaining('예약 발송에 실패'),
+        text: expect.stringContaining('다시 예약하거나 지금 발송'),
+      }),
+    );
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 });

@@ -20,6 +20,7 @@ import type { DocumentStatus } from '@/lib/documents';
  */
 export const STATUS_TONE: Record<DocumentStatus, { tint: string; dot: string; text: string }> = {
   IN_PROGRESS: { tint: 'bg-primary-subtle', dot: 'bg-primary', text: 'text-primary' },
+  SCHEDULED: { tint: 'bg-primary-subtle', dot: 'bg-primary', text: 'text-primary' },
   COMPLETED: { tint: 'bg-success-subtle', dot: 'bg-success', text: 'text-foreground-muted' },
   DRAFT: { tint: 'bg-grey-100', dot: 'bg-grey-400', text: 'text-foreground-muted' },
   CANCELLED: { tint: 'bg-grey-100', dot: 'bg-grey-300', text: 'text-foreground-subtle' },

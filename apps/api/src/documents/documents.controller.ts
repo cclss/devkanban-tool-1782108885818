@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Ip,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -30,6 +32,7 @@ import {
   PresignDto,
   SaveFieldsDto,
   SendContractDto,
+  UpdateScheduleDto,
 } from './dto/documents.dto';
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024;
@@ -150,6 +153,27 @@ export class DocumentsController {
     @Ip() ip: string,
   ) {
     return this.documents.send(user.id, id, dto, ip);
+  }
+
+  /** Replace the delayed BullMQ job for a scheduled contract. */
+  @Patch(':id/schedule')
+  updateSchedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Body() dto: UpdateScheduleDto,
+    @Ip() ip: string,
+  ) {
+    return this.documents.updateSchedule(user.id, id, dto, ip);
+  }
+
+  /** Remove a delayed dispatch and return the document to its editable draft. */
+  @Delete(':id/schedule')
+  cancelSchedule(
+    @CurrentUser() user: AuthUser,
+    @Param('id') id: string,
+    @Ip() ip: string,
+  ) {
+    return this.documents.cancelSchedule(user.id, id, ip);
   }
 }
 

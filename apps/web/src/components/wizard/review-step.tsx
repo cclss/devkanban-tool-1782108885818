@@ -39,10 +39,20 @@ const COPY = {
   fieldsSection: '서명 필드',
   recipientsSection: '받는 분',
   send: '발송',
+  schedule: '예약 발송',
+  scheduleDescription: '원하는 날짜와 시간에 서명 요청을 보냅니다.',
+  scheduleDateTime: '발송 날짜와 시간',
+  scheduleHint: '현재 시각 이후로 설정해 주세요.',
+  scheduleRequired: '예약 발송 날짜와 시간을 설정해 주세요.',
+  scheduleFuture: '현재 시각 이후로 설정해 주세요.',
+  scheduledSend: '예약 발송',
   sending: '발송 중',
+  scheduling: '예약 중',
   retry: '다시 시도',
   successTitle: '계약 발송이 완료되었습니다!',
   successBody: '받는 분에게 서명 요청을 보냈어요. 진행 상황은 대시보드에서 확인할 수 있어요.',
+  scheduledSuccessTitle: '계약 발송을 예약했어요!',
+  scheduledSuccessBody: '설정한 시간에 받는 분에게 서명 요청을 보낼게요. 진행 상황은 대시보드에서 확인할 수 있어요.',
   successCta: '대시보드로 가기',
 } as const;
 
@@ -56,12 +66,26 @@ export function ReviewStep() {
   const [status, setStatus] = React.useState<SendState>('idle');
   const [error, setError] = React.useState<string | null>(null);
   const [sent, setSent] = React.useState<DocumentSummary | null>(null);
+  const [isScheduled, setIsScheduled] = React.useState(false);
+  const [scheduledSendAt, setScheduledSendAt] = React.useState('');
+  const [minimumScheduleTime] = React.useState(() => nextMinuteLocalDateTime());
 
   const canSend =
     document !== null && fields.length > 0 && recipients.length > 0 && status !== 'sending';
 
   const handleSend = React.useCallback(async () => {
     if (!document) return;
+    const scheduledFor = isScheduled ? new Date(scheduledSendAt) : null;
+    if (isScheduled && !scheduledSendAt) {
+      setError(COPY.scheduleRequired);
+      setStatus('error');
+      return;
+    }
+    if (scheduledFor && (Number.isNaN(scheduledFor.getTime()) || scheduledFor.getTime() <= Date.now())) {
+      setError(COPY.scheduleFuture);
+      setStatus('error');
+      return;
+    }
     setStatus('sending');
     setError(null);
     try {
@@ -69,8 +93,13 @@ export function ReviewStep() {
       // Fields must be persisted before send: the server maps saved fields to
       // recipients by index. Order matters — save, then dispatch.
       await saveFields(document.id, fields, token);
-      const summary = await sendContract(document.id, recipients, token);
-      // Hand the fresh contract to the dashboard so it shows as '진행 중' at once.
+      const summary = await sendContract(
+        document.id,
+        recipients,
+        token,
+        scheduledFor?.toISOString(),
+      );
+      // Hand the fresh contract to the dashboard so its new status is visible at once.
       writeSentSignal(summary);
       setSent(summary);
     } catch (err) {
@@ -83,12 +112,12 @@ export function ReviewStep() {
       );
       setStatus('error');
     }
-  }, [document, fields, recipients, router]);
+  }, [document, fields, isScheduled, recipients, router, scheduledSendAt]);
 
   const goToDashboard = React.useCallback(() => router.push('/dashboard'), [router]);
 
   if (sent) {
-    return <SendSuccess onContinue={goToDashboard} />;
+    return <SendSuccess scheduled={sent.status === 'SCHEDULED'} onContinue={goToDashboard} />;
   }
 
   return (
@@ -101,6 +130,22 @@ export function ReviewStep() {
       <DocumentSummaryCard document={document} fieldCount={fields.length} />
       <FieldsSummaryCard fields={fields} />
       <RecipientsSummaryCard recipients={recipients} />
+
+      <ScheduleSendCard
+        checked={isScheduled}
+        min={minimumScheduleTime}
+        value={scheduledSendAt}
+        onCheckedChange={(checked) => {
+          setIsScheduled(checked);
+          setError(null);
+          setStatus('idle');
+        }}
+        onValueChange={(value) => {
+          setScheduledSendAt(value);
+          setError(null);
+          setStatus('idle');
+        }}
+      />
 
       {status === 'error' && error ? (
         <p
@@ -118,10 +163,82 @@ export function ReviewStep() {
         isLoading={status === 'sending'}
         className="w-full"
       >
-        {status === 'sending' ? COPY.sending : status === 'error' ? COPY.retry : COPY.send}
+        {status === 'sending'
+          ? isScheduled
+            ? COPY.scheduling
+            : COPY.sending
+          : status === 'error'
+            ? COPY.retry
+            : isScheduled
+              ? COPY.scheduledSend
+              : COPY.send}
       </Button>
     </div>
   );
+}
+
+function ScheduleSendCard({
+  checked,
+  min,
+  value,
+  onCheckedChange,
+  onValueChange,
+}: {
+  checked: boolean;
+  min: string;
+  value: string;
+  onCheckedChange: (checked: boolean) => void;
+  onValueChange: (value: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-md rounded-lg border border-border bg-surface p-lg">
+      <div className="flex items-center justify-between gap-md">
+        <div className="flex flex-col gap-2xs">
+          <h3 className="text-base font-bold text-foreground">{COPY.schedule}</h3>
+          <p className="text-sm text-foreground-subtle">{COPY.scheduleDescription}</p>
+        </div>
+        <label className="relative inline-flex h-7 w-12 shrink-0 cursor-pointer items-center">
+          <input
+            type="checkbox"
+            role="switch"
+            checked={checked}
+            onChange={(event) => onCheckedChange(event.target.checked)}
+            className="peer sr-only"
+            aria-label={COPY.schedule}
+          />
+          <span className="h-7 w-12 rounded-full bg-border transition-colors peer-checked:bg-primary peer-focus-visible:outline peer-focus-visible:outline-2 peer-focus-visible:outline-offset-2 peer-focus-visible:outline-primary" />
+          <span className="pointer-events-none absolute left-1 h-5 w-5 rounded-full bg-white shadow-sm transition-transform peer-checked:translate-x-5" />
+        </label>
+      </div>
+
+      {checked ? (
+        <div className="flex flex-col gap-xs">
+          <label htmlFor="scheduled-send-at" className="text-sm font-semibold text-foreground">
+            {COPY.scheduleDateTime}
+          </label>
+          <input
+            id="scheduled-send-at"
+            type="datetime-local"
+            value={value}
+            min={min}
+            onChange={(event) => onValueChange(event.target.value)}
+            required
+            className="h-11 w-full rounded-md border border-border bg-background px-sm text-sm text-foreground outline-none transition-colors focus:border-primary focus:ring-2 focus:ring-primary/20"
+          />
+          <p className="text-xs text-foreground-subtle">{COPY.scheduleHint}</p>
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+/** Native datetime-local values are local time without a UTC suffix. */
+function nextMinuteLocalDateTime(now = new Date()): string {
+  const value = new Date(now);
+  value.setSeconds(0, 0);
+  value.setMinutes(value.getMinutes() + 1);
+  const pad = (number: number) => String(number).padStart(2, '0');
+  return `${value.getFullYear()}-${pad(value.getMonth() + 1)}-${pad(value.getDate())}T${pad(value.getHours())}:${pad(value.getMinutes())}`;
 }
 
 // --- review summary cards ---------------------------------------------------
@@ -250,21 +367,24 @@ function RecipientsSummaryCard({ recipients }: { recipients: RecipientDraft[] })
  * the 760px column. The portal escapes that ancestor so the takeover is truly
  * full-viewport.
  */
-function SendSuccess({ onContinue }: { onContinue: () => void }) {
+function SendSuccess({ scheduled, onContinue }: { scheduled: boolean; onContinue: () => void }) {
   const [mounted, setMounted] = React.useState(false);
   React.useEffect(() => setMounted(true), []);
   if (!mounted) return null;
+
+  const title = scheduled ? COPY.scheduledSuccessTitle : COPY.successTitle;
+  const body = scheduled ? COPY.scheduledSuccessBody : COPY.successBody;
 
   return createPortal(
     <div
       role="dialog"
       aria-modal="true"
-      aria-label={COPY.successTitle}
+      aria-label={title}
       className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-xl bg-background px-md text-center"
     >
       <div className="relative flex items-center justify-center">
         <Confetti className="z-0" />
-        <SuccessCheck size={112} className="relative z-10" aria-label={COPY.successTitle} />
+        <SuccessCheck size={112} className="relative z-10" aria-label={title} />
       </div>
 
       <div className="flex max-w-[420px] flex-col items-center gap-sm">
@@ -272,13 +392,13 @@ function SendSuccess({ onContinue }: { onContinue: () => void }) {
           className="animate-fade-in-up text-2xl font-bold text-foreground"
           style={{ animationDelay: '350ms' }}
         >
-          {COPY.successTitle}
+          {title}
         </h1>
         <p
           className="animate-fade-in-up text-base text-foreground-subtle"
           style={{ animationDelay: '470ms' }}
         >
-          {COPY.successBody}
+          {body}
         </p>
         <Button
           size="lg"

@@ -50,6 +50,12 @@ model Document {
   // Timestamp the contract was dispatched (status → IN_PROGRESS). Used to
   // count monthly sends for the Free-plan quota guard.
   sentAt    DateTime?      @map("sent_at")
+  // Target time for a delayed dispatch. Null means this document is not
+  // currently scheduled. Stored as UTC by Prisma/PostgreSQL.
+  scheduledSendAt DateTime? @map("scheduled_send_at")
+  // BullMQ delayed-job identifier. Kept with the document so a later
+  // cancellation or reschedule can locate and remove the queued job.
+  scheduledJobId String?    @map("scheduled_job_id")
   // Completion post-processing outputs (grain-5). Populated once the last
   // signer finishes and the worker has generated/stored the artifacts:
   //   • signedStorageKey      — object key of the flattened, signed final PDF
@@ -235,6 +241,7 @@ enum Locale {
 
 enum DocumentStatus {
   DRAFT
+  SCHEDULED
   IN_PROGRESS
   COMPLETED
   CANCELLED
