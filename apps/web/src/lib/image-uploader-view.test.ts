@@ -153,3 +153,100 @@ describe('createObjectUrlLifecycle — revoke on replace and dispose', () => {
     expect(life.current).toBeNull();
   });
 });
+
+describe('branding preview contract — lifecycle + resolver composed (usePickedUrl)', () => {
+  /**
+   * Models exactly what `BrandingPreview`'s `usePickedUrl` + `resolveImageUploaderView`
+   * do together: a picked File drives an object-URL lifecycle, and the resolved
+   * view is `pickedUrl` (guarded by "is a file held?") over the server `savedUrl`.
+   * This pins the end-to-end real-time behavior — immediate reflect on pick,
+   * revoke on replace/remove/unmount (leak = 0), and the picked > saved > empty
+   * fallback the right panel renders — at the pure layer, no DOM/React needed.
+   */
+  function mockPort() {
+    const created: string[] = [];
+    const revoked: string[] = [];
+    let seq = 0;
+    const port: ObjectUrlPort = {
+      create: () => {
+        const url = `blob:${seq++}`;
+        created.push(url);
+        return url;
+      },
+      revoke: (url) => {
+        revoked.push(url);
+      },
+    };
+    return { port, created, revoked };
+  }
+
+  /** The exact resolver call the preview makes: guard the picked URL by file presence. */
+  function view(file: unknown | null, pickedUrl: string | null, savedUrl: string | null) {
+    return resolveImageUploaderView({ pickedUrl: file ? pickedUrl : null, savedUrl });
+  }
+
+  it('reflects a fresh pick immediately as picked, over any saved asset', () => {
+    const { port, created } = mockPort();
+    const life = createObjectUrlLifecycle(port);
+    const saved = 'https://cdn/saved.png';
+
+    const file = { name: 'logo.png' };
+    const url = life.set(file); // pick → blob minted this frame
+    expect(view(file, url, saved)).toEqual({ kind: 'picked', url: 'blob:0' });
+    expect(created).toEqual(['blob:0']);
+  });
+
+  it('replacing the picked file revokes the old blob and shows the new one', () => {
+    const { port, created, revoked } = mockPort();
+    const life = createObjectUrlLifecycle(port);
+    const saved = 'https://cdn/saved.png';
+
+    const a = { name: 'a.png' };
+    life.set(a);
+    const b = { name: 'b.png' };
+    const url = life.set(b); // replace
+
+    expect(view(b, url, saved)).toEqual({ kind: 'picked', url: 'blob:1' });
+    expect(revoked).toEqual(['blob:0']); // old preview freed, no leak
+    expect(created).toEqual(['blob:0', 'blob:1']);
+  });
+
+  it('removing the pick reverts to the saved asset and revokes the blob', () => {
+    const { port, revoked } = mockPort();
+    const life = createObjectUrlLifecycle(port);
+    const saved = 'https://cdn/saved.png';
+
+    life.set({ name: 'a.png' });
+    const cleared = life.set(null); // remove pick
+
+    expect(view(null, cleared, saved)).toEqual({ kind: 'saved', url: saved });
+    expect(revoked).toEqual(['blob:0']);
+  });
+
+  it('with no pick and no saved asset the preview is empty (wordmark/monogram fallback)', () => {
+    const { port } = mockPort();
+    const life = createObjectUrlLifecycle(port);
+
+    expect(view(null, life.current, null)).toEqual({ kind: 'empty' });
+  });
+
+  it('a held file whose blob URL is not ready yet falls back to saved, never mis-renders as picked', () => {
+    // usePickedUrl seeds `url` as null before its effect runs, so for one frame a
+    // file can be held with no ready URL. The `file ? pickedUrl : null` guard plus
+    // the resolver must yield `saved` (or empty), not a broken picked view.
+    const saved = 'https://cdn/saved.png';
+    expect(view({ name: 'logo.png' }, null, saved)).toEqual({ kind: 'saved', url: saved });
+    expect(view({ name: 'logo.png' }, null, null)).toEqual({ kind: 'empty' });
+  });
+
+  it('unmount after a pick revokes the live blob — the preview leaks nothing', () => {
+    const { port, created, revoked } = mockPort();
+    const life = createObjectUrlLifecycle(port);
+
+    life.set({ name: 'a.png' }); // pick
+    life.dispose(); // unmount
+
+    expect(revoked.sort()).toEqual([...created].sort());
+    expect(life.current).toBeNull();
+  });
+});
