@@ -11,28 +11,30 @@ import { AuthDivider } from '@/components/auth-divider';
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
 import { isAuthenticated, login, loginWithGoogle } from '@/lib/auth';
 import { GoogleAuthError, useGoogleAuthCode } from '@/lib/google-oauth';
+import { useTranslation } from '@/components/locale-provider';
 
 /** Pragmatic email shape check — the server is the real authority. */
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 type FieldErrors = { email?: string; password?: string };
 
-function validate(email: string, password: string): FieldErrors {
+function validate(email: string, password: string, t: (key: any) => string): FieldErrors {
   const errors: FieldErrors = {};
   const trimmed = email.trim();
   if (!trimmed) {
-    errors.email = '이메일을 입력해 주세요.';
+    errors.email = t('auth.emailRequired');
   } else if (!EMAIL_RE.test(trimmed)) {
-    errors.email = '이메일 형식을 다시 확인해 주세요.';
+    errors.email = t('auth.emailInvalid');
   }
   if (!password) {
-    errors.password = '비밀번호를 입력해 주세요.';
+    errors.password = t('auth.passwordRequired');
   }
   return errors;
 }
 
 export default function LoginPage() {
   const router = useRouter();
+  const t = useTranslation();
 
   const [email, setEmail] = React.useState('');
   const [password, setPassword] = React.useState('');
@@ -64,16 +66,16 @@ export default function LoginPage() {
     setFieldErrors((prev) =>
       // Only refresh errors for fields the user has already touched, so we never
       // flash an error before they've had a chance to type.
-      Object.keys(prev).length === 0 ? prev : validate(nextEmail, nextPassword),
+      Object.keys(prev).length === 0 ? prev : validate(nextEmail, nextPassword, t),
     );
-  }, []);
+  }, [t]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setFormError(null);
     setGoogleError(null);
 
-    const errors = validate(email, password);
+    const errors = validate(email, password, t);
     setTouched({ email: true, password: true });
     setFieldErrors(errors);
     if (Object.keys(errors).length > 0) return;
@@ -112,15 +114,15 @@ export default function LoginPage() {
 
       <Card className="motion-stagger relative z-10 w-full max-w-[420px] p-xl shadow-lg sm:p-2xl">
         <header className="mb-xl flex flex-col gap-xs">
-          <span className="text-sm font-bold tracking-tight text-primary">전자계약</span>
-          <h1 className="text-2xl font-bold text-foreground">다시 오셨네요</h1>
+          <span className="text-sm font-bold tracking-tight text-primary">{t('auth.product')}</span>
+          <h1 className="text-2xl font-bold text-foreground">{t('auth.loginTitle')}</h1>
           <p className="text-base text-foreground-subtle">
-            이메일과 비밀번호로 로그인해 주세요.
+            {t('auth.loginHint')}
           </p>
         </header>
 
         <form noValidate onSubmit={handleSubmit} className="flex flex-col gap-lg">
-          <Field label="이메일" htmlFor="email" error={touched.email ? fieldErrors.email : undefined}>
+          <Field label={t('auth.email')} htmlFor="email" error={touched.email ? fieldErrors.email : undefined}>
             <Input
               id="email"
               name="email"
@@ -140,13 +142,13 @@ export default function LoginPage() {
               }}
               onBlur={() => {
                 setTouched((t) => ({ ...t, email: true }));
-                setFieldErrors(validate(email, password));
+                setFieldErrors(validate(email, password, t));
               }}
             />
           </Field>
 
           <Field
-            label="비밀번호"
+            label={t('auth.password')}
             htmlFor="password"
             error={touched.password ? fieldErrors.password : undefined}
           >
@@ -154,7 +156,7 @@ export default function LoginPage() {
               id="password"
               name="password"
               autoComplete="current-password"
-              placeholder="비밀번호"
+              placeholder={t('auth.password')}
               value={password}
               invalid={touched.password && Boolean(fieldErrors.password)}
               aria-describedby={
@@ -168,7 +170,7 @@ export default function LoginPage() {
               }}
               onBlur={() => {
                 setTouched((t) => ({ ...t, password: true }));
-                setFieldErrors(validate(email, password));
+                setFieldErrors(validate(email, password, t));
               }}
             />
           </Field>
@@ -183,7 +185,7 @@ export default function LoginPage() {
           ) : null}
 
           <Button type="submit" size="lg" fullWidth isLoading={submitting} disabled={googleLoading}>
-            {submitting ? '로그인 중' : '로그인'}
+            {submitting ? t('auth.loggingIn') : t('auth.login')}
           </Button>
         </form>
 
@@ -199,7 +201,7 @@ export default function LoginPage() {
               </p>
             ) : null}
             <GoogleButton
-              label="Google로 로그인"
+              label={t('auth.googleLogin')}
               isLoading={googleLoading}
               disabled={submitting}
               onClick={handleGoogle}
@@ -208,12 +210,12 @@ export default function LoginPage() {
         ) : null}
 
         <p className="mt-xl text-center text-sm text-foreground-subtle">
-          아직 계정이 없으신가요?{' '}
+          {t('auth.noAccount')}{' '}
           <Link
             href="/signup"
             className="font-semibold text-primary underline-offset-4 hover:underline focus-visible:rounded-xs focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
           >
-            회원가입
+            {t('auth.signup')}
           </Link>
         </p>
       </Card>

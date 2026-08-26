@@ -33,7 +33,8 @@ import {
   setSignerSession,
   signerPdfUrl,
   verifyCode,
-  SIGNER_COPY,
+  signerCopyFor,
+  type SignerCopy,
   type SigningMeta,
   type SigningPayload,
 } from '@/lib/signing';
@@ -173,7 +174,8 @@ export function SignerProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialState);
-  const { setSenderLocale } = useLocale();
+  const { setSenderLocale, locale } = useLocale();
+  const signerCopy = React.useMemo(() => signerCopyFor(locale), [locale]);
 
   // Load pre-auth metadata once per link, then route to verify / blocked.
   React.useEffect(() => {
@@ -219,11 +221,11 @@ export function SignerProvider({
     if (!session) {
       // The session is required to finalize; a missing one means it expired or
       // the tab lost it. Surface a neutral error so the viewer offers a retry.
-      throw new ApiError(SIGNER_COPY.completeError, 401);
+      throw new ApiError(signerCopy.completeError, 401);
     }
     const result = await completeSigning(token, session);
     dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
-  }, [token]);
+  }, [token, signerCopy.completeError]);
   const openField = React.useCallback(
     (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
     [],
@@ -276,12 +278,12 @@ export function SignerProvider({
       closeField,
       setFieldValue,
       complete,
-      copy: SIGNER_FILL_COPY,
+      copy: signerFillCopy(signerCopy),
       download: {
         onDownload: (kind) => downloadSignerArtifact(token, kind, documentTitle),
       },
     };
-  }, [state, token, persistFields, openField, closeField, setFieldValue, complete]);
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, signerCopy]);
 
   return (
     <SignerContext.Provider value={value}>
@@ -291,26 +293,28 @@ export function SignerProvider({
 }
 
 /** The OTP signer flow's copy for the shared fill surface (speaks "서명"). */
-const SIGNER_FILL_COPY: FillCopy = {
-  ctaContinue: SIGNER_COPY.viewerCtaContinue,
-  ctaComplete: SIGNER_COPY.viewerCtaComplete,
-  loadError: SIGNER_COPY.viewerLoadError,
-  pageError: (n) => `${n}페이지를 불러올 수 없어요.`,
-  progress: (total, done) => `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
-  progressNone: '서명할 항목이 없어요.',
-  progressAllDone: '모든 항목을 작성했어요.',
-  fieldAffordance: SIGNER_COPY.fieldAffordance,
-  completeError: SIGNER_COPY.completeError,
+function signerFillCopy(copy: SignerCopy): FillCopy {
+  return {
+  ctaContinue: copy.viewerCtaContinue,
+  ctaComplete: copy.viewerCtaComplete,
+  loadError: copy.viewerLoadError,
+  pageError: (n) => copy.verifyTitle === '본인확인' ? `${n}페이지를 불러올 수 없어요.` : `We could not load page ${n}.`,
+  progress: (total, done) => copy.verifyTitle === '본인확인' ? `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.` : `Completed ${done} of ${total} signing fields.`,
+  progressNone: copy.verifyTitle === '본인확인' ? '서명할 항목이 없어요.' : 'There are no fields to sign.',
+  progressAllDone: copy.verifyTitle === '본인확인' ? '모든 항목을 작성했어요.' : 'All fields are complete.',
+  fieldAffordance: copy.fieldAffordance,
+  completeError: copy.completeError,
   sheet: {
-    ...SIGNER_COPY.sheet,
+    ...copy.sheet,
     hint: (type) => {
-      if (type === 'DATE') return '서명한 날짜를 입력해 주세요.';
-      if (type === 'TEXT') return '필요한 내용을 입력해 주세요.';
-      return SIGNER_COPY.sheet.drawHint;
+      if (type === 'DATE') return copy.verifyTitle === '본인확인' ? '서명한 날짜를 입력해 주세요.' : 'Enter the signing date.';
+      if (type === 'TEXT') return copy.verifyTitle === '본인확인' ? '필요한 내용을 입력해 주세요.' : 'Enter the required text.';
+      return copy.sheet.drawHint;
     },
   },
-  done: SIGNER_COPY.done,
+  done: copy.done,
 };
+}
 
 export function useSigner(): SignerContextValue {
   const ctx = React.useContext(SignerContext);

@@ -148,6 +148,24 @@ export const SIGNER_COPY = {
   completeError: '서명을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
 } as const;
 
+/** Public signing chrome is resolved from the sender/browser locale at render time. */
+export type SignerCopy = WidenStrings<typeof SIGNER_COPY>;
+type WidenStrings<T> = T extends string ? string : { [K in keyof T]: WidenStrings<T[K]> };
+
+export function signerCopyFor(locale: 'ko' | 'en'): SignerCopy {
+  if (locale === 'ko') return SIGNER_COPY;
+  return {
+    ...SIGNER_COPY,
+    verifyTitle: 'Verify your identity', verifyHint: 'Enter the 6-digit verification code sent by text message.', codeLabel: 'Verification code', loading: 'Please wait.',
+    alreadySignedTitle: 'Signing is complete', alreadySigned: 'You have already signed this contract.', unavailableTitle: 'This contract is unavailable for signing', unavailable: 'This contract can no longer be signed. Contact the sender.', invalidLinkTitle: 'Check your link', invalidLink: 'This signing link is invalid. Ask the sender for a new link.',
+    viewerCtaContinue: 'Sign', viewerCtaComplete: 'Complete signing', viewerLoadError: 'We could not load the document. Please try again shortly.', fieldFilled: 'Completed',
+    fieldAffordance: { SIGNATURE: 'Sign here', DATE: 'Enter date', TEXT: 'Enter text' },
+    sheet: { ...SIGNER_COPY.sheet, title: { SIGNATURE: 'Add signature', DATE: 'Enter date', TEXT: 'Enter text' }, modeDraw: 'Draw', modeType: 'Type', drawHint: 'Sign in the box below with your finger or pen.', typeHint: 'Enter your name and choose a font.', typePlaceholder: 'Name', fontLabel: 'Font', dateLabel: 'Date', textLabel: 'Text', textPlaceholder: 'Enter text', reset: 'Reset', apply: 'Apply', saveError: 'We could not save your signature. Please try again shortly.' },
+    done: { title: 'Signing complete!', body: 'Your signature has been delivered securely.', documentLabel: 'Signed document', nextAllDone: 'All signatures are complete. We will email the completed contract.', nextWaiting: 'We will email the completed contract when the other signatures are complete.' },
+    completeError: 'We could not complete signing. Please try again shortly.',
+  };
+}
+
 // --- session token persistence ----------------------------------------------
 
 const SESSION_PREFIX = 'esign.signer.';

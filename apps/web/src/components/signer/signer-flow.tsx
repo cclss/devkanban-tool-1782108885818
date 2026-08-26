@@ -12,7 +12,8 @@
  */
 
 import * as React from 'react';
-import { SIGNER_COPY } from '@/lib/signing';
+import { signerCopyFor } from '@/lib/signing';
+import { useLocale } from '@/components/locale-provider';
 import { useSigner, type BlockReason } from './signer-context';
 import { LoadingScreen } from './loading-screen';
 import { VerifyScreen } from './verify-screen';
@@ -21,26 +22,15 @@ import { DocumentViewer } from './document-viewer';
 import { CompletionScreen } from './completion-screen';
 
 /** Terminal copy + tone for each non-signable reason (Toss voice, no blame). */
-const NOTICE: Record<BlockReason, { title: string; body: string; tone: NoticeScreenProps['tone'] }> = {
-  alreadySigned: {
-    title: SIGNER_COPY.alreadySignedTitle,
-    body: SIGNER_COPY.alreadySigned,
-    tone: 'success',
-  },
-  unavailable: {
-    title: SIGNER_COPY.unavailableTitle,
-    body: SIGNER_COPY.unavailable,
-    tone: 'neutral',
-  },
-  invalidLink: {
-    title: SIGNER_COPY.invalidLinkTitle,
-    body: SIGNER_COPY.invalidLink,
-    tone: 'neutral',
-  },
-};
-
 export function SignerFlow() {
   const { state } = useSigner();
+  const { locale } = useLocale();
+  const copy = signerCopyFor(locale);
+  const notice: Record<BlockReason, { title: string; body: string; tone: NoticeScreenProps['tone'] }> = {
+    alreadySigned: { title: copy.alreadySignedTitle, body: copy.alreadySigned, tone: 'success' },
+    unavailable: { title: copy.unavailableTitle, body: copy.unavailable, tone: 'neutral' },
+    invalidLink: { title: copy.invalidLinkTitle, body: copy.invalidLink, tone: 'neutral' },
+  };
 
   switch (state.phase) {
     case 'loading':
@@ -49,12 +39,12 @@ export function SignerFlow() {
       // Meta is guaranteed present once we leave loading for verify.
       return state.meta ? <VerifyScreen meta={state.meta} /> : <LoadingScreen />;
     case 'blocked': {
-      const notice = NOTICE[state.blockReason ?? 'invalidLink'];
+      const currentNotice = notice[state.blockReason ?? 'invalidLink'];
       return (
         <NoticeScreen
-          title={notice.title}
-          body={notice.body}
-          tone={notice.tone}
+          title={currentNotice.title}
+          body={currentNotice.body}
+          tone={currentNotice.tone}
           sender={state.meta?.sender ?? null}
           brandColor={state.meta?.sender.brandColor ?? null}
         />

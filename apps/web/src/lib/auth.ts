@@ -83,6 +83,16 @@ export function isAuthenticated(): boolean {
   return getToken() !== null;
 }
 
+/** Update the persisted sender preference and notify locale consumers immediately. */
+export async function updateLocale(locale: SessionUser['locale']): Promise<SessionUser> {
+  const user = await apiFetch<SessionUser>('/auth/locale', { method: 'POST', json: { locale } });
+  if (isBrowser()) {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    notifySessionChange();
+  }
+  return user;
+}
+
 /** Authenticate and establish the session. Throws `ApiError` on failure. */
 export async function login(email: string, password: string): Promise<LoginResponse> {
   const session = await apiFetch<LoginResponse>('/auth/login', {

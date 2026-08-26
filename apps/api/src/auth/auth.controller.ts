@@ -1,6 +1,6 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, UseGuards } from '@nestjs/common';
 import { AuthService } from './auth.service';
-import { GoogleAuthDto, LoginDto, RegisterDto } from './dto/auth.dto';
+import { GoogleAuthDto, LoginDto, RegisterDto, UpdateLocaleDto } from './dto/auth.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { CurrentUser, type AuthUser } from '../common/current-user.decorator';
 import { PrismaService } from '../prisma/prisma.service';
@@ -45,5 +45,15 @@ export class AuthController {
       },
     });
     return record;
+  }
+
+  @Post('locale')
+  @UseGuards(JwtAuthGuard)
+  async updateLocale(@CurrentUser() user: AuthUser, @Body() dto: UpdateLocaleDto) {
+    return this.prisma.user.update({
+      where: { id: user.id },
+      data: { locale: dto.locale },
+      select: { id: true, email: true, name: true, plan: true, locale: true },
+    });
   }
 }
