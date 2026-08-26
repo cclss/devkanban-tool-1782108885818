@@ -25,6 +25,7 @@ import * as React from 'react';
 import { Button } from '@repo/ui';
 import { ImageUploader } from './image-uploader';
 import { BrandColorPicker } from './brand-color-picker';
+import { BrandingPreview } from './branding-preview';
 import { useBranding } from './branding-provider';
 import { isValidHex } from '@/lib/branding';
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
@@ -57,10 +58,14 @@ export function BrandingForm() {
   const [baseline, setBaseline] = React.useState<BrandingValues>(EMPTY);
   const [values, setValues] = React.useState<BrandingValues>(EMPTY);
   // Whether a logo/favicon is already persisted — surfaced as an uploader hint so
-  // the admin knows a re-upload replaces the current one (the control is
-  // file-only, so we don't preview the stored asset here).
+  // the admin knows a re-upload replaces the current one.
   const [hasLogo, setHasLogo] = React.useState(false);
   const [hasFavicon, setHasFavicon] = React.useState(false);
+  // The persisted asset URLs (from `GET /branding`), fed to the uploaders'
+  // `savedUrl` and the preview panel so the saved logo/favicon render as the
+  // "before save" baseline (picked > saved > empty).
+  const [savedLogoUrl, setSavedLogoUrl] = React.useState<string | null>(null);
+  const [savedFaviconUrl, setSavedFaviconUrl] = React.useState<string | null>(null);
   const [saving, setSaving] = React.useState(false);
   const [saved, setSaved] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
@@ -81,6 +86,8 @@ export function BrandingForm() {
         if (!active) return;
         setHasLogo(Boolean(b.logoUrl));
         setHasFavicon(Boolean(b.faviconUrl));
+        setSavedLogoUrl(b.logoUrl);
+        setSavedFaviconUrl(b.faviconUrl);
         seedColor(b.brandColor);
       })
       .catch(() => {
@@ -144,26 +151,46 @@ export function BrandingForm() {
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-lg" noValidate>
-      <div className="flex flex-col gap-lg">
-        <ImageUploader
-          id="branding-logo"
-          label={t('branding.logoLabel')}
-          hint={hasLogo ? t('branding.logoSetHint') : undefined}
-          value={values.logo}
-          onChange={(file) => update({ logo: file })}
-        />
-        <ImageUploader
-          id="branding-favicon"
-          label={t('branding.faviconLabel')}
-          hint={hasFavicon ? t('branding.faviconSetHint') : undefined}
-          value={values.favicon}
-          onChange={(file) => update({ favicon: file })}
-        />
-        <BrandColorPicker
-          id="branding-color"
-          value={values.color}
-          onChange={(hex) => update({ color: hex })}
-        />
+      {/* lg 이상: 좌(입력)·우(미리보기) 2단 그리드. lg 미만: 세로 1단 붕괴.
+          `lg:items-start`로 우측 sticky 패널이 열 높이에 늘어나지 않게 고정한다. */}
+      <div className="grid grid-cols-1 gap-lg lg:grid-cols-2 lg:items-start">
+        {/* 좌열 — 입력: 로고 · 파비콘 · 대표 색상. */}
+        <div className="flex flex-col gap-lg">
+          <ImageUploader
+            id="branding-logo"
+            label={t('branding.logoLabel')}
+            hint={hasLogo ? t('branding.logoSetHint') : undefined}
+            value={values.logo}
+            savedUrl={savedLogoUrl}
+            onChange={(file) => update({ logo: file })}
+          />
+          <ImageUploader
+            id="branding-favicon"
+            label={t('branding.faviconLabel')}
+            hint={hasFavicon ? t('branding.faviconSetHint') : undefined}
+            value={values.favicon}
+            savedUrl={savedFaviconUrl}
+            onChange={(file) => update({ favicon: file })}
+          />
+          {/* showPreview=false — 우측 패널이 색상을 실시간으로 보여주므로 중복 제거. */}
+          <BrandColorPicker
+            id="branding-color"
+            value={values.color}
+            showPreview={false}
+            onChange={(hex) => update({ color: hex })}
+          />
+        </div>
+
+        {/* 우열 — 미리보기: 스크롤 시 상단 sticky 고정(lg 이상). */}
+        <div className="lg:sticky lg:top-xl">
+          <BrandingPreview
+            logoFile={values.logo}
+            logoSavedUrl={savedLogoUrl}
+            faviconFile={values.favicon}
+            faviconSavedUrl={savedFaviconUrl}
+            color={values.color}
+          />
+        </div>
       </div>
 
       {error ? (
