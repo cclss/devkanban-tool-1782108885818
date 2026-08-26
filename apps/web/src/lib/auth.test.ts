@@ -73,5 +73,26 @@ describe('locale session persistence', () => {
     );
     expect(getUser()).toMatchObject({ id: 'user_1', locale: 'en' });
     expect(onSessionChange).toHaveBeenCalledTimes(1);
+    expect(globals.document?.cookie).toContain('esign_locale=en');
+  });
+
+  it('mirrors the saved locale into an SSR-readable cookie on session set', () => {
+    const storage = makeMemoryStorage();
+    const windowTarget = new EventTarget() as EventTarget & {
+      localStorage: Storage;
+      location: { protocol: string };
+    };
+    windowTarget.localStorage = storage;
+    windowTarget.location = { protocol: 'http:' };
+    globals.window = windowTarget;
+    globals.localStorage = storage;
+    globals.document = { cookie: '' };
+
+    setSession({
+      accessToken: 'token-1',
+      user: { id: 'user_1', email: 'sender@example.com', name: 'Sender', plan: 'FREE', locale: 'en' },
+    });
+
+    expect(globals.document.cookie).toContain('esign_locale=en');
   });
 });

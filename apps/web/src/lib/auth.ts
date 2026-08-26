@@ -9,6 +9,7 @@
  */
 
 import { apiFetch } from './api';
+import { LOCALE_COOKIE } from './locale';
 
 export interface SessionUser {
   id: string;
@@ -42,6 +43,20 @@ function clearCookie(): void {
   document.cookie = `${COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
+/**
+ * Mirror the saved locale into a non-HttpOnly cookie so a server component can
+ * honour the preference on the first paint (`<html lang>` + metadata) without a
+ * flash. `localStorage` stays the client source of truth; this only exists for SSR.
+ */
+function writeLocaleCookie(locale: string): void {
+  const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+  document.cookie = `${LOCALE_COOKIE}=${encodeURIComponent(locale)}; Path=/; Max-Age=${COOKIE_MAX_AGE}; SameSite=Lax${secure}`;
+}
+
+function clearLocaleCookie(): void {
+  document.cookie = `${LOCALE_COOKIE}=; Path=/; Max-Age=0; SameSite=Lax`;
+}
+
 function notifySessionChange(): void {
   window.dispatchEvent(new Event('esign:session-change'));
 }
@@ -52,6 +67,7 @@ export function setSession(session: LoginResponse): void {
   localStorage.setItem(TOKEN_KEY, session.accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(session.user));
   writeCookie(session.accessToken);
+  writeLocaleCookie(session.user.locale);
   notifySessionChange();
 }
 
@@ -60,6 +76,7 @@ export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   clearCookie();
+  clearLocaleCookie();
   notifySessionChange();
 }
 
@@ -92,6 +109,7 @@ export async function updateLocale(locale: SessionUser['locale']): Promise<Sessi
   });
   if (isBrowser()) {
     localStorage.setItem(USER_KEY, JSON.stringify(user));
+    writeLocaleCookie(user.locale);
     notifySessionChange();
   }
   return user;

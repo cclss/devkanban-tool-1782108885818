@@ -2,6 +2,7 @@ import {
   UNKNOWN_WEB_TRANSLATION_FALLBACK,
   createWebTranslationRuntime,
   interpolate,
+  translateWeb,
 } from './web-translations';
 
 describe('web translation fallback runtime', () => {
@@ -146,5 +147,14 @@ describe('runtime interpolation', () => {
     const runtime = createWebTranslationRuntime({ ko: {}, en: {} });
 
     expect(runtime.translate('ko', 'x.y', { name: '김' })).toBe(UNKNOWN_WEB_TRANSLATION_FALLBACK);
+  });
+});
+
+describe('document metadata catalog', () => {
+  it('localizes the document title and description per locale', () => {
+    expect(translateWeb('ko', 'meta.title')).toBe('전자계약');
+    expect(translateWeb('ko', 'meta.description')).toBe('전자계약 SaaS');
+    expect(translateWeb('en', 'meta.title')).toBe('eSign');
+    expect(translateWeb('en', 'meta.description')).toBe('Electronic contract SaaS');
   });
 });

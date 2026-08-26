@@ -49,6 +49,52 @@ export function resolveLocale(input: LocaleResolutionInput = {}): SupportedLocal
   );
 }
 
+/**
+ * Cookie the web app mirrors the saved locale into (non-HttpOnly), so a server
+ * component can honour a signed-in user's preference on the first paint — the
+ * same SSR-readable pattern the auth token cookie already uses. `localStorage`
+ * remains the client source of truth; this cookie only exists for SSR.
+ */
+export const LOCALE_COOKIE = 'esign_locale';
+
+/**
+ * Parse an HTTP `Accept-Language` header into language tags in browser
+ * preference order. Sorts by q-value (absent q defaults to 1), drops q=0 and
+ * malformed weights, and leaves normalisation to {@link localeFromBrowserLanguages}.
+ */
+export function parseAcceptLanguage(header?: string | null): readonly string[] {
+  if (!header) return [];
+  return header
+    .split(',')
+    .map((part) => {
+      const [rawTag, ...params] = part.trim().split(';');
+      const weight = params
+        .map((param) => param.trim())
+        .find((param) => param.startsWith('q='));
+      const quality = weight ? Number.parseFloat(weight.slice(2)) : 1;
+      return { tag: (rawTag ?? '').trim(), quality: Number.isNaN(quality) ? 0 : quality };
+    })
+    .filter((entry) => entry.tag && entry.quality > 0)
+    .sort((a, b) => b.quality - a.quality)
+    .map((entry) => entry.tag);
+}
+
+/**
+ * Server-side locale for the initial paint. Precedence mirrors
+ * {@link resolveLocale}: the saved-locale cookie (a signed-in user's stored
+ * preference) → `Accept-Language` browser order → Korean. Keeping it pure lets
+ * SSR follow the same contract as the client without importing request APIs.
+ */
+export function resolveServerLocale(input: {
+  cookieLocale?: string | null;
+  acceptLanguage?: string | null;
+}): SupportedLocale {
+  return resolveLocale({
+    userLocale: input.cookieLocale,
+    browserLanguages: parseAcceptLanguage(input.acceptLanguage),
+  });
+}
+
 /** Browser-facing lookup for the API's read-only translation resources. */
 export function fetchTranslationResources(locale: SupportedLocale): Promise<TranslationResources> {
   return apiFetch<TranslationResources>(`/i18n/resources/${locale}`);
