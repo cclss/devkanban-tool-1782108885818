@@ -157,7 +157,7 @@ describe('Completion post-processing (e2e)', () => {
 
     // Directly re-enqueue (inline fallback runs it now).
     const queue = app.get(CompletionQueue);
-    await queue.enqueue(documentId);
+    await queue.enqueue(documentId, 'ko');
 
     const after = await prisma.document.findUniqueOrThrow({ where: { id: documentId } });
     expect(after.completedAt?.getTime()).toBe(before.completedAt?.getTime());

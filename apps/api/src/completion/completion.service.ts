@@ -22,6 +22,7 @@ import {
 } from '../email/completion-email.template';
 import type { CompletionResult } from './completion.constants';
 import { artifactFilename } from './artifact';
+import { resolveLocale, type SupportedLocale } from '../i18n/locale-resolver';
 
 /** Human-readable identity-verification method used across the signer flow. */
 const VERIFICATION_METHOD = '6자리 인증코드';
@@ -70,7 +71,11 @@ export class CompletionService {
    * Email never throws (grain-4 console fallback), so a missing SES config does
    * not fail the pipeline.
    */
-  async runPostProcessing(documentId: string): Promise<CompletionResult> {
+  async runPostProcessing(
+    documentId: string,
+    senderLocale: SupportedLocale,
+  ): Promise<CompletionResult> {
+    const locale = resolveLocale({ senderLocale });
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -117,7 +122,14 @@ export class CompletionService {
     const completionEvent = document.auditLogs.find((a) => a.action === 'DOCUMENT_COMPLETED');
     const completedAt = completionEvent?.createdAt ?? new Date();
     const issuedAt = new Date();
-    const certificateInput = this.buildCertificateInput(document, signedPdf, originalPdf, completedAt, issuedAt);
+    const certificateInput = this.buildCertificateInput(
+      document,
+      signedPdf,
+      originalPdf,
+      completedAt,
+      issuedAt,
+      locale,
+    );
     const certificatePdf = await this.certificate.generate(certificateInput);
 
     // 3) Store both PDFs under new, deterministic keys (retries overwrite,
@@ -128,7 +140,12 @@ export class CompletionService {
     await this.storage.save(certificateStorageKey, certificatePdf);
 
     // 4) Email sender + every signer with both attachments.
-    const recipientCount = await this.sendCompletionEmails(document, signedPdf, certificatePdf);
+    const recipientCount = await this.sendCompletionEmails(
+      document,
+      signedPdf,
+      certificatePdf,
+      locale,
+    );
 
     // 5) Record artifact keys + completion time. Guard on `completedAt: null`
     //    so a concurrent duplicate run cannot double-write.
@@ -180,6 +197,7 @@ export class CompletionService {
     originalPdf: Buffer,
     completedAt: Date,
     issuedAt: Date,
+    locale: SupportedLocale,
   ): AuditCertificateInput {
     const participants: CertificateParticipant[] = document.signRequests.map((sr, i) => ({
       name: sr.recipientName,
@@ -236,6 +254,7 @@ export class CompletionService {
       issuedAt,
       certificateId: buildCertificateId(document.id, completedAt),
       serviceName: SERVICE_NAME,
+      locale,
     };
   }
 
@@ -244,6 +263,7 @@ export class CompletionService {
     document: DocumentWithRelations,
     signedPdf: Buffer,
     certificatePdf: Buffer,
+    locale: SupportedLocale,
   ): Promise<number> {
     const attachments = [
       { filename: artifactFilename(document.title, 'signed'), content: signedPdf },
@@ -257,6 +277,7 @@ export class CompletionService {
       role: CompletionEmailRole,
     ): EmailMessage => {
       const rendered = renderCompletionEmail({
+        locale,
         contractTitle: document.title,
         senderName,
         recipientRole: role,

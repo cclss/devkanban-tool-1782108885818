@@ -4,6 +4,7 @@ describe('renderCompletionEmail', () => {
   const base = {
     contractTitle: '근로계약서',
     senderName: '주식회사 토스',
+    locale: 'ko' as const,
   } as const;
 
   it('renders the confirmed subject with the contract title', () => {

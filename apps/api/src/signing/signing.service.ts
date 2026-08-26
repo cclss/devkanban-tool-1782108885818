@@ -325,7 +325,9 @@ export class SigningService {
         id: true,
         status: true,
         documentId: true,
-        document: { select: { status: true } },
+        document: {
+          select: { status: true, owner: { select: { locale: true } } },
+        },
         signFields: { select: { id: true, value: true } },
       },
     });
@@ -384,7 +386,12 @@ export class SigningService {
     // + certificate + email + artifact recording) AFTER the transaction commits.
     // `enqueue` never throws — a queue hiccup must not break this response.
     if (documentCompleted) {
-      await this.completionQueue.enqueue(signRequest.documentId);
+      await this.completionQueue.enqueue(
+        signRequest.documentId,
+        // Completion runs without a browser request; preserve the sender's
+        // persisted preference as a closed, valid locale value.
+        resolveLocale({ senderLocale: signRequest.document.owner.locale }),
+      );
     }
 
     return {

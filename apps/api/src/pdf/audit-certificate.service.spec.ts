@@ -10,6 +10,7 @@ const SHA_B = 'b'.repeat(64);
 /** A fully-populated, fixed input — all timestamps are literals (deterministic). */
 function makeInput(overrides: Partial<AuditCertificateInput> = {}): AuditCertificateInput {
   return {
+    locale: 'ko',
     document: {
       id: 'doc_abc123',
       title: '용역 위탁 계약서',

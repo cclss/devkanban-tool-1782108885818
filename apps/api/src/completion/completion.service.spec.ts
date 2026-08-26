@@ -118,7 +118,7 @@ describe('CompletionService.runPostProcessing', () => {
     const h = makeHarness();
     h.storage.set('documents/user_1/original.pdf', await makePdf(1));
 
-    const result = await h.service.runPostProcessing('doc_xyz789');
+    const result = await h.service.runPostProcessing('doc_xyz789', 'ko');
 
     expect(result.processed).toBe(true);
     expect(result.skipped).toBe(false);
@@ -162,7 +162,7 @@ describe('CompletionService.runPostProcessing', () => {
     const h = makeHarness({ completedAt: new Date('2026-06-23T08:30:10.000Z') });
     h.storage.set('documents/user_1/original.pdf', await makePdf(1));
 
-    const result = await h.service.runPostProcessing('doc_xyz789');
+    const result = await h.service.runPostProcessing('doc_xyz789', 'ko');
 
     expect(result.skipped).toBe(true);
     expect(result.processed).toBe(false);
@@ -174,7 +174,7 @@ describe('CompletionService.runPostProcessing', () => {
     const h = makeHarness({ status: 'IN_PROGRESS' });
     h.storage.set('documents/user_1/original.pdf', await makePdf(1));
 
-    const result = await h.service.runPostProcessing('doc_xyz789');
+    const result = await h.service.runPostProcessing('doc_xyz789', 'ko');
 
     expect(result.skipped).toBe(true);
     expect(h.emails).toHaveLength(0);
@@ -185,7 +185,7 @@ describe('CompletionService.runPostProcessing', () => {
     const prisma = (h.service as unknown as { prisma: { document: { findUnique: jest.Mock } } }).prisma;
     prisma.document.findUnique.mockResolvedValueOnce(null);
 
-    const result = await h.service.runPostProcessing('nope');
+    const result = await h.service.runPostProcessing('nope', 'ko');
     expect(result.skipped).toBe(true);
     expect(result.processed).toBe(false);
   });
@@ -207,10 +207,23 @@ describe('CompletionService.runPostProcessing', () => {
     });
     h.storage.set('documents/user_1/original.pdf', await makePdf(1));
 
-    const result = await h.service.runPostProcessing('doc_xyz789');
+    const result = await h.service.runPostProcessing('doc_xyz789', 'ko');
     expect(result.processed).toBe(true);
     // De-duplicated by address → a single message.
     expect(h.emails).toHaveLength(1);
     expect(h.emails[0].to[0].email).toBe('sender@toss.im');
+  });
+
+  it('passes an explicit English completion locale to the certificate renderer', async () => {
+    const h = makeHarness();
+    h.storage.set('documents/user_1/original.pdf', await makePdf(1));
+    const certificate = (h.service as unknown as {
+      certificate: { generate: jest.Mock };
+    }).certificate;
+    certificate.generate = jest.fn().mockResolvedValue(Buffer.from('certificate'));
+
+    await h.service.runPostProcessing('doc_xyz789', 'en');
+
+    expect(certificate.generate).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }));
   });
 });

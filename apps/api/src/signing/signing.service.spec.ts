@@ -49,3 +49,39 @@ describe('SigningService.meta locale contract', () => {
     expect(meta.locale).toBe('ko');
   });
 });
+
+describe('SigningService.complete locale handoff', () => {
+  it('enqueues the sender locale as an explicit completion-output input', async () => {
+    const completionQueue = { enqueue: jest.fn().mockResolvedValue(undefined) };
+    const tx = {
+      signRequest: {
+        update: jest.fn().mockResolvedValue(undefined),
+        count: jest.fn().mockResolvedValue(0),
+      },
+      auditLog: { create: jest.fn().mockResolvedValue(undefined) },
+      document: { update: jest.fn().mockResolvedValue(undefined) },
+    };
+    const prisma = {
+      signRequest: {
+        findUnique: jest.fn().mockResolvedValue({
+          id: 'request_1',
+          status: 'VIEWED',
+          documentId: 'document_1',
+          document: { status: 'IN_PROGRESS', owner: { locale: 'en' } },
+          signFields: [{ id: 'field_1', value: 'Alex Kim' }],
+        }),
+      },
+      $transaction: jest.fn(
+        async (callback: (client: typeof tx) => unknown) => callback(tx),
+      ),
+    };
+    const service = new SigningService(
+      prisma as never, {} as never, {} as never, completionQueue as never,
+    );
+
+    await expect(service.complete('request_1')).resolves.toMatchObject({
+      documentCompleted: true,
+    });
+    expect(completionQueue.enqueue).toHaveBeenCalledWith('document_1', 'en');
+  });
+});

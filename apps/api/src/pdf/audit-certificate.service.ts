@@ -11,6 +11,7 @@ import {
 import { embedKoreanFont } from './korean-font';
 import { auditActionLabel } from './audit-action-labels';
 import { maskEmail, maskIp, maskName } from '../common/masking';
+import type { SupportedLocale } from '../i18n/locale-resolver';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Input boundary
@@ -51,6 +52,8 @@ export interface AuditEvent {
 }
 
 export interface AuditCertificateInput {
+  /** Resolved completion-output locale. */
+  locale: SupportedLocale;
   document: {
     id: string;
     title: string;

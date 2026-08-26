@@ -7,6 +7,7 @@ import {
   COMPLETION_QUEUE,
   type CompletionJobData,
 } from './completion.constants';
+import type { SupportedLocale } from '../i18n/locale-resolver';
 
 /**
  * Producer + consumer for the completion post-processing pipeline (grain-5).
@@ -52,7 +53,10 @@ export class CompletionQueue implements OnModuleInit, OnModuleDestroy {
       this.worker = new Worker<CompletionJobData>(
         COMPLETION_QUEUE,
         async (job) => {
-          await this.completion.runPostProcessing(job.data.documentId);
+          await this.completion.runPostProcessing(
+            job.data.documentId,
+            job.data.locale,
+          );
         },
         { connection, concurrency: 2 },
       );
@@ -84,12 +88,12 @@ export class CompletionQueue implements OnModuleInit, OnModuleDestroy {
    * queue is unavailable it runs inline; inline failures are logged so the
    * signer's response is unaffected.
    */
-  async enqueue(documentId: string): Promise<void> {
+  async enqueue(documentId: string, locale: SupportedLocale): Promise<void> {
     if (this.queue) {
       try {
         await this.queue.add(
           COMPLETION_JOB,
-          { documentId },
+          { documentId, locale },
           {
             // Dedupe concurrent enqueues for the same document.
             jobId: documentId,
@@ -104,13 +108,13 @@ export class CompletionQueue implements OnModuleInit, OnModuleDestroy {
         this.logger.warn(`완료 후처리 큐 적재 실패 — 인라인으로 대체합니다: ${String(err)}`);
       }
     }
-    await this.runInline(documentId);
+    await this.runInline(documentId, locale);
   }
 
   /** Inline fallback — run the pipeline now, swallowing errors (logged). */
-  private async runInline(documentId: string): Promise<void> {
+  private async runInline(documentId: string, locale: SupportedLocale): Promise<void> {
     try {
-      await this.completion.runPostProcessing(documentId);
+      await this.completion.runPostProcessing(documentId, locale);
     } catch (err) {
       this.logger.error(`완료 후처리(인라인) 실패: docId=${documentId}: ${String(err)}`);
     }

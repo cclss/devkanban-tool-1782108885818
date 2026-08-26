@@ -1,3 +1,5 @@
+import type { SupportedLocale } from '../i18n/locale-resolver';
+
 /**
  * Shared identifiers for the completion post-processing pipeline (grain-5).
  *
@@ -18,6 +20,8 @@ export const COMPLETION_JOB = 'document-completed';
 export interface CompletionJobData {
   /** The document whose last signer just completed. */
   documentId: string;
+  /** Sender locale resolved when completion occurred. */
+  locale: SupportedLocale;
 }
 
 /** Outcome of one post-processing run (mostly for tests / logging). */

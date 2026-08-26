@@ -10,9 +10,13 @@
  * Copy is fixed in the spec; do not improvise wording here.
  * ──────────────────────────────────────────────────────────────────────────── */
 
+import type { SupportedLocale } from '../i18n/locale-resolver';
+
 export type CompletionEmailRole = 'SENDER' | 'SIGNER';
 
 export interface CompletionEmailInput {
+  /** Resolved output locale; completion emails never infer mail-client language. */
+  locale: SupportedLocale;
   /** Contract title — fills `{계약명}` in subject/body. */
   contractTitle: string;
   /** Sender display name — fills `{발신자명}` / brand header. */
