@@ -107,3 +107,35 @@ export const BRAND_COLOR_COPY = {
   previewButton: '서명 요청 보내기',
   previewLink: '계약서 미리보기',
 } as const;
+
+/**
+ * Copy for the branding live-preview panel (BrandingPreview) — the read-only
+ * mockups that show how the picked 로고 · 파비콘 · 대표 색상 will look across the
+ * service before saving. Kept here with the rest of the branding form copy so the
+ * panel's structure/tone stay consistent and auditable. Tone follows the project
+ * base voice: plain 해요체, calm, action-forward. The panel reuses the service
+ * name (`HEADER_BRAND_COPY.wordmark`) and the settings entry label rather than
+ * duplicating them, so a rename stays single-source. The image alts are for the
+ * decorative preview thumbnails; the mockups themselves are hidden from assistive
+ * tech (the form fields already convey each chosen value).
+ */
+export const BRANDING_PREVIEW_COPY = {
+  /** Panel heading — names the live preview region. */
+  title: '미리보기',
+  /** One-line intro clarifying the preview reflects choices before saving. */
+  description: '고른 로고·파비콘·색상이 서비스에 어떻게 보일지 저장 전에 확인해요.',
+  /** Caption above the app-header mockup. */
+  headerLabel: '헤더',
+  /** Caption above the browser-tab mockup. */
+  tabLabel: '브라우저 탭',
+  /** Caption above the accent-color sample. */
+  colorLabel: '강조 색상',
+  /** Decorative alt for the header logo preview image. */
+  logoAlt: '로고 미리보기',
+  /** Decorative alt for the favicon preview image. */
+  faviconAlt: '파비콘 미리보기',
+  /** Sample primary button inside the accent-color mockup. */
+  sampleButton: '서명 요청 보내기',
+  /** Sample link inside the accent-color mockup. */
+  sampleLink: '계약서 미리보기',
+} as const;

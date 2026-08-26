@@ -24,6 +24,11 @@ import {
   IMAGE_CONSTRAINT_HINT,
   IMAGE_ACCEPT_ATTR,
 } from '@/lib/image-validation';
+import {
+  resolveImageUploaderView,
+  createObjectUrlLifecycle,
+  type ObjectUrlLifecycle,
+} from '@/lib/image-uploader-view';
 
 export interface ImageUploaderProps {
   /** Ties the field label to the file input. Must be unique per uploader. */
@@ -34,6 +39,12 @@ export interface ImageUploaderProps {
   hint?: React.ReactNode;
   /** The currently held file, or `null` when nothing is selected. */
   value: File | null;
+  /**
+   * URL of the asset already saved on the server (로고 · 파비콘), or `null`/absent
+   * when none is stored. When no file is picked, its thumbnail is shown so the
+   * control reflects the live setting — priority is picked > saved > empty.
+   */
+  savedUrl?: string | null;
   /** Called with a valid file on pick, or `null` on remove. */
   onChange: (file: File | null) => void;
   className?: string;
@@ -44,6 +55,7 @@ export function ImageUploader({
   label,
   hint,
   value,
+  savedUrl,
   onChange,
   className,
 }: ImageUploaderProps) {
@@ -52,17 +64,25 @@ export function ImageUploader({
   const [dragActive, setDragActive] = React.useState(false);
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
 
-  // Derive a local preview URL from the held file; revoke it on change/unmount
-  // so blobs never leak.
+  // One object-URL lifecycle for the held file's local preview: it revokes the
+  // previous blob on replace and the last blob on unmount, so nothing leaks.
+  // The DOM API is injected, keeping the revoke logic pure/testable.
+  const lifecycleRef = React.useRef<ObjectUrlLifecycle | null>(null);
+  if (lifecycleRef.current === null) {
+    lifecycleRef.current = createObjectUrlLifecycle({
+      create: (source) => URL.createObjectURL(source as Blob),
+      revoke: (url) => URL.revokeObjectURL(url),
+    });
+  }
+
+  // Point the lifecycle at the current file; the returned URL drives the
+  // picked-state thumbnail (null when no file is held).
   React.useEffect(() => {
-    if (!value) {
-      setPreviewUrl(null);
-      return;
-    }
-    const url = URL.createObjectURL(value);
-    setPreviewUrl(url);
-    return () => URL.revokeObjectURL(url);
+    setPreviewUrl(lifecycleRef.current!.set(value));
   }, [value]);
+
+  // Revoke the final blob when the control unmounts.
+  React.useEffect(() => () => lifecycleRef.current!.dispose(), []);
 
   const handleFiles = React.useCallback(
     (files: FileList | null) => {
@@ -101,6 +121,14 @@ export function ImageUploader({
 
   const labelText = typeof label === 'string' ? label : undefined;
 
+  // Which source to render: a ready local pick wins, then the saved asset, then
+  // the empty drop zone. `previewUrl` is only set once the file's blob URL is
+  // ready, so a mid-pick frame never mis-renders as saved.
+  const view = resolveImageUploaderView({
+    pickedUrl: value ? previewUrl : null,
+    savedUrl,
+  });
+
   return (
     <Field
       label={label}
@@ -120,7 +148,7 @@ export function ImageUploader({
         onChange={(e) => handleFiles(e.target.files)}
       />
 
-      {value && previewUrl ? (
+      {view.kind === 'picked' && value ? (
         <div
           className={cn(
             'flex items-center gap-sm rounded-lg border bg-surface p-md',
@@ -130,7 +158,7 @@ export function ImageUploader({
           <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-surface-muted">
             {/* Filename beside it carries the accessible name; the thumb is decorative. */}
             {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={previewUrl} alt="" className="h-full w-full object-contain" />
+            <img src={view.url} alt="" className="h-full w-full object-contain" />
           </span>
           <div className="flex min-w-0 flex-1 flex-col gap-2xs">
             <span className="truncate text-sm font-semibold text-foreground">{value.name}</span>
@@ -142,6 +170,34 @@ export function ImageUploader({
             </Button>
             <Button variant="ghost" size="sm" onClick={handleRemove}>
               제거
+            </Button>
+          </div>
+        </div>
+      ) : view.kind === 'saved' ? (
+        // Saved-asset preview: same card shell as a fresh pick (identical tokens),
+        // but the meta column names the stored asset instead of a file's
+        // name/size, and only 교체(다른 파일) is offered — deleting the saved asset
+        // needs the network, which is the form's concern, not this control's.
+        <div
+          className={cn(
+            'flex items-center gap-sm rounded-lg border bg-surface p-md',
+            error ? 'border-danger' : 'border-border',
+          )}
+        >
+          <span className="flex h-14 w-14 shrink-0 items-center justify-center overflow-hidden rounded-md border border-border bg-surface-muted">
+            {/* Meta column names it; the thumb is decorative — same rule as picked. */}
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={view.url} alt="" className="h-full w-full object-contain" />
+          </span>
+          <div className="flex min-w-0 flex-1 flex-col gap-2xs">
+            <span className="truncate text-sm font-semibold text-foreground">
+              {labelText ? `현재 설정된 ${labelText}` : '현재 설정된 이미지'}
+            </span>
+            <span className="text-xs text-foreground-subtle">새로 올리면 교체돼요</span>
+          </div>
+          <div className="flex shrink-0 items-center gap-2xs">
+            <Button variant="ghost" size="sm" onClick={triggerPick}>
+              다른 파일
             </Button>
           </div>
         </div>
