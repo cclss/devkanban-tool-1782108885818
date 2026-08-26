@@ -6,6 +6,7 @@ import { DashboardHeader } from '@/components/dashboard-header';
 import { SettingsNav } from '@/components/settings-nav';
 import { clearSession, getToken, getUser, type SessionUser } from '@/lib/auth';
 import {
+  SETTINGS_NAV_ITEMS,
   type SettingsNavItem,
 } from '@/lib/settings-copy';
 import { useTranslation } from '@/components/locale-provider';
@@ -37,10 +38,15 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
   if (!ready) return null;
 
-  const items: SettingsNavItem[] = [
-    { href: '/settings/branding', label: t('settings.branding') },
-    { href: '/settings/language', label: t('settings.language') },
-  ];
+  const items: SettingsNavItem[] = SETTINGS_NAV_ITEMS.map((item) => ({
+    ...item,
+    label:
+      item.href === '/settings/branding'
+        ? t('settings.branding')
+        : item.href === '/settings/language'
+          ? t('settings.language')
+          : item.label,
+  }));
 
   return (
     <div className="min-h-[100dvh] bg-background">

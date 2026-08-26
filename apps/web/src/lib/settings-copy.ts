@@ -46,6 +46,7 @@ export const SETTINGS_NAV_LABEL = '설정 메뉴';
  */
 export const SETTINGS_NAV_ITEMS: readonly SettingsNavItem[] = [
   { href: '/settings/branding', label: '브랜딩' },
+  { href: '/settings/language', label: '언어' },
 ];
 
 /** The default settings sub-section landed on when entering `/settings`. */
