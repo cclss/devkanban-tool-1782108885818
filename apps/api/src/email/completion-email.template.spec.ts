@@ -12,6 +12,22 @@ describe('renderCompletionEmail', () => {
     expect(subject).toBe('[근로계약서] 계약이 모두 완료되었어요');
   });
 
+  it('renders every template-owned string in English for English recipients', () => {
+    const rendered = renderCompletionEmail({
+      contractTitle: 'Employment Agreement',
+      senderName: 'Toss',
+      locale: 'en',
+      recipientRole: 'SENDER',
+      dashboardUrl: 'https://app.esign.kr/dashboard',
+    });
+
+    expect(rendered.subject).toBe('[Employment Agreement] Contract completed');
+    expect(rendered.html).toContain('<html lang="en">');
+    for (const out of [rendered.subject, rendered.html, rendered.text]) {
+      expect(out).not.toMatch(/[\u3131-\uD79D]/);
+    }
+  });
+
   it('includes headline, body, and both attachment notices (confirmed copy)', () => {
     const { html, text } = renderCompletionEmail({ ...base, recipientRole: 'SIGNER' });
     for (const out of [html, text]) {
@@ -86,6 +102,7 @@ describe('renderCompletionEmail', () => {
     const { html } = renderCompletionEmail({
       contractTitle: '<b>계약</b> & 부속',
       senderName: 'A & B',
+      locale: 'ko',
       recipientRole: 'SIGNER',
     });
     expect(html).toContain('&lt;b&gt;계약&lt;/b&gt; &amp; 부속');

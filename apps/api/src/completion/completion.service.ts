@@ -284,7 +284,6 @@ export class CompletionService {
         brandColor: document.owner.brandColor,
         brandLogoUrl: document.owner.brandLogoUrl,
         dashboardUrl: role === 'SENDER' ? dashboardUrl : null,
-        serviceName: SERVICE_NAME,
       });
       return {
         to: [to],

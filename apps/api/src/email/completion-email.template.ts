@@ -11,6 +11,7 @@
  * ──────────────────────────────────────────────────────────────────────────── */
 
 import type { SupportedLocale } from '../i18n/locale-resolver';
+import { translate, type TranslationKey } from '../i18n/server-translations';
 
 export type CompletionEmailRole = 'SENDER' | 'SIGNER';
 
@@ -39,22 +40,15 @@ export interface RenderedEmail {
   text: string;
 }
 
-/* ── Confirmed copy (components/completion-email/base.md · voice.md) ──────── */
-const COPY = {
-  headline: '계약이 모두 완료되었어요',
-  bodyAllDone: (title: string) => `${title} 계약의 모든 서명이 끝났어요.`,
-  bodyAttachments:
-    '최종 계약서와 감사 추적 인증서를 함께 보내 드려요. 첨부 파일에서 확인하실 수 있어요.',
-  bodySenderExtra: '대시보드에서도 언제든 다시 내려받을 수 있어요.',
-  attachments: [
-    { name: '최종 계약서', note: '서명이 모두 담긴 완료본이에요.' },
-    { name: '감사 추적 인증서', note: '계약 진행 이력과 문서 무결성을 증명하는 문서예요.' },
-  ],
-  ctaLabel: '대시보드에서 보기',
-  footer: '이 메일은 계약 완료에 따라 자동으로 발송되었어요.',
-} as const;
+type CompletionEmailTranslationKey = Extract<TranslationKey, `completionEmail.${string}`>;
 
-const DEFAULT_SERVICE_NAME = '전자계약';
+function completionCopy(locale: SupportedLocale, key: CompletionEmailTranslationKey): string {
+  return translate(locale, key);
+}
+
+function withTitle(template: string, title: string): string {
+  return template.replace('{title}', title);
+}
 
 /* ── color/base tokens (concrete values; no CSS-var indirection in email) ── */
 const COLOR = {
@@ -115,14 +109,14 @@ function monogramInitial(name: string): string {
 
 export function renderCompletionEmail(input: CompletionEmailInput): RenderedEmail {
   const title = input.contractTitle.trim();
-  const senderName = input.senderName.trim() || '발신자';
-  const serviceName = input.serviceName?.trim() || DEFAULT_SERVICE_NAME;
+  const senderName = input.senderName.trim() || completionCopy(input.locale, 'completionEmail.sender');
+  const serviceName = input.serviceName?.trim() || completionCopy(input.locale, 'completionEmail.serviceName');
   const isSender = input.recipientRole === 'SENDER';
   const brand = resolveBrandColor(input.brandColor);
   const brandSubtle = mixWhiteHex(brand, 0.12);
   const showCta = isSender && Boolean(input.dashboardUrl);
 
-  const subject = `[${title}] 계약이 모두 완료되었어요`;
+  const subject = withTitle(completionCopy(input.locale, 'completionEmail.subject'), title);
 
   const html = renderHtml({
     title,
@@ -133,9 +127,17 @@ export function renderCompletionEmail(input: CompletionEmailInput): RenderedEmai
     brandSubtle,
     brandLogoUrl: input.brandLogoUrl ?? null,
     dashboardUrl: showCta ? input.dashboardUrl! : null,
+    locale: input.locale,
   });
 
-  const text = renderText({ title, senderName, serviceName, isSender, dashboardUrl: showCta ? input.dashboardUrl! : null });
+  const text = renderText({
+    title,
+    senderName,
+    serviceName,
+    isSender,
+    dashboardUrl: showCta ? input.dashboardUrl! : null,
+    locale: input.locale,
+  });
 
   return { subject, html, text };
 }
@@ -149,12 +151,13 @@ interface RenderArgs {
   brandSubtle: string;
   brandLogoUrl: string | null;
   dashboardUrl: string | null;
+  locale: SupportedLocale;
 }
 
 function renderBrandMark(args: RenderArgs): string {
   if (args.brandLogoUrl) {
     return (
-      `<img src="${escapeHtml(args.brandLogoUrl)}" alt="${escapeHtml(args.senderName)} 로고" ` +
+      `<img src="${escapeHtml(args.brandLogoUrl)}" alt="${escapeHtml(args.senderName)} ${escapeHtml(completionCopy(args.locale, 'completionEmail.logo'))}" ` +
       `width="40" height="40" style="display:block;width:40px;height:40px;border-radius:12px;object-fit:contain;border:0;outline:none;text-decoration:none;" />`
     );
   }
@@ -169,9 +172,9 @@ function renderBrandMark(args: RenderArgs): string {
 
 function renderHtml(args: RenderArgs): string {
   const bodyLines = [
-    COPY.bodyAllDone(args.title),
-    COPY.bodyAttachments,
-    ...(args.isSender ? [COPY.bodySenderExtra] : []),
+    withTitle(completionCopy(args.locale, 'completionEmail.bodyAllDone'), args.title),
+    completionCopy(args.locale, 'completionEmail.bodyAttachments'),
+    ...(args.isSender ? [completionCopy(args.locale, 'completionEmail.bodySenderExtra')] : []),
   ];
 
   const bodyHtml = bodyLines
@@ -181,7 +184,17 @@ function renderHtml(args: RenderArgs): string {
     )
     .join('');
 
-  const attachmentRows = COPY.attachments
+  const attachments = [
+    {
+      name: completionCopy(args.locale, 'completionEmail.finalContract'),
+      note: completionCopy(args.locale, 'completionEmail.finalContractNote'),
+    },
+    {
+      name: completionCopy(args.locale, 'completionEmail.auditCertificate'),
+      note: completionCopy(args.locale, 'completionEmail.auditCertificateNote'),
+    },
+  ];
+  const attachmentRows = attachments
     .map(
       (a) =>
         `<tr><td style="padding:12px 16px;border-bottom:1px solid ${COLOR.border};">` +
@@ -196,11 +209,11 @@ function renderHtml(args: RenderArgs): string {
       `<a href="${escapeHtml(args.dashboardUrl)}" ` +
       `style="display:inline-block;background:${args.brand};color:${COLOR.primaryForeground};` +
       `font-size:15px;font-weight:600;text-decoration:none;padding:12px 24px;border-radius:12px;">` +
-      `${escapeHtml(COPY.ctaLabel)}</a></td></tr>`
+      `${escapeHtml(completionCopy(args.locale, 'completionEmail.ctaLabel'))}</a></td></tr>`
     : '';
 
   return `<!DOCTYPE html>
-<html lang="ko">
+<html lang="${args.locale}">
 <head><meta charset="UTF-8" /><meta name="viewport" content="width=device-width, initial-scale=1.0" /></head>
 <body style="margin:0;padding:0;background:${COLOR.background};font-family:'Pretendard Variable',Pretendard,system-ui,'Apple SD Gothic Neo','Noto Sans KR',sans-serif;">
   <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:${COLOR.background};">
@@ -214,7 +227,7 @@ function renderHtml(args: RenderArgs): string {
           </tr></table>
         </td></tr>
         <tr><td style="padding:24px 24px 0;">
-          <h1 style="margin:0 0 16px;font-size:22px;line-height:30px;letter-spacing:-0.01em;font-weight:700;color:${COLOR.foreground};">${escapeHtml(COPY.headline)}</h1>
+          <h1 style="margin:0 0 16px;font-size:22px;line-height:30px;letter-spacing:-0.01em;font-weight:700;color:${COLOR.foreground};">${escapeHtml(completionCopy(args.locale, 'completionEmail.headline'))}</h1>
           ${bodyHtml}
         </td></tr>
         <tr><td style="padding:8px 24px 0;">
@@ -226,7 +239,7 @@ function renderHtml(args: RenderArgs): string {
           <table role="presentation" cellpadding="0" cellspacing="0">${ctaHtml}</table>
         </td></tr>
         <tr><td style="padding:16px 24px 24px;border-top:1px solid ${COLOR.border};">
-          <p style="margin:0;font-size:12px;line-height:18px;color:${COLOR.foregroundSubtle};">${escapeHtml(COPY.footer)}</p>
+          <p style="margin:0;font-size:12px;line-height:18px;color:${COLOR.foregroundSubtle};">${escapeHtml(completionCopy(args.locale, 'completionEmail.footer'))}</p>
           <p style="margin:4px 0 0;font-size:12px;line-height:18px;color:${COLOR.foregroundSubtle};">${escapeHtml(args.serviceName)}</p>
         </td></tr>
       </table>
@@ -242,17 +255,27 @@ function renderText(args: {
   serviceName: string;
   isSender: boolean;
   dashboardUrl: string | null;
+  locale: SupportedLocale;
 }): string {
   const lines: string[] = [
-    COPY.headline,
+    completionCopy(args.locale, 'completionEmail.headline'),
     '',
-    COPY.bodyAllDone(args.title),
-    COPY.bodyAttachments,
+    withTitle(completionCopy(args.locale, 'completionEmail.bodyAllDone'), args.title),
+    completionCopy(args.locale, 'completionEmail.bodyAttachments'),
   ];
-  if (args.isSender) lines.push(COPY.bodySenderExtra);
-  lines.push('', '첨부');
-  for (const a of COPY.attachments) lines.push(`- ${a.name} — ${a.note}`);
-  if (args.dashboardUrl) lines.push('', `${COPY.ctaLabel}: ${args.dashboardUrl}`);
-  lines.push('', COPY.footer, args.serviceName);
+  if (args.isSender) lines.push(completionCopy(args.locale, 'completionEmail.bodySenderExtra'));
+  lines.push('', completionCopy(args.locale, 'completionEmail.attachments'));
+  for (const a of [
+    {
+      name: completionCopy(args.locale, 'completionEmail.finalContract'),
+      note: completionCopy(args.locale, 'completionEmail.finalContractNote'),
+    },
+    {
+      name: completionCopy(args.locale, 'completionEmail.auditCertificate'),
+      note: completionCopy(args.locale, 'completionEmail.auditCertificateNote'),
+    },
+  ]) lines.push(`- ${a.name} — ${a.note}`);
+  if (args.dashboardUrl) lines.push('', `${completionCopy(args.locale, 'completionEmail.ctaLabel')}: ${args.dashboardUrl}`);
+  lines.push('', completionCopy(args.locale, 'completionEmail.footer'), args.serviceName);
   return lines.join('\n');
 }

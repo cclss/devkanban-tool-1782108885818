@@ -226,4 +226,31 @@ describe('CompletionService.runPostProcessing', () => {
 
     expect(certificate.generate).toHaveBeenCalledWith(expect.objectContaining({ locale: 'en' }));
   });
+
+  it('sends English completion email copy when completion locale is English', async () => {
+    const h = makeHarness({
+      title: 'Employment Agreement',
+      owner: { name: 'Toss', email: 'sender@toss.im', brandColor: null, brandLogoUrl: null },
+      signRequests: [
+        {
+          id: 'sr_1',
+          recipientEmail: 'signer@example.com',
+          recipientName: 'Alex',
+          order: 0,
+          signedAt: new Date('2026-06-23T08:30:00.000Z'),
+          signFields: [
+            { type: 'SIGNATURE', page: 1, x: 0.1, y: 0.2, width: 0.3, height: 0.08, value: PNG_1x1 },
+          ],
+        },
+      ],
+    });
+    h.storage.set('documents/user_1/original.pdf', await makePdf(1));
+
+    await h.service.runPostProcessing('doc_xyz789', 'en');
+
+    expect(h.emails).toHaveLength(2);
+    for (const email of h.emails) {
+      expect(`${email.subject}\n${email.html}\n${email.text}`).not.toMatch(/[\u3131-\uD79D]/);
+    }
+  });
 });
