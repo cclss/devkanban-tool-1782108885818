@@ -8,7 +8,7 @@ import {
   remapFieldRecipients,
   removeIndexMap,
   validateRecipients,
-  RECIPIENT_MESSAGES,
+  recipientMessages,
 } from './recipients';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
 
@@ -40,21 +40,26 @@ describe('email validation', () => {
 
 describe('validateRecipients', () => {
   it('flags empty, malformed, and duplicate emails', () => {
-    const errors = validateRecipients([
-      r('1', ''),
-      r('2', 'bad'),
-      r('3', 'dup@x.com'),
-      r('4', 'DUP@x.com'),
-    ]);
-    expect(errors['1']?.email).toBe(RECIPIENT_MESSAGES.emailRequired);
-    expect(errors['2']?.email).toBe(RECIPIENT_MESSAGES.emailInvalid);
+    const messages = recipientMessages('ko');
+    const errors = validateRecipients(
+      [r('1', ''), r('2', 'bad'), r('3', 'dup@x.com'), r('4', 'DUP@x.com')],
+      'ko',
+    );
+    expect(errors['1']?.email).toBe(messages.emailRequired);
+    expect(errors['2']?.email).toBe(messages.emailInvalid);
     expect(errors['3']).toBeUndefined(); // first occurrence stays clean
-    expect(errors['4']?.email).toBe(RECIPIENT_MESSAGES.emailDuplicate);
+    expect(errors['4']?.email).toBe(messages.emailDuplicate);
+  });
+
+  it('localizes the same validation outcome per locale', () => {
+    const list = [r('1', '')];
+    expect(validateRecipients(list, 'ko')['1']?.email).toBe(recipientMessages('ko').emailRequired);
+    expect(validateRecipients(list, 'en')['1']?.email).toBe(recipientMessages('en').emailRequired);
   });
 
   it('treats a fully valid distinct list as complete', () => {
     const list = [r('1', 'a@x.com'), r('2', 'b@x.com')];
-    expect(validateRecipients(list)).toEqual({});
+    expect(validateRecipients(list, 'ko')).toEqual({});
     expect(recipientsComplete(list)).toBe(true);
   });
 

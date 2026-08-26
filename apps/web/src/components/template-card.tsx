@@ -3,7 +3,10 @@
 import * as React from 'react';
 import { Button, Card } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY, TEMPLATE_META_COPY } from '@/lib/templates-copy';
+import { useTranslation } from '@/components/locale-provider';
+import type { InterpolationVars, WebTranslationKey } from '@/lib/web-translations';
+
+type Translate = (key: WebTranslationKey, vars?: InterpolationVars) => string;
 
 /**
  * TemplateCard — one saved template as a card (design-spec
@@ -27,7 +30,8 @@ import { TEMPLATE_ACTIONS_COPY, TEMPLATE_META_COPY } from '@/lib/templates-copy'
  *
  * `onSelect` and `actions` are mutually exclusive — the picker uses `onSelect`,
  * the list uses `actions`. Copy (units, ordering, a11y labels) is never owned
- * here: it comes from `lib/templates-copy.ts` and the caller (`selectLabel`).
+ * here: it comes from the `templates` translation namespace (via `useTranslation`)
+ * and the caller (`selectLabel`).
  */
 
 /** Per-card management handlers for the manageable Extension. */
@@ -67,6 +71,7 @@ export function TemplateCard({
   disabled = false,
   actions,
 }: TemplateCardProps) {
+  const t = useTranslation();
   const summaryRow = (
     <>
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
@@ -74,7 +79,7 @@ export function TemplateCard({
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2xs text-left">
         <h3 className="truncate text-base font-bold text-foreground">{template.name}</h3>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(template)}</p>
+        <p className="truncate text-sm text-foreground-subtle">{metaLine(template, t)}</p>
       </div>
       {onSelect ? <ChevronIcon /> : null}
     </>
@@ -103,13 +108,13 @@ export function TemplateCard({
         <div
           className="flex flex-wrap items-center gap-xs border-t border-border pt-md"
           role="group"
-          aria-label={TEMPLATE_ACTIONS_COPY.actionsLabel(template.name)}
+          aria-label={t('templates.actionsLabel', { name: template.name })}
         >
           <Button variant="ghost" size="sm" onClick={() => actions.onPreview(template)}>
-            {TEMPLATE_ACTIONS_COPY.preview}
+            {t('templates.preview')}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => actions.onRename(template)}>
-            {TEMPLATE_ACTIONS_COPY.rename}
+            {t('templates.rename')}
           </Button>
           <Button
             variant="ghost"
@@ -117,14 +122,14 @@ export function TemplateCard({
             onClick={() => actions.onDelete(template)}
             className="text-danger hover:bg-danger-subtle hover:text-danger active:bg-danger-subtle"
           >
-            {TEMPLATE_ACTIONS_COPY.delete}
+            {t('templates.delete')}
           </Button>
           <Button
             size="sm"
             onClick={() => actions.onStart(template)}
             className="ml-auto"
           >
-            {TEMPLATE_ACTIONS_COPY.start}
+            {t('templates.start')}
           </Button>
         </div>
       </Card>
@@ -138,13 +143,13 @@ export function TemplateCard({
   );
 }
 
-function metaLine(template: TemplateSummary): string {
+function metaLine(template: TemplateSummary, t: Translate): string {
   const parts = [
-    TEMPLATE_META_COPY.pages(template.pageCount),
-    TEMPLATE_META_COPY.fields(template.fieldCount),
+    t('templates.metaPages', { n: template.pageCount }),
+    t('templates.metaFields', { n: template.fieldCount }),
   ];
   const when = formatRelative(template.createdAt);
-  if (when) parts.push(`${when} ${TEMPLATE_META_COPY.savedSuffix}`);
+  if (when) parts.push(`${when} ${t('templates.savedSuffix')}`);
   return parts.join(' · ');
 }
 

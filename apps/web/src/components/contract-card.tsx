@@ -8,6 +8,8 @@ import { UrgencyBadge } from '@/components/urgency-badge';
 import { CompletionDownload } from '@/components/completion-download';
 import { downloadOwnerArtifact, type DocumentSummary, type NextAction } from '@/lib/documents';
 import { nextActionCopy, pendingSignerLabel, urgencyLabel } from '@/lib/todo-copy';
+import { useLocale } from '@/components/locale-provider';
+import type { SupportedLocale } from '@/lib/locale';
 
 /**
  * ContractCard — one contract as a card, shared by the dashboard **list** and the
@@ -94,6 +96,7 @@ function CardHeaderRow({
   completed: boolean;
   variant: ContractCardVariant;
 }) {
+  const { locale } = useLocale();
   const compact = variant === 'compact';
   // The list's completed card carries the 완료됨 badge inside its download region,
   // so the title row omits it there to avoid a duplicate. The compact card has no
@@ -112,15 +115,15 @@ function CardHeaderRow({
           ) : null}
           {/* Urgency rides on a separate axis next to the lifecycle status; it
               renders nothing for NORMAL (incl. completed/cancelled). */}
-          <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency)} />
+          <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency, locale)} />
         </div>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(document)}</p>
+        <p className="truncate text-sm text-foreground-subtle">{metaLine(document, locale)}</p>
       </div>
       {/* The single next action as a compact hint. Completed cards render DOWNLOAD
           via the list's download region (and the compact card defers it to the
           detail screen), so the hint is shown only for non-completed cards — the
           same DOWNLOAD-not-in-header treatment in both densities. */}
-      {!completed ? <NextActionHint action={document.nextAction} /> : null}
+      {!completed ? <NextActionHint action={document.nextAction} locale={locale} /> : null}
       {/* The chevron is a list-only entry affordance; the board's column cards drop
           it (denser, and the card itself is the link). */}
       {!compact ? <ChevronIcon /> : null}
@@ -135,8 +138,8 @@ function CardHeaderRow({
  * affordance, not a nested interactive. `AWAITING_SIGN` is a passive status label
  * (no owner action right now — no reminder feature); CANCELLED renders nothing.
  */
-function NextActionHint({ action }: { action: NextAction | null }) {
-  const copy = nextActionCopy(action);
+function NextActionHint({ action, locale }: { action: NextAction | null; locale: SupportedLocale }) {
+  const copy = nextActionCopy(action, locale);
   if (!copy) return null;
   if (copy.kind === 'status') {
     return (
@@ -150,11 +153,11 @@ function NextActionHint({ action }: { action: NextAction | null }) {
   );
 }
 
-function metaLine(doc: DocumentSummary): string {
+function metaLine(doc: DocumentSummary, locale: SupportedLocale): string {
   const parts: string[] = [];
   if (doc.recipientCount > 0) parts.push(`받는 분 ${doc.recipientCount}명`);
   // Signers still awaited (omitted at 0 — see todo-copy.md).
-  const pending = pendingSignerLabel(doc.pendingSignerCount);
+  const pending = pendingSignerLabel(doc.pendingSignerCount, locale);
   if (pending) parts.push(pending);
   if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
   const sent = doc.status !== 'DRAFT' && doc.sentAt;

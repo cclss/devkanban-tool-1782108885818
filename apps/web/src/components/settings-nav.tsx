@@ -4,7 +4,12 @@ import * as React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@repo/ui';
-import type { SettingsNavItem } from '@/lib/settings-copy';
+
+/** A resolved (localized) nav link: route + display label. */
+export interface SettingsNavLink {
+  href: string;
+  label: string;
+}
 
 /**
  * SettingsNav — the persistent settings menu. A vertical list of links, one per
@@ -21,13 +26,13 @@ import type { SettingsNavItem } from '@/lib/settings-copy';
  *   AA-verified "actionable = primary" language. No new colors/tokens.
  *
  * This component owns structure/selection presentation but NOT the item copy:
- * labels come in via `items` (source of truth: `lib/settings-copy.ts` →
- * design-spec/messaging/settings-copy.md), exactly like ViewSwitcher takes its
+ * localized labels come in via `items` (the shell resolves each nav item's
+ * catalog key against the active locale), exactly like ViewSwitcher takes its
  * labels as props.
  */
 export interface SettingsNavProps {
-  /** Menu items in render order (source: lib/settings-copy.ts). */
-  items: readonly SettingsNavItem[];
+  /** Menu items in render order, labels already localized by the shell. */
+  items: readonly SettingsNavLink[];
   /** Accessible name for the nav landmark, e.g. "설정 메뉴". */
   label: string;
   className?: string;

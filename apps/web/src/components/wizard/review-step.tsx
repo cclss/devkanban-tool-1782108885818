@@ -29,6 +29,7 @@ import { getToken } from '@/lib/auth';
 import { writeSentSignal, type DocumentSummary } from '@/lib/documents';
 import { FIELD_TYPE_META, FIELD_TYPES, type SignFieldType } from '@/lib/field-geometry';
 import { recipientLabel } from '@/lib/recipients';
+import { useLocale } from '@/components/locale-provider';
 import { saveFields, sendContract } from '@/lib/send';
 import { useWizard, type RecipientDraft, type SignFieldDraft } from './wizard-context';
 
@@ -325,6 +326,7 @@ function FieldsSummaryCard({ fields }: { fields: SignFieldDraft[] }) {
 }
 
 function RecipientsSummaryCard({ recipients }: { recipients: RecipientDraft[] }) {
+  const { locale } = useLocale();
   return (
     <SummaryCard
       title={COPY.recipientsSection}
@@ -341,7 +343,7 @@ function RecipientsSummaryCard({ recipients }: { recipients: RecipientDraft[] })
             </span>
             <div className="flex min-w-0 flex-1 flex-col">
               <span className="truncate text-sm font-medium text-foreground">
-                {recipientLabel(r, i)}
+                {recipientLabel(r, i, locale)}
               </span>
               <span className="truncate text-sm text-foreground-subtle">{r.email.trim()}</span>
             </div>

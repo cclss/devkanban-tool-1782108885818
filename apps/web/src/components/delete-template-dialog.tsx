@@ -22,9 +22,7 @@ import {
   DialogTitle,
 } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
-
-const COPY = TEMPLATE_ACTIONS_COPY.delete_dialog;
+import { useTranslation } from '@/components/locale-provider';
 
 export interface DeleteTemplateDialogProps {
   open: boolean;
@@ -41,6 +39,7 @@ export function DeleteTemplateDialog({
   template,
   onConfirm,
 }: DeleteTemplateDialogProps) {
+  const t = useTranslation();
   const handleConfirm = () => {
     if (!template) return;
     onConfirm(template);
@@ -51,16 +50,16 @@ export function DeleteTemplateDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{template ? COPY.title(template.name) : ''}</DialogTitle>
-          <DialogDescription>{COPY.description}</DialogDescription>
+          <DialogTitle>{template ? t('templates.deleteTitle', { name: template.name }) : ''}</DialogTitle>
+          <DialogDescription>{t('templates.deleteDescription')}</DialogDescription>
         </DialogHeader>
 
         <DialogFooter>
           <Button variant="secondary" onClick={() => onOpenChange(false)}>
-            {COPY.cancel}
+            {t('templates.deleteCancel')}
           </Button>
           <Button variant="danger" onClick={handleConfirm}>
-            {COPY.confirm}
+            {t('templates.deleteConfirm')}
           </Button>
         </DialogFooter>
       </DialogContent>

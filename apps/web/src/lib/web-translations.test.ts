@@ -1,8 +1,12 @@
 import {
   UNKNOWN_WEB_TRANSLATION_FALLBACK,
+  WEB_TRANSLATIONS,
   createWebTranslationRuntime,
+  getWebTranslationFallbackReport,
   interpolate,
+  resetWebTranslationFallbackReport,
   translateWeb,
+  type WebTranslationKey,
 } from './web-translations';
 
 describe('web translation fallback runtime', () => {
@@ -147,6 +151,45 @@ describe('runtime interpolation', () => {
     const runtime = createWebTranslationRuntime({ ko: {}, en: {} });
 
     expect(runtime.translate('ko', 'x.y', { name: '김' })).toBe(UNKNOWN_WEB_TRANSLATION_FALLBACK);
+  });
+});
+
+describe('catalog parity', () => {
+  const flatKeys = (catalog: (typeof WEB_TRANSLATIONS)['ko' | 'en']): string[] => {
+    const keys: string[] = [];
+    for (const [namespace, group] of Object.entries(catalog)) {
+      for (const key of Object.keys(group as Record<string, unknown>)) {
+        keys.push(`${namespace}.${key}`);
+      }
+    }
+    return keys.sort();
+  };
+
+  it('exposes the identical set of keys in ko and en (no locale-only key)', () => {
+    expect(flatKeys(WEB_TRANSLATIONS.en)).toEqual(flatKeys(WEB_TRANSLATIONS.ko));
+  });
+
+  it('has no empty value in either locale', () => {
+    for (const locale of ['ko', 'en'] as const) {
+      for (const group of Object.values(WEB_TRANSLATIONS[locale])) {
+        for (const [key, value] of Object.entries(group as Record<string, string>)) {
+          expect(typeof value === 'string' && value.trim().length > 0).toBe(true);
+          void key;
+        }
+      }
+    }
+  });
+
+  it('resolves every cataloged key in English with a zero missing-key report', () => {
+    resetWebTranslationFallbackReport();
+    for (const namespace of Object.keys(WEB_TRANSLATIONS.en)) {
+      const group = WEB_TRANSLATIONS.en[namespace as keyof typeof WEB_TRANSLATIONS.en];
+      for (const key of Object.keys(group)) {
+        const resolved = translateWeb('en', `${namespace}.${key}` as WebTranslationKey);
+        expect(resolved.length).toBeGreaterThan(0);
+      }
+    }
+    expect(getWebTranslationFallbackReport().missingKeys).toEqual([]);
   });
 });
 

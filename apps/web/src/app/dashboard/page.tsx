@@ -28,8 +28,9 @@ import { ViewSwitcher } from '@/components/view-switcher';
 import { ApiError } from '@/lib/api';
 import { isOnboardingComplete, markOnboardingComplete } from '@/lib/onboarding';
 import { readViewMode, writeViewMode, type ViewMode } from '@/lib/view-mode';
-import { ONBOARDING_COPY } from '@/lib/onboarding-copy';
+import { onboardingCopy } from '@/lib/onboarding-copy';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
+import type { SupportedLocale } from '@/lib/locale';
 import {
   fetchDocuments,
   fetchQuota,
@@ -39,12 +40,12 @@ import {
   type Urgency,
 } from '@/lib/documents';
 import {
-  FILTERED_EMPTY_COPY,
-  KANBAN_BOARD_COPY,
-  SUMMARY_COPY,
-  VIEW_SWITCHER_COPY,
+  filteredEmptyCopy,
+  kanbanBoardCopy,
+  summaryCopy,
+  viewSwitcherCopy,
 } from '@/lib/todo-copy';
-import { useTranslation } from '@/components/locale-provider';
+import { useLocale } from '@/components/locale-provider';
 
 /**
  * Dashboard list ordering by urgency (design-spec/components/urgency-badge/base.md
@@ -63,7 +64,7 @@ const TEMPLATES_ROUTE = '/templates';
 
 export default function DashboardPage() {
   const router = useRouter();
-  const t = useTranslation();
+  const { locale, t } = useLocale();
 
   const [ready, setReady] = React.useState(false);
   const [user, setUser] = React.useState<SessionUser | null>(null);
@@ -223,12 +224,12 @@ export default function DashboardPage() {
                 <ViewSwitcher
                   value={viewMode}
                   onChange={changeViewMode}
-                  copy={VIEW_SWITCHER_COPY}
+                  copy={viewSwitcherCopy(locale)}
                 />
               </div>
               <DashboardSummary
                 documents={documents}
-                copy={SUMMARY_COPY}
+                copy={summaryCopy(locale)}
                 selected={filter}
                 onSelect={setFilter}
               />
@@ -244,7 +245,7 @@ export default function DashboardPage() {
           {documents && documents.length > 0 && viewMode === 'kanban' && visible ? (
             <KanbanBoard
               documents={visible}
-              copy={KANBAN_BOARD_COPY}
+              copy={kanbanBoardCopy(locale)}
               highlightId={highlightId}
             />
           ) : (
@@ -256,6 +257,7 @@ export default function DashboardPage() {
               error={error}
               highlightId={highlightId}
               showOnboarding={showOnboarding}
+              locale={locale}
               onRetry={() => void load()}
               onCreate={() => router.push(NEW_CONTRACT_ROUTE)}
             />
@@ -369,6 +371,7 @@ function DashboardBody({
   error,
   highlightId,
   showOnboarding,
+  locale,
   onRetry,
   onCreate,
 }: {
@@ -383,6 +386,8 @@ function DashboardBody({
   highlightId: string | null;
   /** Show the first-run welcome guide in place of the plain EmptyState. */
   showOnboarding: boolean;
+  /** Active locale — drives the onboarding + filtered-empty copy. */
+  locale: SupportedLocale;
   onRetry: () => void;
   onCreate: () => void;
 }) {
@@ -397,12 +402,13 @@ function DashboardBody({
     // A new user (never onboarded) gets the welcome guide — the path to a first
     // contract. Everyone else gets the calm EmptyState endpoint. Both reuse the
     // same onCreate → NEW_CONTRACT_ROUTE flow.
+    const onboarding = onboardingCopy(locale);
     return showOnboarding ? (
       <OnboardingGuide
-        title={ONBOARDING_COPY.title}
-        description={ONBOARDING_COPY.description}
-        steps={ONBOARDING_COPY.steps}
-        ctaLabel={ONBOARDING_COPY.cta}
+        title={onboarding.title}
+        description={onboarding.description}
+        steps={onboarding.steps}
+        ctaLabel={onboarding.cta}
         onCreate={onCreate}
       />
     ) : (
@@ -412,7 +418,7 @@ function DashboardBody({
   // Contracts exist, but none match the active filter — say so calmly and offer
   // the next action (clear the filter), rather than the wrong "no contracts yet".
   if (visible.length === 0 && filtered) {
-    return <FilteredEmptyState onClearFilter={onClearFilter} />;
+    return <FilteredEmptyState locale={locale} onClearFilter={onClearFilter} />;
   }
   return (
     <ul className="motion-stagger flex flex-col gap-sm">
@@ -463,12 +469,19 @@ function EmptyState({ onCreate }: { onCreate: () => void }) {
   );
 }
 
-function FilteredEmptyState({ onClearFilter }: { onClearFilter: () => void }) {
+function FilteredEmptyState({
+  locale,
+  onClearFilter,
+}: {
+  locale: SupportedLocale;
+  onClearFilter: () => void;
+}) {
+  const copy = filteredEmptyCopy(locale);
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
-      <p className="text-base text-foreground-subtle">{FILTERED_EMPTY_COPY.message}</p>
+      <p className="text-base text-foreground-subtle">{copy.message}</p>
       <Button variant="secondary" onClick={onClearFilter}>
-        {FILTERED_EMPTY_COPY.clear}
+        {copy.clear}
       </Button>
     </Card>
   );

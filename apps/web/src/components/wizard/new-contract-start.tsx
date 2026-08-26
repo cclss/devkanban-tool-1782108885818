@@ -35,7 +35,6 @@ import {
   type TemplateField,
   type TemplateSummary,
 } from '@/lib/templates';
-import { NEW_CONTRACT_COPY as COPY } from '@/lib/new-contract-copy';
 import { useTranslation } from '@/components/locale-provider';
 import { TemplateCard } from '@/components/template-card';
 import { ContractWizard } from './contract-wizard';
@@ -285,6 +284,7 @@ function TemplatePicker({
   onUpload: () => void;
 }) {
   const router = useRouter();
+  const t = useTranslation();
   const [templates, setTemplates] = React.useState<TemplateSummary[] | null>(null);
   const [error, setError] = React.useState<string | null>(null);
 
@@ -309,11 +309,11 @@ function TemplatePicker({
   return (
     <div className="flex flex-col gap-xl">
       <div className="flex flex-col gap-2xs">
-        <h1 className="text-2xl font-bold text-foreground">{COPY.pickTitle}</h1>
-        <p className="text-base text-foreground-subtle">{COPY.pickSubtitle}</p>
+        <h1 className="text-2xl font-bold text-foreground">{t('wizard.pickTitle')}</h1>
+        <p className="text-base text-foreground-subtle">{t('wizard.pickSubtitle')}</p>
       </div>
 
-      <section aria-label={COPY.listLabel}>
+      <section aria-label={t('wizard.pickListLabel')}>
         <PickerBody
           templates={templates}
           error={error}
@@ -325,7 +325,7 @@ function TemplatePicker({
 
       <div>
         <Button variant="ghost" size="md" onClick={onBack}>
-          {COPY.pickBack}
+          {t('wizard.pickBack')}
         </Button>
       </div>
     </div>
@@ -345,12 +345,13 @@ function PickerBody({
   onSelect: (template: TemplateSummary) => void;
   onUpload: () => void;
 }) {
+  const t = useTranslation();
   if (error && !templates) {
     return (
       <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
         <p className="text-base text-foreground-muted">{error}</p>
         <Button variant="secondary" onClick={onRetry}>
-          {COPY.retry}
+          {t('wizard.retry')}
         </Button>
       </Card>
     );
@@ -376,11 +377,11 @@ function PickerBody({
     return (
       <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
         <div className="flex flex-col gap-2xs">
-          <h2 className="text-lg font-bold text-foreground">{COPY.emptyTitle}</h2>
-          <p className="max-w-[380px] text-base text-foreground-subtle">{COPY.emptyBody}</p>
+          <h2 className="text-lg font-bold text-foreground">{t('wizard.pickEmptyTitle')}</h2>
+          <p className="max-w-[380px] text-base text-foreground-subtle">{t('wizard.pickEmptyBody')}</p>
         </div>
         <Button size="lg" onClick={onUpload}>
-          {COPY.emptyCta}
+          {t('wizard.pickEmptyCta')}
         </Button>
       </Card>
     );
@@ -395,7 +396,7 @@ function PickerBody({
           <TemplateCard
             template={template}
             onSelect={onSelect}
-            selectLabel={COPY.selectLabel(template.name)}
+            selectLabel={t('wizard.pickSelectLabel', { name: template.name })}
           />
         </li>
       ))}
@@ -405,12 +406,13 @@ function PickerBody({
 
 /** Spinner + copy while the chosen template is re-registered and reloaded. */
 function PreparingState() {
+  const t = useTranslation();
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
       <Spinner />
       <div className="flex flex-col gap-2xs">
-        <h1 className="text-lg font-bold text-foreground">{COPY.preparingTitle}</h1>
-        <p className="max-w-[380px] text-base text-foreground-subtle">{COPY.preparingBody}</p>
+        <h1 className="text-lg font-bold text-foreground">{t('wizard.preparingTitle')}</h1>
+        <p className="max-w-[380px] text-base text-foreground-subtle">{t('wizard.preparingBody')}</p>
       </div>
     </Card>
   );
@@ -425,6 +427,7 @@ function PrepareErrorState({
   onRetry: () => void;
   onStartOver: () => void;
 }) {
+  const t = useTranslation();
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
       <p className="max-w-[420px] text-base text-foreground-muted" role="alert">
@@ -432,9 +435,9 @@ function PrepareErrorState({
       </p>
       <div className="flex items-center gap-xs">
         <Button variant="secondary" onClick={onStartOver}>
-          {COPY.startOver}
+          {t('wizard.startOver')}
         </Button>
-        <Button onClick={onRetry}>{COPY.retry}</Button>
+        <Button onClick={onRetry}>{t('wizard.retry')}</Button>
       </div>
     </Card>
   );
