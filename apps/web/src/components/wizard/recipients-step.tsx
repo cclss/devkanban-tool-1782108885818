@@ -33,10 +33,12 @@ import {
   removeIndexMap,
   validateRecipients,
 } from '@/lib/recipients';
+import { useLocale } from '@/components/locale-provider';
 import { useWizard, type RecipientDraft, type SignFieldDraft } from './wizard-context';
 
 export function RecipientsStep() {
   const { state, dispatch } = useWizard();
+  const { locale } = useLocale();
   const { recipients, fields } = state;
 
   // Show an email error once its field loses focus. Until then a freshly added,
@@ -46,7 +48,7 @@ export function RecipientsStep() {
   // Ids mid leave-animation; removed from state only when the collapse ends.
   const [leaving, setLeaving] = React.useState<Set<string>>(() => new Set());
 
-  const errors = React.useMemo(() => validateRecipients(recipients), [recipients]);
+  const errors = React.useMemo(() => validateRecipients(recipients, locale), [recipients, locale]);
 
   const setRecipients = React.useCallback(
     (next: RecipientDraft[]) => dispatch({ type: 'SET_RECIPIENTS', recipients: next }),
@@ -208,6 +210,7 @@ function RecipientRow({
   onRemove,
   onLeaveEnd,
 }: RecipientRowProps) {
+  const { locale } = useLocale();
   const nameId = `recipient-${recipient.id}-name`;
   const emailId = `recipient-${recipient.id}-email`;
   const fired = React.useRef(false);
@@ -294,21 +297,21 @@ function RecipientRow({
           {/* Reorder + remove controls */}
           <div className="mt-1 flex shrink-0 items-center gap-2xs">
             <IconButton
-              label={`${recipientLabel(recipient, index)} 위로 이동`}
+              label={`${recipientLabel(recipient, index, locale)} 위로 이동`}
               disabled={index === 0}
               onClick={onMoveUp}
             >
               <ArrowIcon dir="up" />
             </IconButton>
             <IconButton
-              label={`${recipientLabel(recipient, index)} 아래로 이동`}
+              label={`${recipientLabel(recipient, index, locale)} 아래로 이동`}
               disabled={index === total - 1}
               onClick={onMoveDown}
             >
               <ArrowIcon dir="down" />
             </IconButton>
             <IconButton
-              label={`${recipientLabel(recipient, index)} 삭제`}
+              label={`${recipientLabel(recipient, index, locale)} 삭제`}
               onClick={onRemove}
               tone="danger"
             >
@@ -330,6 +333,7 @@ function FieldAssignments({
   recipients: RecipientDraft[];
   onAssign: (fieldId: string, recipientIndex: number) => void;
 }) {
+  const { locale } = useLocale();
   // Stable reading order: by page, then keep placement order within a page.
   const ordered = React.useMemo(
     () =>
@@ -377,7 +381,7 @@ function FieldAssignments({
               >
                 {recipients.map((r, i) => (
                   <option key={r.id} value={i}>
-                    {i + 1}. {recipientLabel(r, i)}
+                    {i + 1}. {recipientLabel(r, i, locale)}
                   </option>
                 ))}
               </select>

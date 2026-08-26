@@ -3,7 +3,7 @@
 /**
  * TemplatePreviewDialog — a read-only look at a saved template's source PDF with
  * its field layout overlaid (design-spec `components/template-preview-dialog/base.md`,
- * copy `lib/templates-copy.ts` `preview_dialog`, tone `tone/templates-list.md`).
+ * copy: the `templates` translation namespace, `preview*` keys).
  *
  * The list hands it a `TemplateSummary` (no field layout). Opening the dialog
  * loads the rest — the full field array + pageCount via `getTemplate(id)` and the
@@ -36,9 +36,7 @@ import {
   type TemplateField,
   type TemplateSummary,
 } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
-
-const COPY = TEMPLATE_ACTIONS_COPY.preview_dialog;
+import { useTranslation } from '@/components/locale-provider';
 
 type Status = 'loading' | 'ready' | 'error';
 
@@ -61,6 +59,7 @@ export function TemplatePreviewDialog({
   template,
 }: TemplatePreviewDialogProps) {
   const router = useRouter();
+  const t = useTranslation();
   const [status, setStatus] = React.useState<Status>('loading');
   const [data, setData] = React.useState<PreviewData | null>(null);
   const [error, setError] = React.useState<string | null>(null);
@@ -103,9 +102,9 @@ export function TemplatePreviewDialog({
       <DialogContent className="max-w-2xl">
         <DialogHeader>
           <DialogTitle className="truncate pr-9">
-            {template ? COPY.title(template.name) : ''}
+            {template ? t('templates.previewTitle', { name: template.name }) : ''}
           </DialogTitle>
-          <DialogDescription>{COPY.description}</DialogDescription>
+          <DialogDescription>{t('templates.previewDescription')}</DialogDescription>
         </DialogHeader>
 
         <div className="mt-sm">
@@ -124,9 +123,9 @@ export function TemplatePreviewDialog({
 
           {status === 'error' ? (
             <div className="flex flex-col items-center gap-md px-md py-2xl text-center">
-              <p className="text-base text-foreground-muted">{error ?? COPY.error}</p>
+              <p className="text-base text-foreground-muted">{error ?? t('templates.previewError')}</p>
               <Button variant="secondary" onClick={() => setReloadKey((k) => k + 1)}>
-                {COPY.retry}
+                {t('templates.previewRetry')}
               </Button>
             </div>
           ) : null}

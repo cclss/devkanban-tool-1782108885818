@@ -17,6 +17,8 @@
  */
 
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
+import type { SupportedLocale } from './locale';
+import { translateWeb } from './web-translations';
 
 /** Backend caps a single contract at 20 recipients (SendContractDto). */
 export const MAX_RECIPIENTS = 20;
@@ -51,10 +53,17 @@ export function createRecipient(): RecipientDraft {
   return { id: nextRecipientId(), email: '', name: '' };
 }
 
-/** Display name for a recipient, falling back to an order-based label. */
-export function recipientLabel(recipient: RecipientDraft, index: number): string {
+/**
+ * Display name for a recipient, falling back to a localized order-based label
+ * (`받는 분 {n}` / `Recipient {n}`) sourced from the `recipients` catalog.
+ */
+export function recipientLabel(
+  recipient: RecipientDraft,
+  index: number,
+  locale: SupportedLocale,
+): string {
   const name = recipient.name.trim();
-  return name.length > 0 ? name : `받는 분 ${index + 1}`;
+  return name.length > 0 ? name : translateWeb(locale, 'recipients.label', { n: index + 1 });
 }
 
 export type RecipientFieldKey = 'email';
@@ -63,37 +72,56 @@ export interface RecipientError {
   email?: string;
 }
 
-export const RECIPIENT_MESSAGES = {
-  emailRequired: '이메일을 입력해 주세요.',
-  emailInvalid: '이메일 형식을 다시 확인해 주세요.',
-  emailDuplicate: '이미 추가된 이메일이에요.',
-} as const;
+/** The validation outcomes, decoupled from any copy so the checker stays pure. */
+export type RecipientErrorKind = 'required' | 'invalid' | 'duplicate';
+
+/** Localized email-validation messages, resolved from the `recipients` catalog. */
+export interface RecipientMessages {
+  emailRequired: string;
+  emailInvalid: string;
+  emailDuplicate: string;
+}
+
+/** The email-validation messages for a locale (source of truth: catalog). */
+export function recipientMessages(locale: SupportedLocale): RecipientMessages {
+  return {
+    emailRequired: translateWeb(locale, 'recipients.emailRequired'),
+    emailInvalid: translateWeb(locale, 'recipients.emailInvalid'),
+    emailDuplicate: translateWeb(locale, 'recipients.emailDuplicate'),
+  };
+}
+
+const ERROR_KIND_MESSAGE: Record<RecipientErrorKind, keyof RecipientMessages> = {
+  required: 'emailRequired',
+  invalid: 'emailInvalid',
+  duplicate: 'emailDuplicate',
+};
 
 /**
- * Per-recipient validation, keyed by recipient id. Email is required and
+ * Pure, copy-free validation core, keyed by recipient id. Email is required and
  * format-checked; the *second and later* occurrences of a duplicated email are
- * flagged (the first stays clean, so the user keeps one and fixes the rest).
- * Name is optional (matches the backend), so it never errors here.
+ * flagged (the first stays clean). Name is optional, so it never errors. Kept
+ * locale-independent so `recipientsComplete` needs no copy.
  */
-export function validateRecipients(
+function collectRecipientErrorKinds(
   recipients: RecipientDraft[],
-): Record<string, RecipientError> {
-  const errors: Record<string, RecipientError> = {};
+): Record<string, RecipientErrorKind> {
+  const errors: Record<string, RecipientErrorKind> = {};
   const seen = new Set<string>();
 
   for (const r of recipients) {
     const raw = r.email.trim();
     if (raw.length === 0) {
-      errors[r.id] = { email: RECIPIENT_MESSAGES.emailRequired };
+      errors[r.id] = 'required';
       continue;
     }
     if (!isValidEmail(raw)) {
-      errors[r.id] = { email: RECIPIENT_MESSAGES.emailInvalid };
+      errors[r.id] = 'invalid';
       continue;
     }
     const key = normalizeEmail(raw);
     if (seen.has(key)) {
-      errors[r.id] = { email: RECIPIENT_MESSAGES.emailDuplicate };
+      errors[r.id] = 'duplicate';
       continue;
     }
     seen.add(key);
@@ -102,10 +130,27 @@ export function validateRecipients(
   return errors;
 }
 
+/**
+ * Per-recipient validation with localized messages, keyed by recipient id. The
+ * validation logic lives in {@link collectRecipientErrorKinds}; this layer only
+ * maps each error kind to its copy for the given locale.
+ */
+export function validateRecipients(
+  recipients: RecipientDraft[],
+  locale: SupportedLocale,
+): Record<string, RecipientError> {
+  const messages = recipientMessages(locale);
+  const errors: Record<string, RecipientError> = {};
+  for (const [id, kind] of Object.entries(collectRecipientErrorKinds(recipients))) {
+    errors[id] = { email: messages[ERROR_KIND_MESSAGE[kind]] };
+  }
+  return errors;
+}
+
 /** True when there is ≥1 recipient and none has a validation error. */
 export function recipientsComplete(recipients: RecipientDraft[]): boolean {
   if (recipients.length === 0) return false;
-  return Object.keys(validateRecipients(recipients)).length === 0;
+  return Object.keys(collectRecipientErrorKinds(recipients)).length === 0;
 }
 
 /**

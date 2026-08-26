@@ -5,11 +5,9 @@ import Link from 'next/link';
 import { Button } from '@repo/ui';
 import type { SessionUser } from '@/lib/auth';
 import { useBranding } from '@/components/branding-provider';
-import {
-  HEADER_BRAND_COPY,
-  SETTINGS_ENTRY_LABEL,
-  SETTINGS_DEFAULT_ROUTE,
-} from '@/lib/settings-copy';
+import { useTranslation } from '@/components/locale-provider';
+import { LanguageSwitch } from '@/components/language-switch';
+import { SETTINGS_DEFAULT_ROUTE } from '@/lib/settings-copy';
 
 /**
  * DashboardHeader — the app's top bar for the authenticated sender area. Shared
@@ -32,6 +30,7 @@ export function DashboardHeader({
   onLogout: () => void;
 }) {
   const { branding } = useBranding();
+  const t = useTranslation();
   return (
     <header className="sticky top-0 z-30 border-b border-border bg-surface">
       <div className="mx-auto flex w-full max-w-[960px] items-center justify-between px-md py-sm">
@@ -43,21 +42,22 @@ export function DashboardHeader({
             // eslint-disable-next-line @next/next/no-img-element -- branded logo, arbitrary host and type (SVG/PNG)
             <img
               src={branding.logoUrl}
-              alt={HEADER_BRAND_COPY.logoAlt}
+              alt={t('header.logoAlt')}
               className="h-7 w-auto max-w-[160px] object-contain"
             />
           ) : (
             <span className="text-base font-bold tracking-tight text-primary">
-              {HEADER_BRAND_COPY.wordmark}
+              {t('header.wordmark')}
             </span>
           )}
         </Link>
         <div className="flex items-center gap-xs">
+          <LanguageSwitch />
           {user?.email ? (
             <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
           ) : null}
           <Button variant="ghost" size="sm" asChild>
-            <Link href={SETTINGS_DEFAULT_ROUTE}>{SETTINGS_ENTRY_LABEL}</Link>
+            <Link href={SETTINGS_DEFAULT_ROUTE}>{t('settings.title')}</Link>
           </Button>
           <Button variant="ghost" size="sm" onClick={onLogout}>
             로그아웃

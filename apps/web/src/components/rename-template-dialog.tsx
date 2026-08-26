@@ -25,9 +25,7 @@ import {
   Input,
 } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
-
-const COPY = TEMPLATE_ACTIONS_COPY.rename_dialog;
+import { useTranslation } from '@/components/locale-provider';
 
 export interface RenameTemplateDialogProps {
   open: boolean;
@@ -44,6 +42,7 @@ export function RenameTemplateDialog({
   template,
   onSubmit,
 }: RenameTemplateDialogProps) {
+  const t = useTranslation();
   const [name, setName] = React.useState('');
 
   // Prefill with the current name each time the dialog opens for a template, so a
@@ -72,16 +71,16 @@ export function RenameTemplateDialog({
           }}
         >
           <DialogHeader>
-            <DialogTitle>{COPY.title}</DialogTitle>
-            <DialogDescription>{COPY.description}</DialogDescription>
+            <DialogTitle>{t('templates.renameTitle')}</DialogTitle>
+            <DialogDescription>{t('templates.renameDescription')}</DialogDescription>
           </DialogHeader>
 
-          <Field label={COPY.nameLabel} htmlFor={inputId}>
+          <Field label={t('templates.renameNameLabel')} htmlFor={inputId}>
             <Input
               id={inputId}
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder={COPY.namePlaceholder}
+              placeholder={t('templates.renameNamePlaceholder')}
               maxLength={80}
               autoFocus
             />
@@ -89,10 +88,10 @@ export function RenameTemplateDialog({
 
           <DialogFooter>
             <Button type="button" variant="secondary" onClick={() => onOpenChange(false)}>
-              {COPY.cancel}
+              {t('templates.renameCancel')}
             </Button>
             <Button type="submit" disabled={!canSave}>
-              {COPY.save}
+              {t('templates.renameSave')}
             </Button>
           </DialogFooter>
         </form>

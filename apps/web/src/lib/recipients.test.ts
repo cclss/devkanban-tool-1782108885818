@@ -4,12 +4,17 @@ import {
   moveIndexMap,
   moveRecipient,
   normalizeEmail,
+  recipientLabel,
   recipientsComplete,
   remapFieldRecipients,
   removeIndexMap,
   validateRecipients,
-  RECIPIENT_MESSAGES,
+  recipientMessages,
 } from './recipients';
+import {
+  getWebTranslationFallbackReport,
+  resetWebTranslationFallbackReport,
+} from './web-translations';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
 
 function r(id: string, email: string, name = ''): RecipientDraft {
@@ -40,26 +45,55 @@ describe('email validation', () => {
 
 describe('validateRecipients', () => {
   it('flags empty, malformed, and duplicate emails', () => {
-    const errors = validateRecipients([
-      r('1', ''),
-      r('2', 'bad'),
-      r('3', 'dup@x.com'),
-      r('4', 'DUP@x.com'),
-    ]);
-    expect(errors['1']?.email).toBe(RECIPIENT_MESSAGES.emailRequired);
-    expect(errors['2']?.email).toBe(RECIPIENT_MESSAGES.emailInvalid);
+    const messages = recipientMessages('ko');
+    const errors = validateRecipients(
+      [r('1', ''), r('2', 'bad'), r('3', 'dup@x.com'), r('4', 'DUP@x.com')],
+      'ko',
+    );
+    expect(errors['1']?.email).toBe(messages.emailRequired);
+    expect(errors['2']?.email).toBe(messages.emailInvalid);
     expect(errors['3']).toBeUndefined(); // first occurrence stays clean
-    expect(errors['4']?.email).toBe(RECIPIENT_MESSAGES.emailDuplicate);
+    expect(errors['4']?.email).toBe(messages.emailDuplicate);
+  });
+
+  it('localizes the same validation outcome per locale', () => {
+    const list = [r('1', '')];
+    expect(validateRecipients(list, 'ko')['1']?.email).toBe(recipientMessages('ko').emailRequired);
+    expect(validateRecipients(list, 'en')['1']?.email).toBe(recipientMessages('en').emailRequired);
   });
 
   it('treats a fully valid distinct list as complete', () => {
     const list = [r('1', 'a@x.com'), r('2', 'b@x.com')];
-    expect(validateRecipients(list)).toEqual({});
+    expect(validateRecipients(list, 'ko')).toEqual({});
     expect(recipientsComplete(list)).toBe(true);
   });
 
   it('is incomplete when empty', () => {
     expect(recipientsComplete([])).toBe(false);
+  });
+});
+
+describe('recipientLabel', () => {
+  it('uses the trimmed name when the recipient has one', () => {
+    expect(recipientLabel(r('1', 'a@x.com', '  김하나  '), 0, 'ko')).toBe('김하나');
+    expect(recipientLabel(r('1', 'a@x.com', 'Jane'), 2, 'en')).toBe('Jane');
+  });
+
+  it('falls back to the localized order label with the 1-based index interpolated', () => {
+    // `{n}` placeholder is filled with index + 1 in each locale.
+    expect(recipientLabel(r('1', 'a@x.com'), 0, 'ko')).toBe('받는 분 1');
+    expect(recipientLabel(r('1', 'a@x.com'), 2, 'ko')).toBe('받는 분 3');
+    expect(recipientLabel(r('1', 'a@x.com'), 0, 'en')).toBe('Recipient 1');
+    expect(recipientLabel(r('1', 'a@x.com'), 2, 'en')).toBe('Recipient 3');
+  });
+
+  it('switches the fallback label KO→EN and leaves no missing-key fallback', () => {
+    resetWebTranslationFallbackReport();
+    const ko = recipientLabel(r('1', 'a@x.com'), 0, 'ko');
+    const en = recipientLabel(r('1', 'a@x.com'), 0, 'en');
+    expect(ko).not.toBe(en);
+    expect(en.trim().length).toBeGreaterThan(0);
+    expect(getWebTranslationFallbackReport().missingKeys).toEqual([]);
   });
 });
 

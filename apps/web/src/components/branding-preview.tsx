@@ -36,7 +36,7 @@ import {
   createObjectUrlLifecycle,
   type ObjectUrlLifecycle,
 } from '@/lib/image-uploader-view';
-import { BRANDING_PREVIEW_COPY, HEADER_BRAND_COPY, SETTINGS_ENTRY_LABEL } from '@/lib/settings-copy';
+import { useTranslation } from '@/components/locale-provider';
 
 export interface BrandingPreviewProps {
   /** The newly picked logo file, or `null` when none is selected. */
@@ -84,6 +84,7 @@ export function BrandingPreview({
   color,
   className,
 }: BrandingPreviewProps) {
+  const t = useTranslation();
   const logoPickedUrl = usePickedUrl(logoFile);
   const faviconPickedUrl = usePickedUrl(faviconFile);
 
@@ -100,38 +101,38 @@ export function BrandingPreview({
 
   // Monogram fallback for the favicon derives from the service name's first
   // character, so a rename stays single-source with the wordmark.
-  const monogram = HEADER_BRAND_COPY.wordmark.slice(0, 1);
+  const monogram = t('header.wordmark').slice(0, 1);
 
   return (
     // brandStyle re-skins every primary token in this subtree; {} on an invalid
     // color leaves the default tokens in force (empty-color fallback).
     <div className={cn('flex flex-col gap-lg', className)} style={brandStyle(color)}>
       <div className="flex flex-col gap-2xs">
-        <h2 className="text-md font-bold text-foreground">{BRANDING_PREVIEW_COPY.title}</h2>
-        <p className="text-sm text-foreground-subtle">{BRANDING_PREVIEW_COPY.description}</p>
+        <h2 className="text-md font-bold text-foreground">{t('branding.previewTitle')}</h2>
+        <p className="text-sm text-foreground-subtle">{t('branding.previewDescription')}</p>
       </div>
 
       {/* Header mockup — mirrors DashboardHeader's brand mark + settings entry. */}
       <figure className="flex flex-col gap-xs" aria-hidden="true">
         <figcaption className="text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
-          {BRANDING_PREVIEW_COPY.headerLabel}
+          {t('branding.previewHeaderLabel')}
         </figcaption>
         <div className="overflow-hidden rounded-lg border border-border bg-surface shadow-sm">
           <div className="flex items-center justify-between gap-sm border-b border-border px-md py-sm">
             {logoView.kind === 'empty' ? (
               <span className="text-base font-bold tracking-tight text-primary">
-                {HEADER_BRAND_COPY.wordmark}
+                {t('header.wordmark')}
               </span>
             ) : (
               // eslint-disable-next-line @next/next/no-img-element -- branded logo preview, arbitrary host/type
               <img
                 src={logoView.url}
-                alt={BRANDING_PREVIEW_COPY.logoAlt}
+                alt={t('branding.previewLogoAlt')}
                 className="h-7 w-auto max-w-[160px] object-contain"
               />
             )}
             <span className="inline-flex h-8 shrink-0 items-center rounded-md bg-primary px-md text-xs font-semibold text-primary-foreground">
-              {SETTINGS_ENTRY_LABEL}
+              {t('settings.title')}
             </span>
           </div>
           {/* Body skeleton — hints at page content without inventing copy. */}
@@ -145,7 +146,7 @@ export function BrandingPreview({
       {/* Browser-tab mockup — favicon (or monogram) beside the service name. */}
       <figure className="flex flex-col gap-xs" aria-hidden="true">
         <figcaption className="text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
-          {BRANDING_PREVIEW_COPY.tabLabel}
+          {t('branding.previewTabLabel')}
         </figcaption>
         <div className="flex flex-col gap-2xs rounded-lg border border-border bg-surface-muted p-xs shadow-sm">
           <div className="flex items-center">
@@ -158,12 +159,12 @@ export function BrandingPreview({
                 // eslint-disable-next-line @next/next/no-img-element -- branded favicon preview, arbitrary host/type
                 <img
                   src={faviconView.url}
-                  alt={BRANDING_PREVIEW_COPY.faviconAlt}
+                  alt={t('branding.previewFaviconAlt')}
                   className="h-4 w-4 shrink-0 rounded-sm object-contain"
                 />
               )}
               <span className="truncate text-xs font-medium text-foreground">
-                {HEADER_BRAND_COPY.wordmark}
+                {t('header.wordmark')}
               </span>
             </span>
           </div>
@@ -178,14 +179,14 @@ export function BrandingPreview({
       {/* Accent-color sample — primary elements re-skin to the chosen color. */}
       <figure className="flex flex-col gap-xs" aria-hidden="true">
         <figcaption className="text-xs font-semibold uppercase tracking-wide text-foreground-subtle">
-          {BRANDING_PREVIEW_COPY.colorLabel}
+          {t('branding.previewColorLabel')}
         </figcaption>
         <div className="flex flex-wrap items-center gap-md rounded-lg border border-border bg-surface p-md">
           <Button type="button" variant="primary" size="sm" tabIndex={-1}>
-            {BRANDING_PREVIEW_COPY.sampleButton}
+            {t('branding.colorPreviewButton')}
           </Button>
           <span className="text-sm font-semibold text-primary underline underline-offset-2">
-            {BRANDING_PREVIEW_COPY.sampleLink}
+            {t('branding.colorPreviewLink')}
           </span>
           {color ? (
             <span className="ml-auto inline-flex items-center rounded-full bg-primary-subtle px-md py-2xs text-xs font-semibold uppercase text-primary">

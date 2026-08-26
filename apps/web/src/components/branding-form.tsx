@@ -31,7 +31,7 @@ import { isValidHex } from '@/lib/branding';
 import { ApiError, GENERIC_ERROR } from '@/lib/api';
 import { getToken } from '@/lib/auth';
 import { fetchBranding, updateBrandColor, uploadBrandingAsset } from '@/lib/web-branding';
-import { BRANDING_FORM_COPY } from '@/lib/settings-copy';
+import { useTranslation } from '@/components/locale-provider';
 
 interface BrandingValues {
   logo: File | null;
@@ -51,6 +51,7 @@ export function BrandingForm() {
   // The global runtime's refresh() re-fetches branding and re-applies it across
   // the whole app (header logo · favicon · brand color) the moment we save.
   const { refresh } = useBranding();
+  const t = useTranslation();
 
   // `baseline` is the last-saved state; `values` is what's on screen. Dirtiness
   // and cancel both compare against the baseline.
@@ -157,16 +158,16 @@ export function BrandingForm() {
         <div className="flex flex-col gap-lg">
           <ImageUploader
             id="branding-logo"
-            label={BRANDING_FORM_COPY.logoLabel}
-            hint={hasLogo ? BRANDING_FORM_COPY.logoSetHint : undefined}
+            label={t('branding.logoLabel')}
+            hint={hasLogo ? t('branding.logoSetHint') : undefined}
             value={values.logo}
             savedUrl={savedLogoUrl}
             onChange={(file) => update({ logo: file })}
           />
           <ImageUploader
             id="branding-favicon"
-            label={BRANDING_FORM_COPY.faviconLabel}
-            hint={hasFavicon ? BRANDING_FORM_COPY.faviconSetHint : undefined}
+            label={t('branding.faviconLabel')}
+            hint={hasFavicon ? t('branding.faviconSetHint') : undefined}
             value={values.favicon}
             savedUrl={savedFaviconUrl}
             onChange={(file) => update({ favicon: file })}
@@ -203,16 +204,16 @@ export function BrandingForm() {
           role="status"
           className="rounded-md bg-primary-subtle px-md py-sm text-sm font-semibold text-primary"
         >
-          {BRANDING_FORM_COPY.savedNotice}
+          {t('branding.savedNotice')}
         </p>
       ) : null}
 
       <div className="flex items-center justify-end gap-sm border-t border-border pt-md">
         <Button type="button" variant="ghost" onClick={handleCancel} disabled={!isDirty || saving}>
-          {BRANDING_FORM_COPY.cancel}
+          {t('branding.cancel')}
         </Button>
         <Button type="submit" variant="primary" disabled={!canSave} isLoading={saving}>
-          {BRANDING_FORM_COPY.save}
+          {t('branding.save')}
         </Button>
       </div>
     </form>

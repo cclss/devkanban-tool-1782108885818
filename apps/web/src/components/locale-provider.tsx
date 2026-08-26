@@ -9,7 +9,11 @@ import {
   type SupportedLocale,
   type TranslationResources,
 } from '@/lib/locale';
-import { translateWeb, type WebTranslationKey } from '@/lib/web-translations';
+import {
+  translateWeb,
+  type InterpolationVars,
+  type WebTranslationKey,
+} from '@/lib/web-translations';
 
 interface LocaleContextValue {
   /** Target locale resolved with the product-wide precedence contract. */
@@ -20,7 +24,7 @@ interface LocaleContextValue {
   setSenderLocale: (locale: string | null | undefined) => void;
   /** Public-link UI must never inherit a signed-in user's saved preference. */
   setPublicLinkActive: (active: boolean) => void;
-  t: (key: WebTranslationKey) => string;
+  t: (key: WebTranslationKey, vars?: InterpolationVars) => string;
 }
 
 const LocaleContext = React.createContext<LocaleContextValue | null>(null);
@@ -73,7 +77,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   }, [locale]);
 
   const value = React.useMemo<LocaleContextValue>(
-    () => ({ locale, resources, setSenderLocale: setPublicSenderLocale, setPublicLinkActive, t: (key) => translateWeb(locale, key) }),
+    () => ({ locale, resources, setSenderLocale: setPublicSenderLocale, setPublicLinkActive, t: (key, vars) => translateWeb(locale, key, vars) }),
     [locale, resources, setPublicSenderLocale],
   );
 
