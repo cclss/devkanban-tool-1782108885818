@@ -427,11 +427,17 @@ describe('document metadata catalog', () => {
       title: 'eSign',
       description: 'Electronic contract SaaS',
     });
-    // No usable signal → Korean default.
-    expect(seed({})).toEqual({
+    // A Korean preference still seeds the Korean catalog (no regression).
+    expect(seed({ acceptLanguage: 'ko-KR,ko;q=0.9' })).toEqual({
       locale: 'ko',
       title: '전자계약',
       description: '전자계약 SaaS',
+    });
+    // No usable signal → English default.
+    expect(seed({})).toEqual({
+      locale: 'en',
+      title: 'eSign',
+      description: 'Electronic contract SaaS',
     });
   });
 });
