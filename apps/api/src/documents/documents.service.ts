@@ -237,7 +237,10 @@ export class DocumentsService {
 
   /** Called only by the BullMQ worker when a delayed dispatch becomes due. */
   async dispatchScheduled(data: ScheduledSendJobData): Promise<void> {
-    const document = await this.prisma.document.findUnique({ where: { id: data.documentId } });
+    const document = await this.prisma.document.findUnique({
+      where: { id: data.documentId },
+      include: { owner: { select: { email: true, name: true } } },
+    });
     // A replacement/cancellation can race an already-promoted delayed job.
     // The persisted ID is the authority, so an obsolete job is a no-op.
     if (
@@ -249,6 +252,28 @@ export class DocumentsService {
       return;
     }
     await this.dispatch(data.ownerId, document, data.recipients, undefined);
+    await this.notifyScheduledOwner(document, 'scheduled_send_succeeded');
+  }
+
+  /**
+   * The worker calls this only once BullMQ has exhausted every retry. Keep the
+   * document SCHEDULED: the sender can change its time to create a new job or
+   * cancel it, and a stale replaced job never produces an alert.
+   */
+  async notifyScheduledDispatchFailed(data: ScheduledSendJobData): Promise<void> {
+    const document = await this.prisma.document.findUnique({
+      where: { id: data.documentId },
+      include: { owner: { select: { email: true, name: true } } },
+    });
+    if (
+      !document ||
+      document.ownerId !== data.ownerId ||
+      document.status !== DocumentStatus.SCHEDULED ||
+      document.scheduledJobId !== data.jobId
+    ) {
+      return;
+    }
+    await this.notifyScheduledOwner(document, 'scheduled_send_failed');
   }
 
   private async schedule(
@@ -379,6 +404,23 @@ export class DocumentsService {
       result.createdRequests.length,
       new Date(),
     );
+  }
+
+  private async notifyScheduledOwner(
+    document: Document & { owner: { email: string; name: string | null } },
+    template: 'scheduled_send_succeeded' | 'scheduled_send_failed',
+  ): Promise<void> {
+    const webOrigin = this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
+    const data = {
+      documentId: document.id,
+      documentTitle: document.title,
+      scheduledSendAt: document.scheduledSendAt?.toISOString() ?? null,
+      documentUrl: `${webOrigin}/documents/${document.id}`,
+    };
+    await this.notifications.enqueueMany([
+      { channel: 'alimtalk', to: document.owner.email, toName: document.owner.name, template, data },
+      { channel: 'email', to: document.owner.email, toName: document.owner.name, template, data },
+    ]);
   }
 
   /** Dashboard list for the signed-in sender, newest first. */

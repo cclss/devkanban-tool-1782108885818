@@ -2,11 +2,13 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
   Ip,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -154,7 +156,7 @@ export class DocumentsController {
   }
 
   /** Replace the delayed BullMQ job for a scheduled contract. */
-  @Put(':id/schedule')
+  @Patch(':id/schedule')
   updateSchedule(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,
@@ -165,8 +167,7 @@ export class DocumentsController {
   }
 
   /** Remove a delayed dispatch and return the document to its editable draft. */
-  @Post(':id/schedule/cancel')
-  @HttpCode(HttpStatus.OK)
+  @Delete(':id/schedule')
   cancelSchedule(
     @CurrentUser() user: AuthUser,
     @Param('id') id: string,

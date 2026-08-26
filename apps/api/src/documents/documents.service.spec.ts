@@ -217,15 +217,16 @@ describe('DocumentsService — scheduled dispatch', () => {
       remove: jest.fn(async () => undefined),
     };
     const quota = { assertWithinQuota: jest.fn(async () => undefined), quota: jest.fn() };
+    const notifications = { enqueueMany: jest.fn(async () => undefined) };
     const service = new DocumentsService(
       prisma as never,
       {} as never,
-      { enqueueMany: jest.fn(async () => undefined) } as never,
+      notifications as never,
       { get: jest.fn(() => 'http://localhost:3000') } as never,
       quota as never,
       queue as never,
     );
-    return { service, prisma, queue, quota };
+    return { service, prisma, queue, quota, notifications };
   }
 
   const recipients = [{ email: 'signer@example.com', name: '서명자' }];
@@ -299,5 +300,56 @@ describe('DocumentsService — scheduled dispatch', () => {
 
     expect(queue.add).not.toHaveBeenCalled();
     expect(prisma.document.update).not.toHaveBeenCalled();
+  });
+
+  it('dispatches a due job through the normal send path and notifies its sender', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    const scheduled = document(DocumentStatus.SCHEDULED, {
+      owner: { email: 'owner@example.com', name: '발신자' },
+    });
+    prisma.document.findUnique.mockResolvedValue(scheduled);
+    const dispatch = jest.fn(async () => undefined);
+    (service as unknown as { dispatch: jest.Mock }).dispatch = dispatch;
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(dispatch).toHaveBeenCalledWith(
+      ownerId,
+      expect.objectContaining({ id: documentId }),
+      expect.any(Array),
+      undefined,
+    );
+    expect(notifications.enqueueMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_succeeded' }),
+      ]),
+    );
+  });
+
+  it('notifies the sender after the worker exhausts a scheduled send job', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.findUnique.mockResolvedValue(
+      document(DocumentStatus.SCHEDULED, {
+        owner: { email: 'owner@example.com', name: '발신자' },
+      }),
+    );
+
+    await service.notifyScheduledDispatchFailed({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [],
+    });
+
+    expect(notifications.enqueueMany).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_failed' }),
+      ]),
+    );
   });
 });
