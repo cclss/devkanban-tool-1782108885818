@@ -35,6 +35,7 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
   };
   let storage: { buildKey: jest.Mock; save: jest.Mock };
   let notifications: { enqueueMany: jest.Mock };
+  let email: { send: jest.Mock };
   let config: { get: jest.Mock };
   let sendQuota: { assertWithinQuota: jest.Mock; quota: jest.Mock };
   let scheduledSendQueue: { add: jest.Mock; replace: jest.Mock; remove: jest.Mock };
@@ -76,6 +77,7 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
       save: jest.fn(async () => undefined),
     };
     notifications = { enqueueMany: jest.fn(async () => undefined) };
+    email = { send: jest.fn(async () => ({ delivered: true })) };
     config = { get: jest.fn(() => undefined) };
     sendQuota = {
       assertWithinQuota: jest.fn(async () => undefined),
@@ -91,6 +93,7 @@ describe('DocumentsService.uploadAndCreate — filename title normalization', ()
       prisma as never,
       storage as never,
       notifications as never,
+      email as never,
       config as never,
       sendQuota as never,
       scheduledSendQueue as never,
@@ -218,15 +221,17 @@ describe('DocumentsService — scheduled dispatch', () => {
     };
     const quota = { assertWithinQuota: jest.fn(async () => undefined), quota: jest.fn() };
     const notifications = { enqueueMany: jest.fn(async () => undefined) };
+    const email = { send: jest.fn(async () => ({ delivered: true })) };
     const service = new DocumentsService(
       prisma as never,
       {} as never,
       notifications as never,
+      email as never,
       { get: jest.fn(() => 'http://localhost:3000') } as never,
       quota as never,
       queue as never,
     );
-    return { service, prisma, queue, quota, notifications };
+    return { service, prisma, queue, quota, notifications, email };
   }
 
   const recipients = [{ email: 'signer@example.com', name: '서명자' }];
@@ -369,7 +374,7 @@ describe('DocumentsService — scheduled dispatch', () => {
   });
 
   it('notifies the sender after the worker exhausts a scheduled send job', async () => {
-    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    const { service, prisma, notifications, email } = setup(DocumentStatus.SCHEDULED);
     prisma.document.findUnique.mockResolvedValue(
       document(DocumentStatus.SCHEDULED, {
         owner: { email: 'owner@example.com', name: '발신자' },
@@ -383,10 +388,13 @@ describe('DocumentsService — scheduled dispatch', () => {
       recipients: [],
     });
 
-    expect(notifications.enqueueMany).toHaveBeenCalledWith(
-      expect.arrayContaining([
-        expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_failed' }),
-      ]),
+    expect(email.send).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: [{ email: 'owner@example.com', name: '발신자' }],
+        subject: expect.stringContaining('예약 발송에 실패'),
+        text: expect.stringContaining('다시 예약하거나 지금 발송'),
+      }),
     );
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 });

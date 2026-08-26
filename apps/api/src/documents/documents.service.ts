@@ -17,6 +17,7 @@ import { Readable } from 'stream';
 import { PrismaService } from '../prisma/prisma.service';
 import { StorageService } from '../storage/storage.service';
 import { NotificationsService, type NotificationJob } from '../notifications/notifications.service';
+import { EmailService, type EmailMessage } from '../email/email.service';
 import { MESSAGES } from '../common/messages';
 import { SendQuotaService } from '../common/send-quota.service';
 import { DOCUMENT_STATUS_LABEL } from './document-status';
@@ -41,6 +42,16 @@ import {
 
 const MAX_PDF_BYTES = 20 * 1024 * 1024; // 20MB
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (char) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  })[char]!);
+}
+
 @Injectable()
 export class DocumentsService {
   private readonly logger = new Logger(DocumentsService.name);
@@ -49,6 +60,7 @@ export class DocumentsService {
     private readonly prisma: PrismaService,
     private readonly storage: StorageService,
     private readonly notifications: NotificationsService,
+    private readonly email: EmailService,
     private readonly config: ConfigService,
     private readonly sendQuota: SendQuotaService,
     private readonly scheduledSendQueue: ScheduledSendQueue,
@@ -295,7 +307,7 @@ export class DocumentsService {
     ) {
       return;
     }
-    await this.notifyScheduledOwner(document, 'scheduled_send_failed');
+    await this.sendScheduledDispatchFailureEmail(document);
   }
 
   private async schedule(
@@ -439,7 +451,7 @@ export class DocumentsService {
 
   private async notifyScheduledOwner(
     document: Document & { owner: { email: string; name: string | null } },
-    template: 'scheduled_send_succeeded' | 'scheduled_send_failed',
+    template: 'scheduled_send_succeeded',
   ): Promise<void> {
     const webOrigin = this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000';
     const data = {
@@ -452,6 +464,37 @@ export class DocumentsService {
       { channel: 'alimtalk', to: document.owner.email, toName: document.owner.name, template, data },
       { channel: 'email', to: document.owner.email, toName: document.owner.name, template, data },
     ]);
+  }
+
+  /**
+   * The scheduled-send worker reaches this path only after BullMQ has used all
+   * of its recipient-dispatch attempts. Send through the real email service
+   * instead of the generic notification queue, whose own delivery worker may
+   * be unavailable at the same time as the failed scheduled dispatch.
+   */
+  private async sendScheduledDispatchFailureEmail(
+    document: Document & { owner: { email: string; name: string | null } },
+  ): Promise<void> {
+    const documentUrl = `${this.config.get<string>('WEB_ORIGIN') ?? 'http://localhost:3000'}` +
+      `/documents/${document.id}`;
+    const title = escapeHtml(document.title);
+    const message: EmailMessage = {
+      to: [{ email: document.owner.email, name: document.owner.name }],
+      subject: `[전자계약] 예약 발송에 실패했어요 — ${document.title}`,
+      html: [
+        '<p>예약하신 계약서 발송을 완료하지 못했어요.</p>',
+        `<p><strong>${title}</strong></p>`,
+        '<p>수신자에게는 아직 발송되지 않았습니다. 계약서를 확인한 뒤 발송 시각을 다시 예약하거나 지금 발송해 주세요.</p>',
+        `<p><a href="${escapeHtml(documentUrl)}">계약서 확인 및 재발송</a></p>`,
+      ].join(''),
+      text: [
+        '예약하신 계약서 발송을 완료하지 못했어요.',
+        document.title,
+        '수신자에게는 아직 발송되지 않았습니다. 계약서를 확인한 뒤 발송 시각을 다시 예약하거나 지금 발송해 주세요.',
+        `계약서 확인 및 재발송: ${documentUrl}`,
+      ].join('\n\n'),
+    };
+    await this.email.send(message);
   }
 
   /** Dashboard list for the signed-in sender, newest first. */
