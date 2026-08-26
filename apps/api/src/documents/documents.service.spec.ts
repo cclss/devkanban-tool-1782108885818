@@ -206,10 +206,15 @@ describe('DocumentsService — scheduled dispatch', () => {
 
   function setup(status: DocumentStatus) {
     const row = document(status);
+    let persisted = row;
     const prisma = {
       document: {
         findUnique: jest.fn(async () => row),
-        update: jest.fn(async ({ data }: { data: Record<string, unknown> }) => ({ ...row, ...data })),
+        findUniqueOrThrow: jest.fn(async () => persisted),
+        updateMany: jest.fn(async ({ data }: { data: Record<string, unknown> }) => {
+          persisted = { ...persisted, ...data };
+          return { count: 1 };
+        }),
       },
       signField: { count: jest.fn(async () => 1) },
       auditLog: { create: jest.fn(async () => ({})) },
@@ -251,7 +256,7 @@ describe('DocumentsService — scheduled dispatch', () => {
     );
     const [[addedJob]] = queue.add.mock.calls as unknown as Array<[{ jobId: string }]>;
     const jobId = addedJob.jobId;
-    expect(prisma.document.update).toHaveBeenCalledWith(
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
           status: DocumentStatus.SCHEDULED,
@@ -271,7 +276,7 @@ describe('DocumentsService — scheduled dispatch', () => {
     const result = await service.updateSchedule(ownerId, documentId, { scheduledSendAt: next });
 
     expect(queue.replace).toHaveBeenCalledWith('old-job', expect.any(String), new Date(next));
-    expect(prisma.document.update).toHaveBeenCalledWith(
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ scheduledSendAt: new Date(next) }) }),
     );
     expect(queue.remove).toHaveBeenCalledWith('old-job');
@@ -285,7 +290,7 @@ describe('DocumentsService — scheduled dispatch', () => {
     const result = await service.cancelSchedule(ownerId, documentId);
 
     expect(queue.remove).toHaveBeenCalledWith('old-job');
-    expect(prisma.document.update).toHaveBeenCalledWith(
+    expect(prisma.document.updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
         data: { status: DocumentStatus.DRAFT, scheduledSendAt: null, scheduledJobId: null },
       }),
@@ -296,7 +301,7 @@ describe('DocumentsService — scheduled dispatch', () => {
 
   it('removes the replacement job if its database update fails', async () => {
     const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
-    prisma.document.update.mockRejectedValueOnce(new Error('database unavailable'));
+    prisma.document.updateMany.mockRejectedValueOnce(new Error('database unavailable'));
     const next = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
 
     await expect(service.updateSchedule(ownerId, documentId, { scheduledSendAt: next }))
@@ -305,6 +310,30 @@ describe('DocumentsService — scheduled dispatch', () => {
     const [[, nextJobId]] = queue.replace.mock.calls as unknown as Array<[string, string]>;
     expect(queue.remove).toHaveBeenCalledWith(nextJobId);
     expect(queue.remove).not.toHaveBeenCalledWith('old-job');
+  });
+
+  it('removes a new job when a concurrent schedule change wins the DB claim', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.updateMany.mockResolvedValueOnce({ count: 0 });
+    const next = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+
+    await expect(service.updateSchedule(ownerId, documentId, { scheduledSendAt: next }))
+      .rejects.toThrow('예약이 변경되었어요');
+
+    const [[, nextJobId]] = queue.replace.mock.calls as unknown as Array<[string, string]>;
+    expect(queue.remove).toHaveBeenCalledWith(nextJobId);
+    expect(queue.remove).not.toHaveBeenCalledWith('old-job');
+  });
+
+  it('removes a queued job when a concurrent send has already claimed the draft', async () => {
+    const { service, prisma, queue } = setup(DocumentStatus.DRAFT);
+    prisma.document.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(service.send(ownerId, documentId, { recipients, scheduledSendAt: future }))
+      .rejects.toThrow('이미 발송된 계약이에요.');
+
+    const [[job]] = queue.add.mock.calls as unknown as Array<[{ jobId: string }]>;
+    expect(queue.remove).toHaveBeenCalledWith(job.jobId);
   });
 
   it('rejects a past schedule without adding a job or changing the document', async () => {
@@ -318,7 +347,7 @@ describe('DocumentsService — scheduled dispatch', () => {
     ).rejects.toThrow('예약 발송 시각은 현재보다 미래여야 해요.');
 
     expect(queue.add).not.toHaveBeenCalled();
-    expect(prisma.document.update).not.toHaveBeenCalled();
+    expect(prisma.document.updateMany).not.toHaveBeenCalled();
   });
 
   it('dispatches a due job through the normal send path and notifies its sender', async () => {

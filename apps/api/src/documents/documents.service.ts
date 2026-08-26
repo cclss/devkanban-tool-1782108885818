@@ -210,10 +210,18 @@ export class DocumentsService {
     const nextJobId = this.newScheduledJobId(documentId);
     await this.scheduledSendQueue.replace(document.scheduledJobId, nextJobId, scheduledFor);
 
-    let updated: Document;
+    let claimed: { count: number };
     try {
-      updated = await this.prisma.document.update({
-        where: { id: documentId },
+      // The job has already been safely added alongside the current one. Claim
+      // this exact persisted reservation before switching its authoritative ID:
+      // a concurrent cancellation or reschedule must not revive an old plan.
+      claimed = await this.prisma.document.updateMany({
+        where: {
+          id: documentId,
+          ownerId,
+          status: DocumentStatus.SCHEDULED,
+          scheduledJobId: document.scheduledJobId,
+        },
         data: { scheduledSendAt: scheduledFor, scheduledJobId: nextJobId },
       });
     } catch (err) {
@@ -222,6 +230,15 @@ export class DocumentsService {
       await this.scheduledSendQueue.remove(nextJobId).catch(() => undefined);
       throw err;
     }
+    if (claimed.count !== 1) {
+      await this.scheduledSendQueue.remove(nextJobId).catch(() => undefined);
+      throw new BadRequestException('예약이 변경되었어요. 목록을 새로고침한 뒤 다시 시도해 주세요.');
+    }
+    const updated: Document = {
+      ...document,
+      scheduledSendAt: scheduledFor,
+      scheduledJobId: nextJobId,
+    };
     await this.scheduledSendQueue.remove(document.scheduledJobId).catch((err) => {
       this.logger.warn(`기존 예약 발송 잡 제거 실패: docId=${documentId}: ${String(err)}`);
     });
@@ -245,14 +262,28 @@ export class DocumentsService {
     if (document.status !== DocumentStatus.SCHEDULED || !document.scheduledJobId) {
       throw new BadRequestException('예약된 계약만 예약을 취소할 수 있어요.');
     }
-    const updated = await this.prisma.document.update({
-      where: { id: documentId },
+    const claimed = await this.prisma.document.updateMany({
+      where: {
+        id: documentId,
+        ownerId,
+        status: DocumentStatus.SCHEDULED,
+        scheduledJobId: document.scheduledJobId,
+      },
       data: {
         status: DocumentStatus.DRAFT,
         scheduledSendAt: null,
         scheduledJobId: null,
       },
     });
+    if (claimed.count !== 1) {
+      throw new BadRequestException('예약이 변경되었어요. 목록을 새로고침한 뒤 다시 시도해 주세요.');
+    }
+    const updated: Document = {
+      ...document,
+      status: DocumentStatus.DRAFT,
+      scheduledSendAt: null,
+      scheduledJobId: null,
+    };
     // Clearing the persisted job ID first makes a concurrently promoted job a
     // no-op. If Redis is temporarily unavailable, it can never dispatch this
     // cancelled document and will be removed when the queue becomes available.
@@ -323,27 +354,41 @@ export class DocumentsService {
     const job: ScheduledSendJobData = { documentId: document.id, ownerId, jobId, recipients };
     await this.scheduledSendQueue.add(job, scheduledFor);
 
+    let claimed: { count: number };
     try {
-      const updated = await this.prisma.document.update({
-        where: { id: document.id },
+      // The delayed job exists before the DB state changes. A conditional
+      // update prevents simultaneous send requests from leaving an orphaned
+      // job or replacing a reservation that has just changed state.
+      claimed = await this.prisma.document.updateMany({
+        where: { id: document.id, ownerId, status: DocumentStatus.DRAFT },
         data: {
           status: DocumentStatus.SCHEDULED,
           scheduledSendAt: scheduledFor,
           scheduledJobId: jobId,
         },
       });
-      await this.writeAudit({
-        documentId: document.id,
-        actorId: ownerId,
-        action: 'CONTRACT_SCHEDULED',
-        ip,
-        metadata: { scheduledSendAt: scheduledFor.toISOString(), recipientCount: recipients.length },
-      });
-      return this.toSummary(updated, 0, 0, new Date());
     } catch (err) {
       await this.scheduledSendQueue.remove(jobId).catch(() => undefined);
       throw err;
     }
+    if (claimed.count !== 1) {
+      await this.scheduledSendQueue.remove(jobId).catch(() => undefined);
+      throw new BadRequestException(MESSAGES.send.alreadySent);
+    }
+    const updated: Document = {
+      ...document,
+      status: DocumentStatus.SCHEDULED,
+      scheduledSendAt: scheduledFor,
+      scheduledJobId: jobId,
+    };
+    await this.writeAudit({
+      documentId: document.id,
+      actorId: ownerId,
+      action: 'CONTRACT_SCHEDULED',
+      ip,
+      metadata: { scheduledSendAt: scheduledFor.toISOString(), recipientCount: recipients.length },
+    });
+    return this.toSummary(updated, 0, 0, new Date());
   }
 
   private async dispatch(
@@ -753,6 +798,7 @@ export class DocumentsService {
       scheduledSendAt: document.scheduledSendAt
         ? document.scheduledSendAt.toISOString()
         : null,
+      scheduledJobId: document.scheduledJobId ?? null,
       createdAt: document.createdAt.toISOString(),
       completedAt: document.completedAt ? document.completedAt.toISOString() : null,
       // The dashboard download area only appears once post-processing has stored
@@ -786,6 +832,8 @@ export interface DocumentSummary {
   sentAt: string | null;
   /** ISO-8601 target dispatch time while this document is SCHEDULED. */
   scheduledSendAt: string | null;
+  /** BullMQ delayed-job ID while this document is SCHEDULED. */
+  scheduledJobId: string | null;
   createdAt: string;
   /** ISO completion timestamp once the contract is fully signed (else null). */
   completedAt: string | null;
