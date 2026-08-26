@@ -29,8 +29,11 @@ export type MissingWebTranslationReason = 'missing' | 'empty';
 
 /** This report retains keys and counters only, never user data or rendered copy. */
 export interface MissingWebTranslationEntry {
-  locale: SupportedLocale;
   key: WebTranslationKey;
+  /** Locale requested by the UI at the point the lookup failed. */
+  requestedLocale: SupportedLocale;
+  /** Catalog used to safely replace the missing value. */
+  fallbackLocale: SupportedLocale;
   reason: MissingWebTranslationReason;
   count: number;
 }
@@ -73,17 +76,18 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
   const missing = new Map<string, MissingWebTranslationEntry>();
 
   const recordMissing = (
-    locale: SupportedLocale,
+    requestedLocale: SupportedLocale,
     key: WebTranslationKey,
     reason: MissingWebTranslationReason,
   ) => {
-    const id = `${locale}\u0000${key}\u0000${reason}`;
+    const fallbackLocale: SupportedLocale = 'ko';
+    const id = `${requestedLocale}\u0000${fallbackLocale}\u0000${key}\u0000${reason}`;
     const previous = missing.get(id);
     if (previous) {
       previous.count += 1;
       return;
     }
-    missing.set(id, { locale, key, reason, count: 1 });
+    missing.set(id, { key, requestedLocale, fallbackLocale, reason, count: 1 });
   };
 
   return {

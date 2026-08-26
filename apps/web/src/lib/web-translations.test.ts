@@ -14,7 +14,13 @@ describe('web translation fallback runtime', () => {
     expect(runtime.translate('en', 'auth.welcome')).toBe('환영합니다');
     expect(runtime.getFallbackReport()).toEqual({
       missingKeys: ['auth.welcome'],
-      entries: [{ locale: 'en', key: 'auth.welcome', reason: 'missing', count: 2 }],
+      entries: [{
+        key: 'auth.welcome',
+        requestedLocale: 'en',
+        fallbackLocale: 'ko',
+        reason: 'missing',
+        count: 2,
+      }],
     });
   });
 
@@ -27,8 +33,51 @@ describe('web translation fallback runtime', () => {
     expect(runtime.translate('en', 'auth.welcome')).toBe('환영합니다');
     expect(runtime.translate('en', 'auth.unknown')).toBe(UNKNOWN_WEB_TRANSLATION_FALLBACK);
     expect(runtime.getFallbackReport().entries).toEqual([
-      { locale: 'en', key: 'auth.welcome', reason: 'empty', count: 1 },
-      { locale: 'en', key: 'auth.unknown', reason: 'missing', count: 1 },
+      {
+        key: 'auth.welcome',
+        requestedLocale: 'en',
+        fallbackLocale: 'ko',
+        reason: 'empty',
+        count: 1,
+      },
+      {
+        key: 'auth.unknown',
+        requestedLocale: 'en',
+        fallbackLocale: 'ko',
+        reason: 'missing',
+        count: 1,
+      },
     ]);
+  });
+
+  it('keeps the key list de-duplicated while retaining per-request-locale diagnostics', () => {
+    const runtime = createWebTranslationRuntime({
+      ko: { auth: {} },
+      en: { auth: {} },
+    });
+
+    runtime.translate('en', 'auth.welcome');
+    runtime.translate('en', 'auth.welcome');
+    runtime.translate('ko', 'auth.welcome');
+
+    expect(runtime.getFallbackReport()).toEqual({
+      missingKeys: ['auth.welcome'],
+      entries: [
+        {
+          key: 'auth.welcome',
+          requestedLocale: 'en',
+          fallbackLocale: 'ko',
+          reason: 'missing',
+          count: 2,
+        },
+        {
+          key: 'auth.welcome',
+          requestedLocale: 'ko',
+          fallbackLocale: 'ko',
+          reason: 'missing',
+          count: 1,
+        },
+      ],
+    });
   });
 });
