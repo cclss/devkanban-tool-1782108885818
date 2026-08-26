@@ -195,6 +195,11 @@ export function signerCopyFor(locale: 'ko' | 'en'): SignerCopy {
   };
 }
 
+/** The locale-branched signer chrome as `{ ko, en }` for the parity gate. */
+export const SIGNER_COPY_CATALOGS = {
+  signer: { ko: signerCopyFor('ko'), en: signerCopyFor('en') },
+} as const satisfies Record<string, { ko: unknown; en: unknown }>;
+
 // --- session token persistence ----------------------------------------------
 
 const SESSION_PREFIX = 'esign.signer.';

@@ -103,3 +103,79 @@ export function copyKeyDiff(ko: unknown, en: unknown, prefix = ''): CopyKeyMisma
 export function hasCopyParity(ko: unknown, en: unknown): boolean {
   return copyKeyDiff(ko, en).length === 0;
 }
+
+/**
+ * A named ko/en catalog pair to check for structural parity. `label` identifies
+ * the surface in gate output (e.g. `web-translations`, `sharing.share`).
+ */
+export interface CopyParityTarget {
+  label: string;
+  ko: unknown;
+  en: unknown;
+}
+
+/** One surface's parity failure: the surface label plus every mismatched key path. */
+export interface CopyParityViolation {
+  label: string;
+  mismatches: CopyKeyMismatch[];
+}
+
+/**
+ * Collect every surface whose ko/en catalogs are not in full key parity. An
+ * empty result means the whole registry is fully covered — this is the data the
+ * `assertTranslationParity` gate turns into a pass/fail.
+ */
+export function collectParityViolations(
+  targets: Iterable<CopyParityTarget>,
+): CopyParityViolation[] {
+  const violations: CopyParityViolation[] = [];
+  for (const { label, ko, en } of targets) {
+    const mismatches = copyKeyDiff(ko, en);
+    if (mismatches.length > 0) violations.push({ label, mismatches });
+  }
+  return violations;
+}
+
+/** Thrown by `assertTranslationParity`; carries the structured violations for inspection. */
+export class TranslationParityError extends Error {
+  readonly violations: readonly CopyParityViolation[];
+
+  constructor(message: string, violations: readonly CopyParityViolation[]) {
+    super(message);
+    this.name = 'TranslationParityError';
+    this.violations = violations;
+  }
+}
+
+/**
+ * Format the violations into a single, human-readable gate message: every
+ * offending surface followed by each mismatched key path and its direction
+ * (`en missing` → key present in ko but not en; `en extra` → the reverse).
+ */
+export function formatParityViolations(violations: readonly CopyParityViolation[]): string {
+  return violations
+    .map(({ label, mismatches }) => {
+      const lines = mismatches
+        .map((m) => `    - ${m.reason === 'missing' ? 'en missing' : 'en extra'}: ${m.path}`)
+        .join('\n');
+      return `  ${label}:\n${lines}`;
+    })
+    .join('\n');
+}
+
+/**
+ * The static translation-coverage gate. Asserts every registered surface has
+ * full ko/en key parity, throwing a single `TranslationParityError` that names
+ * each offending surface and mismatched key when any locale branch has drifted.
+ * A no-op when the whole registry is covered — this is what the CI/unit gate
+ * calls so an untranslated key fails the build loudly instead of silently
+ * falling back to Korean at runtime.
+ */
+export function assertTranslationParity(targets: Iterable<CopyParityTarget>): void {
+  const violations = collectParityViolations(targets);
+  if (violations.length === 0) return;
+  throw new TranslationParityError(
+    `Locale copy parity gate failed:\n${formatParityViolations(violations)}`,
+    violations,
+  );
+}

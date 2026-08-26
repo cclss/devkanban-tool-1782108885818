@@ -65,6 +65,51 @@ function isUsableTranslation(value: TranslationLeaf): value is string {
 }
 
 /**
+ * Statically audit non-base locale catalogs against the Korean base, without
+ * running a single UI translation. Walks every `section.key` the Korean base
+ * actually provides and records each non-base locale value that is missing or
+ * empty — i.e. every key that *would* silently fall back to Korean at runtime.
+ *
+ * This is the offline counterpart to the runtime fallback report: the runtime
+ * one only sees keys the UI happened to request this session, whereas this scans
+ * the whole catalog up front, making it the data source for a CI coverage gate.
+ * The returned shape is identical to the runtime report so both feed the same
+ * diagnostics UI and reporters.
+ */
+export function auditWebTranslationCatalogs(
+  catalogs: WebTranslationCatalogs = WEB_TRANSLATIONS,
+): WebTranslationFallbackReport {
+  const base = catalogs.ko ?? {};
+  const entries: MissingWebTranslationEntry[] = [];
+
+  for (const locale of Object.keys(catalogs) as SupportedLocale[]) {
+    if (locale === 'ko') continue;
+    const catalog = catalogs[locale];
+    for (const section of Object.keys(base)) {
+      const baseSection = base[section] ?? {};
+      for (const leafKey of Object.keys(baseSection)) {
+        // A key the Korean base itself cannot cover is not a translation gap.
+        if (!isUsableTranslation(baseSection[leafKey])) continue;
+        const reason = missingReason(catalog?.[section]?.[leafKey]);
+        if (!reason) continue;
+        entries.push({
+          key: `${section}.${leafKey}` as WebTranslationKey,
+          requestedLocale: locale,
+          fallbackLocale: 'ko',
+          reason,
+          count: 1,
+        });
+      }
+    }
+  }
+
+  return {
+    missingKeys: [...new Set(entries.map((entry) => entry.key))],
+    entries,
+  };
+}
+
+/**
  * Creates an isolated lookup runtime. Isolated instances keep tests, previews,
  * and coverage jobs independent of the shared browser report.
  */
@@ -72,6 +117,7 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
   translate: (locale: SupportedLocale, key: WebTranslationKey) => string;
   getFallbackReport: () => WebTranslationFallbackReport;
   resetFallbackReport: () => void;
+  auditCatalogs: () => WebTranslationFallbackReport;
 } {
   const missing = new Map<string, MissingWebTranslationEntry>();
 
@@ -109,6 +155,9 @@ export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = W
     resetFallbackReport() {
       missing.clear();
     },
+    auditCatalogs() {
+      return auditWebTranslationCatalogs(catalogs);
+    },
   };
 }
 
@@ -133,4 +182,13 @@ export function getMissingWebTranslationKeys(): readonly WebTranslationKey[] {
 /** Clear the shared runtime report, for example after a diagnostics upload. */
 export function resetWebTranslationFallbackReport(): void {
   webTranslationRuntime.resetFallbackReport();
+}
+
+/**
+ * Offline coverage snapshot of the shipped `WEB_TRANSLATIONS` catalogs: every
+ * key that would fall back to Korean, computed statically rather than from what
+ * the UI happened to request. Backs the CI/unit translation gate.
+ */
+export function getWebTranslationCoverageAudit(): WebTranslationFallbackReport {
+  return auditWebTranslationCatalogs();
 }
