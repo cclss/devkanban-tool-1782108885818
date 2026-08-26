@@ -3,8 +3,10 @@
  * translation catalog in this grain: the contract/template card relative-time and
  * meta builders (`time.*`, `contract.*`, `templates.metaPages`/`metaFields`/
  * `savedSuffix`), the dashboard header sign-out (`header.logout`), the password
- * reveal aria-labels (`auth.passwordShow`/`passwordHide`), and the auth divider
- * (`auth.dividerOr`).
+ * reveal aria-labels (`auth.passwordShow`/`passwordHide`), the auth divider
+ * (`auth.dividerOr`), the reusable image-uploader own copy (`imageUploader.*`),
+ * and the module-level `GENERIC_ERROR` network fallback (a plain constant with no
+ * catalog/React access, so it is asserted directly).
  *
  * The per-key catalog and the `formatRelativeTime` helper are exercised together
  * under `locale='en'` and two invariants are locked:
@@ -22,6 +24,7 @@ import {
   resetWebTranslationFallbackReport,
   translateWeb,
 } from './web-translations';
+import { GENERIC_ERROR } from './api';
 import type { SupportedLocale } from './locale';
 
 /** Any precomposed Hangul syllable — the marker for un-migrated Korean copy. */
@@ -61,6 +64,20 @@ function emitSharedLayer(locale: SupportedLocale): string[] {
     t('auth.passwordShow'),
     t('auth.passwordHide'),
     t('auth.dividerOr'),
+    // image-uploader own copy (the injected {label} is branding-domain — a
+    // non-Hangul stand-in keeps this gate measuring only the component's copy)
+    t('imageUploader.chooseAnother'),
+    t('imageUploader.remove'),
+    t('imageUploader.currentLabel', { label: 'Logo' }),
+    t('imageUploader.currentImage'),
+    t('imageUploader.replaceHint'),
+    t('imageUploader.dropActive'),
+    t('imageUploader.dragLabeled', { label: 'Logo' }),
+    t('imageUploader.dragUnlabeled'),
+    t('imageUploader.orClick'),
+    t('imageUploader.chooseFile'),
+    // module-level network fallback constant (locale-independent English)
+    GENERIC_ERROR,
   ];
 }
 
