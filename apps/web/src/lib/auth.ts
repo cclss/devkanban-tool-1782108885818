@@ -15,6 +15,7 @@ export interface SessionUser {
   email: string;
   name: string | null;
   plan: string;
+  locale: 'ko' | 'en';
 }
 
 export interface LoginResponse {

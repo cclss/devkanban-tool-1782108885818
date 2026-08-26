@@ -4,6 +4,7 @@ import {
 } from '@nestjs/common';
 import { AuthService } from './auth.service';
 import { MESSAGES } from '../common/messages';
+import type { Locale } from '@repo/db';
 
 // Mock google-auth-library so no real network/token exchange happens. Each test
 // configures `getToken` / `verifyIdToken` behavior via these jest fns.
@@ -18,6 +19,7 @@ type MockUser = {
   email: string;
   name: string | null;
   plan: string;
+  locale: Locale;
   googleId: string | null;
 };
 
@@ -53,6 +55,7 @@ function makeService(opts: {
           email: data.email!,
           name: data.name ?? null,
           plan: 'FREE',
+          locale: data.locale ?? 'ko',
           googleId: data.googleId ?? null,
         };
         store.push(u);
@@ -97,7 +100,7 @@ describe('AuthService.loginWithGoogle', () => {
 
     expect(result).toEqual({
       accessToken: 'signed.jwt.token',
-      user: { id: 'user_1', email: 'new@example.com', name: '홍길동', plan: 'FREE' },
+      user: { id: 'user_1', email: 'new@example.com', name: '홍길동', plan: 'FREE', locale: 'ko' },
     });
     expect(store[0].googleId).toBe('google-sub-1');
     expect(store[0].email).toBe('new@example.com');
@@ -114,6 +117,7 @@ describe('AuthService.loginWithGoogle', () => {
       email: 'new@example.com',
       name: '기존',
       plan: 'PRO',
+      locale: 'en',
       googleId: null,
     };
     const { service, store } = makeService({ users: [existing] });
@@ -124,7 +128,7 @@ describe('AuthService.loginWithGoogle', () => {
 
     expect(store).toHaveLength(1);
     expect(store[0].googleId).toBe('google-sub-1');
-    expect(result.user).toEqual({ id: 'user_99', email: 'new@example.com', name: '기존', plan: 'PRO' });
+    expect(result.user).toEqual({ id: 'user_99', email: 'new@example.com', name: '기존', plan: 'PRO', locale: 'en' });
   });
 
   it('logs in an already-linked Google account without creating a duplicate', async () => {
@@ -133,6 +137,7 @@ describe('AuthService.loginWithGoogle', () => {
       email: 'new@example.com',
       name: '홍길동',
       plan: 'FREE',
+      locale: 'ko',
       googleId: 'google-sub-1',
     };
     const { service, store, prisma } = makeService({ users: [linked] });

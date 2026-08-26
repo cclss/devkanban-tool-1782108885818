@@ -73,6 +73,7 @@ describe('Sender flow (e2e)', () => {
     expect(res.body.accessToken).toBeDefined();
     expect(res.body.user.email).toBe(email);
     expect(res.body.user.plan).toBe('FREE');
+    expect(res.body.user.locale).toBe('ko');
     token = res.body.accessToken;
     userId = res.body.user.id;
   });
@@ -83,7 +84,17 @@ describe('Sender flow (e2e)', () => {
       .send({ email, password })
       .expect(200);
     expect(res.body.accessToken).toBeDefined();
+    expect(res.body.user.locale).toBe('ko');
     token = res.body.accessToken;
+  });
+
+  it('exposes the persisted locale for the authenticated user', async () => {
+    const res = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(res.body).toMatchObject({ id: userId, email, locale: 'ko' });
   });
 
   it('rejects a wrong password with a Korean message', async () => {
