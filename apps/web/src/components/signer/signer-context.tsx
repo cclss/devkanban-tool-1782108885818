@@ -174,16 +174,17 @@ export function SignerProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialState);
-  const { setSenderLocale, locale } = useLocale();
+  const { setSenderLocale, setPublicLinkActive, locale } = useLocale();
   const signerCopy = React.useMemo(() => signerCopyFor(locale), [locale]);
 
   // Load pre-auth metadata once per link, then route to verify / blocked.
   React.useEffect(() => {
     let active = true;
+    setPublicLinkActive(true);
     fetchMeta(token)
       .then((meta) => {
         if (!active) return;
-        setSenderLocale(meta.sender.locale);
+        setSenderLocale(meta.locale);
         const reason = blockReasonFor(meta);
         if (reason) dispatch({ type: 'BLOCK', reason, meta });
         else dispatch({ type: 'META_OK', meta });
@@ -201,8 +202,9 @@ export function SignerProvider({
     return () => {
       active = false;
       setSenderLocale(null);
+      setPublicLinkActive(false);
     };
-  }, [token, setSenderLocale]);
+  }, [token, setSenderLocale, setPublicLinkActive]);
 
   const verify = React.useCallback(
     async (code: string) => {
@@ -298,17 +300,17 @@ function signerFillCopy(copy: SignerCopy): FillCopy {
   ctaContinue: copy.viewerCtaContinue,
   ctaComplete: copy.viewerCtaComplete,
   loadError: copy.viewerLoadError,
-  pageError: (n) => copy.verifyTitle === '본인확인' ? `${n}페이지를 불러올 수 없어요.` : `We could not load page ${n}.`,
-  progress: (total, done) => copy.verifyTitle === '본인확인' ? `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.` : `Completed ${done} of ${total} signing fields.`,
-  progressNone: copy.verifyTitle === '본인확인' ? '서명할 항목이 없어요.' : 'There are no fields to sign.',
-  progressAllDone: copy.verifyTitle === '본인확인' ? '모든 항목을 작성했어요.' : 'All fields are complete.',
+  pageError: copy.pageError,
+  progress: copy.progress,
+  progressNone: copy.progressNone,
+  progressAllDone: copy.progressAllDone,
   fieldAffordance: copy.fieldAffordance,
   completeError: copy.completeError,
   sheet: {
     ...copy.sheet,
     hint: (type) => {
-      if (type === 'DATE') return copy.verifyTitle === '본인확인' ? '서명한 날짜를 입력해 주세요.' : 'Enter the signing date.';
-      if (type === 'TEXT') return copy.verifyTitle === '본인확인' ? '필요한 내용을 입력해 주세요.' : 'Enter the required text.';
+      if (type === 'DATE') return copy.dateHint;
+      if (type === 'TEXT') return copy.textHint;
       return copy.sheet.drawHint;
     },
   },

@@ -18,6 +18,8 @@ interface LocaleContextValue {
   resources: TranslationResources['resources'] | undefined;
   /** Public-link flows call this after their metadata has revealed the sender locale. */
   setSenderLocale: (locale: string | null | undefined) => void;
+  /** Public-link UI must never inherit a signed-in user's saved preference. */
+  setPublicLinkActive: (active: boolean) => void;
   t: (key: WebTranslationKey) => string;
 }
 
@@ -30,6 +32,7 @@ const LocaleContext = React.createContext<LocaleContextValue | null>(null);
 export function LocaleProvider({ children }: { children: React.ReactNode }) {
   const [userLocale, setUserLocale] = React.useState<string | null>(null);
   const [senderLocale, setSenderLocale] = React.useState<string | null>(null);
+  const [publicLinkActive, setPublicLinkActive] = React.useState(false);
   const [browserLanguages, setBrowserLanguages] = React.useState<readonly string[]>([]);
   const [resources, setResources] = React.useState<TranslationResources['resources']>();
 
@@ -46,7 +49,9 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
     return () => window.removeEventListener('esign:session-change', refreshUserLocale);
   }, [refreshUserLocale]);
 
-  const locale = resolveLocale({ userLocale, senderLocale, browserLanguages });
+  const locale = publicLinkActive
+    ? resolveLocale({ senderLocale, browserLanguages })
+    : resolveLocale({ userLocale, senderLocale, browserLanguages });
 
   React.useEffect(() => {
     let active = true;
@@ -68,7 +73,7 @@ export function LocaleProvider({ children }: { children: React.ReactNode }) {
   }, [locale]);
 
   const value = React.useMemo<LocaleContextValue>(
-    () => ({ locale, resources, setSenderLocale: setPublicSenderLocale, t: (key) => translateWeb(locale, key) }),
+    () => ({ locale, resources, setSenderLocale: setPublicSenderLocale, setPublicLinkActive, t: (key) => translateWeb(locale, key) }),
     [locale, resources, setPublicSenderLocale],
   );
 

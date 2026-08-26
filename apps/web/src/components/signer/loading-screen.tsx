@@ -10,12 +10,15 @@
 
 import * as React from 'react';
 import { Skeleton } from '@repo/ui';
+import { useLocale } from '@/components/locale-provider';
+import { signerCopyFor } from '@/lib/signing';
 
 export function LoadingScreen() {
+  const { locale } = useLocale();
   return (
     <main
       aria-busy="true"
-      aria-label="불러오는 중"
+      aria-label={signerCopyFor(locale).loading}
       className="mx-auto flex min-h-[100dvh] w-full max-w-[480px] flex-col px-lg pb-2xl pt-xl"
     >
       <div className="flex items-center gap-sm">

@@ -36,7 +36,7 @@ export interface OtpInputProps {
   shakeNonce?: number;
   autoFocus?: boolean;
   /** Accessible label for the whole group. */
-  'aria-label'?: string;
+  'aria-label': string;
 }
 
 const DIGITS_ONLY = /\D+/g;
@@ -50,7 +50,7 @@ export function OtpInput({
   invalid = false,
   shakeNonce = 0,
   autoFocus = false,
-  'aria-label': ariaLabel = '인증 코드',
+  'aria-label': ariaLabel,
 }: OtpInputProps) {
   const refs = React.useRef<(HTMLInputElement | null)[]>([]);
   const cells = React.useMemo(() => Array.from({ length }), [length]);
@@ -142,7 +142,7 @@ export function OtpInput({
           // eslint-disable-next-line jsx-a11y/no-autofocus -- single intentional entry focus
           autoFocus={autoFocus && i === 0}
           disabled={disabled}
-          aria-label={`${ariaLabel} ${i + 1}번째 자리`}
+          aria-label={`${ariaLabel} ${i + 1}`}
           aria-invalid={invalid || undefined}
           value={value[i] ?? ''}
           onChange={(e) => handleChange(i, e.target.value)}

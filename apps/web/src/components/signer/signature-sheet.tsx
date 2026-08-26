@@ -249,7 +249,7 @@ function SignatureBody({
 
       {mode === 'draw' ? (
         <div className="flex flex-col gap-xs">
-          <SignaturePad ref={padRef} onDirtyChange={setHasInk} />
+          <SignaturePad ref={padRef} onDirtyChange={setHasInk} aria-label={copy.signaturePadAria} />
           <div className="flex justify-end">
             <Button
               type="button"
@@ -305,7 +305,7 @@ function ModeToggle({
     { id: 'type', label: copy.modeType },
   ];
   return (
-    <div role="tablist" aria-label="서명 입력 방식" className="grid grid-cols-2 gap-2xs rounded-md bg-surface-muted p-2xs">
+    <div role="tablist" aria-label={copy.modeLabel} className="grid grid-cols-2 gap-2xs rounded-md bg-surface-muted p-2xs">
       {options.map((o) => {
         const active = mode === o.id;
         return (
@@ -435,7 +435,7 @@ function ApplyRow({
   return (
     <div className="flex gap-xs pt-2xs">
       <Button type="button" variant="secondary" size="lg" onClick={onCancel} disabled={saving}>
-        닫기
+        {copy.close}
       </Button>
       <Button
         type="button"

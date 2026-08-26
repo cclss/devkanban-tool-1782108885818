@@ -43,7 +43,7 @@ interface SignaturePadProps {
   /** Notifies the parent when emptiness flips (drives the Apply CTA). */
   onDirtyChange?: (hasInk: boolean) => void;
   className?: string;
-  'aria-label'?: string;
+  'aria-label': string;
 }
 
 /** Resolve a design-token color (e.g. `--color-foreground`) to a usable string. */
@@ -258,7 +258,7 @@ export const SignaturePad = React.forwardRef<SignaturePadHandle, SignaturePadPro
         onPointerUp={endStroke}
         onPointerCancel={endStroke}
         onPointerLeave={endStroke}
-        aria-label={aria['aria-label'] ?? '서명 그리기 영역'}
+        aria-label={aria['aria-label']}
         role="img"
         className={cn(
           'block h-44 w-full touch-none rounded-md border border-border bg-surface',

@@ -18,14 +18,16 @@ import { ApiError } from '@/lib/api';
 import { brandStyle } from '@/lib/branding';
 import { PasswordInput } from '@/components/password-input';
 import { BrandingHeader } from '@/components/signer/branding-header';
-import { SHARE_RECIPIENT_COPY, type ShareMeta } from '@/lib/share-recipient';
+import { shareRecipientCopyFor, type ShareMeta } from '@/lib/share-recipient';
+import { useLocale } from '@/components/locale-provider';
 import { useShare } from './share-context';
 
-const COPY = SHARE_RECIPIENT_COPY.gate;
 const INPUT_ID = 'share-password';
 
 export function PasswordGate({ meta }: { meta: ShareMeta }) {
   const { unlock } = useShare();
+  const { locale } = useLocale();
+  const copy = shareRecipientCopyFor(locale).gate;
 
   const [password, setPassword] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -45,13 +47,13 @@ export function PasswordGate({ meta }: { meta: ShareMeta }) {
         // Success: the provider advances to `viewing` (or a terminal notice) and
         // this screen unmounts.
       } catch (err) {
-        setError(err instanceof ApiError ? err.message : COPY.fallbackError);
+        setError(err instanceof ApiError ? err.message : copy.fallbackError);
         setPassword('');
         setShakeNonce((n) => n + 1);
         setSubmitting(false);
       }
     },
-    [password, submitting, unlock],
+    [password, submitting, unlock, copy.fallbackError],
   );
 
   return (
@@ -62,15 +64,15 @@ export function PasswordGate({ meta }: { meta: ShareMeta }) {
       <BrandingHeader sender={meta.sender} />
 
       <form onSubmit={submit} className="motion-stagger mt-2xl flex flex-1 flex-col">
-        <h1 className="text-2xl font-bold text-foreground">{COPY.title}</h1>
-        <p className="mt-2xs text-base text-foreground-subtle">{COPY.hint}</p>
+        <h1 className="text-2xl font-bold text-foreground">{copy.title}</h1>
+        <p className="mt-2xs text-base text-foreground-subtle">{copy.hint}</p>
 
         <p className="mt-lg truncate rounded-md bg-surface-muted px-md py-sm text-sm font-medium text-foreground-muted">
           {meta.documentTitle}
         </p>
 
         <div className="mt-xl flex flex-col gap-xs">
-          <Field label={COPY.label} htmlFor={INPUT_ID}>
+          <Field label={copy.label} htmlFor={INPUT_ID}>
             <div
               // Re-key on the nonce so the shake replays cleanly each failed attempt.
               key={`shake-${shakeNonce}`}
@@ -83,7 +85,7 @@ export function PasswordGate({ meta }: { meta: ShareMeta }) {
                   setPassword(e.target.value);
                   if (error) setError(null);
                 }}
-                placeholder={COPY.placeholder}
+                placeholder={copy.placeholder}
                 autoComplete="current-password"
                 autoFocus
                 disabled={submitting}
@@ -110,7 +112,7 @@ export function PasswordGate({ meta }: { meta: ShareMeta }) {
           disabled={!canSubmit}
           isLoading={submitting}
         >
-          {submitting ? COPY.submitting : COPY.submit}
+          {submitting ? copy.submitting : copy.submit}
         </Button>
       </form>
     </main>

@@ -218,12 +218,15 @@ export const SHARE_RECIPIENT_COPY = {
   },
   /** Document viewer chrome (recipient speaks "작성/제출"). */
   viewer: {
-    ctaContinue: '작성하기',
+      ctaContinue: '작성하기',
     ctaComplete: '제출하기',
     loadError: '문서를 불러올 수 없어요. 잠시 후 다시 시도해 주세요.',
     progressNone: '작성할 항목이 없어요.',
     progressAllDone: '모든 항목을 작성했어요.',
-    completeError: '제출하지 못했어요. 잠시 후 다시 시도해 주세요.',
+      completeError: '제출하지 못했어요. 잠시 후 다시 시도해 주세요.',
+      pageError: (page: number) => `${page}페이지를 불러올 수 없어요.`,
+      progress: (total: number, done: number) => `작성할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
+      dateHint: '날짜를 입력해 주세요.', textHint: '내용을 입력해 주세요.',
   },
   /** Submit-success completion takeover (`completion-screen`, Download 비노출). */
   done: {
@@ -233,6 +236,45 @@ export const SHARE_RECIPIENT_COPY = {
     next: '보낸 분이 확인할 수 있도록 전달했어요. 이제 창을 닫으셔도 돼요.',
   },
 } as const;
+
+export type ShareRecipientCopy = WidenStrings<typeof SHARE_RECIPIENT_COPY>;
+type WidenStrings<T> = T extends (...args: infer Args) => infer Result
+  ? (...args: Args) => Result
+  : T extends string
+    ? string
+    : { [K in keyof T]: WidenStrings<T[K]> };
+
+/** Public share chrome follows the locale resolved from link metadata. */
+export function shareRecipientCopyFor(locale: 'ko' | 'en'): ShareRecipientCopy {
+  if (locale === 'ko') return SHARE_RECIPIENT_COPY;
+  return {
+    gate: {
+      title: 'Enter the password', hint: 'This contract is password protected.', label: 'Password',
+      placeholder: 'Enter the password', submit: 'Continue', submitting: 'Checking…',
+      tooShort: `Enter at least ${SHARE_PASSWORD_MIN_LENGTH} characters.`,
+      fallbackError: 'Something went wrong. Please try again shortly.',
+    },
+    notice: {
+      expired: { title: 'This link has expired', body: 'This link is no longer valid. Ask the sender for a new link.' },
+      disabled: { title: 'This link is unavailable', body: 'The sender has disabled this link. Contact the sender for help.' },
+      invalidLink: { title: 'Check your link', body: 'This link is invalid. Ask the sender to send it again.' },
+      notSignable: { title: 'This contract cannot be completed', body: 'This contract is not available right now. Contact the sender.' },
+      alreadySubmitted: { title: 'Already submitted', body: 'You have already submitted this contract.' },
+    },
+    viewer: {
+      ctaContinue: 'Continue', ctaComplete: 'Submit', loadError: 'We could not load the document. Please try again shortly.',
+      progressNone: 'There are no fields to complete.', progressAllDone: 'All fields are complete.',
+      completeError: 'We could not submit your response. Please try again shortly.',
+      pageError: (page: number) => `We could not load page ${page}.`,
+      progress: (total: number, done: number) => `Completed ${done} of ${total} fields.`,
+      dateHint: 'Enter the date.', textHint: 'Enter the required information.',
+    },
+    done: {
+      title: 'Submission complete!', body: 'Your response has been delivered securely.', documentLabel: 'Submitted document',
+      next: 'The sender can now review your response. You may close this window.',
+    },
+  };
+}
 
 // --- terminal (blocked) state mapping ----------------------------------------
 //
