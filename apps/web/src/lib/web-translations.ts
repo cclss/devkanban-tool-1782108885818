@@ -83,11 +83,17 @@ const INTERPOLATION_PATTERN = /\{\{|\}\}|\{(\w+)\}/g;
 /**
  * Substitutes `{token}` placeholders in `template` with matching `vars`.
  *
- * Standard for browser copy interpolation:
+ * Standard for browser copy interpolation (this is the contract callers rely on):
+ * - Token syntax is `{name}`: the name must be a plain identifier (`\w+`, i.e.
+ *   ASCII letters, digits, or `_`). A brace run that is not a valid token —
+ *   e.g. `{full-name}` or a non-ASCII name like `{이름}` — is left literal.
+ * - Multiple variables: every `{token}` in the template is filled independently
+ *   from its own `vars` entry in one pass, so `"{name} → {count}"` resolves both
+ *   `name` and `count` regardless of order or repetition.
  * - `{name}` is replaced by `vars.name`; numbers are stringified.
- * - A placeholder with no matching var (missing key, `null`, or `undefined`) is
- *   left verbatim as `{name}`, so an omission stays visible instead of turning
- *   into an empty gap or a thrown error.
+ * - Missing variable: a placeholder with no matching var (key absent, `null`, or
+ *   `undefined`) is left verbatim as `{name}`, so an omission stays visible
+ *   instead of turning into an empty gap or a thrown error.
  * - `{{` and `}}` are escapes for literal `{` and `}`.
  * - Substitution is single pass: a value that itself contains braces is never
  *   re-scanned, so injected copy cannot trigger further interpolation.

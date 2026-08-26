@@ -189,6 +189,58 @@ describe('interpolate', () => {
   });
 });
 
+describe('interpolation contract (regression)', () => {
+  it('fills multiple variables independently in a single pass', () => {
+    expect(
+      interpolate('{name}님이 {count}건을 전송함', { name: '김', count: 3 }),
+    ).toBe('김님이 3건을 전송함');
+    // Order-independent and each token draws only from its own var.
+    expect(interpolate('{b}-{a}-{b}', { a: '1', b: '2' })).toBe('2-1-2');
+  });
+
+  it('leaves a missing, null, or undefined variable verbatim as {token}', () => {
+    expect(interpolate('{name}님이 전송함', {})).toBe('{name}님이 전송함');
+    expect(
+      interpolate('{present} {absent}', {
+        present: '있음',
+        absent: null as unknown as string,
+      }),
+    ).toBe('있음 {absent}');
+    expect(
+      interpolate('{present} {absent}', {
+        present: '있음',
+        absent: undefined as unknown as string,
+      }),
+    ).toBe('있음 {absent}');
+  });
+
+  it('leaves a non-identifier token literal even when a var could match it', () => {
+    // Hyphen is outside \w, so the whole brace run is not a recognized token.
+    expect(interpolate('{full-name}님', { 'full-name': '김하나' })).toBe('{full-name}님');
+    // Non-ASCII token names are likewise never recognized.
+    expect(interpolate('{이름}님', { 이름: '김' })).toBe('{이름}님');
+    // A spaced or empty brace run stays literal too.
+    expect(interpolate('{ name }', { name: '김' })).toBe('{ name }');
+    expect(interpolate('{}', { '': '김' })).toBe('{}');
+  });
+
+  it('applies the same rules through the catalog lookup on both localized and ko-fallback paths', () => {
+    const runtime = createWebTranslationRuntime({
+      ko: { share: { sentBy: '{name}님이 {count}건 전송함' } },
+      en: { share: {} },
+    });
+
+    // Localized (en) path is absent → ko-fallback path fills multiple vars.
+    expect(runtime.translate('en', 'share.sentBy', { name: '김', count: 2 })).toBe(
+      '김님이 2건 전송함',
+    );
+    // Missing var stays verbatim through the localized (ko) path.
+    expect(runtime.translate('ko', 'share.sentBy', { name: '김' })).toBe(
+      '김님이 {count}건 전송함',
+    );
+  });
+});
+
 describe('runtime interpolation', () => {
   it('fills placeholders in localized copy', () => {
     const runtime = createWebTranslationRuntime({
