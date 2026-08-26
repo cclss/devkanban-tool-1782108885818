@@ -3,7 +3,9 @@
 import * as React from 'react';
 import { Button, Card } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY, TEMPLATE_META_COPY } from '@/lib/templates-copy';
+import { templateActionsCopyFor, templateMetaCopyFor } from '@/lib/templates-copy';
+import { useLocale } from '@/components/locale-provider';
+import type { SupportedLocale } from '@/lib/locale';
 
 /**
  * TemplateCard — one saved template as a card (design-spec
@@ -67,6 +69,8 @@ export function TemplateCard({
   disabled = false,
   actions,
 }: TemplateCardProps) {
+  const { locale } = useLocale();
+  const actionsCopy = templateActionsCopyFor(locale);
   const summaryRow = (
     <>
       <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md bg-primary-subtle text-primary">
@@ -74,7 +78,7 @@ export function TemplateCard({
       </span>
       <div className="flex min-w-0 flex-1 flex-col gap-2xs text-left">
         <h3 className="truncate text-base font-bold text-foreground">{template.name}</h3>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(template)}</p>
+        <p className="truncate text-sm text-foreground-subtle">{metaLine(template, locale)}</p>
       </div>
       {onSelect ? <ChevronIcon /> : null}
     </>
@@ -103,13 +107,13 @@ export function TemplateCard({
         <div
           className="flex flex-wrap items-center gap-xs border-t border-border pt-md"
           role="group"
-          aria-label={TEMPLATE_ACTIONS_COPY.actionsLabel(template.name)}
+          aria-label={actionsCopy.actionsLabel(template.name)}
         >
           <Button variant="ghost" size="sm" onClick={() => actions.onPreview(template)}>
-            {TEMPLATE_ACTIONS_COPY.preview}
+            {actionsCopy.preview}
           </Button>
           <Button variant="ghost" size="sm" onClick={() => actions.onRename(template)}>
-            {TEMPLATE_ACTIONS_COPY.rename}
+            {actionsCopy.rename}
           </Button>
           <Button
             variant="ghost"
@@ -117,14 +121,14 @@ export function TemplateCard({
             onClick={() => actions.onDelete(template)}
             className="text-danger hover:bg-danger-subtle hover:text-danger active:bg-danger-subtle"
           >
-            {TEMPLATE_ACTIONS_COPY.delete}
+            {actionsCopy.delete}
           </Button>
           <Button
             size="sm"
             onClick={() => actions.onStart(template)}
             className="ml-auto"
           >
-            {TEMPLATE_ACTIONS_COPY.start}
+            {actionsCopy.start}
           </Button>
         </div>
       </Card>
@@ -138,13 +142,11 @@ export function TemplateCard({
   );
 }
 
-function metaLine(template: TemplateSummary): string {
-  const parts = [
-    TEMPLATE_META_COPY.pages(template.pageCount),
-    TEMPLATE_META_COPY.fields(template.fieldCount),
-  ];
+function metaLine(template: TemplateSummary, locale: SupportedLocale): string {
+  const meta = templateMetaCopyFor(locale);
+  const parts = [meta.pages(template.pageCount), meta.fields(template.fieldCount)];
   const when = formatRelative(template.createdAt);
-  if (when) parts.push(`${when} ${TEMPLATE_META_COPY.savedSuffix}`);
+  if (when) parts.push(`${when} ${meta.savedSuffix}`);
   return parts.join(' · ');
 }
 

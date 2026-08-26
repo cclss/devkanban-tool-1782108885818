@@ -5,11 +5,8 @@ import { useRouter } from 'next/navigation';
 import { DashboardHeader } from '@/components/dashboard-header';
 import { SettingsNav } from '@/components/settings-nav';
 import { clearSession, getToken, getUser, type SessionUser } from '@/lib/auth';
-import {
-  SETTINGS_NAV_ITEMS,
-  type SettingsNavItem,
-} from '@/lib/settings-copy';
-import { useTranslation } from '@/components/locale-provider';
+import { settingsNavItemsFor, settingsShellCopyFor } from '@/lib/settings-copy';
+import { useLocale } from '@/components/locale-provider';
 
 /**
  * Settings shell. Wraps every `/settings/*` page with the shared app header, a
@@ -23,7 +20,7 @@ import { useTranslation } from '@/components/locale-provider';
  */
 export default function SettingsLayout({ children }: { children: React.ReactNode }) {
   const router = useRouter();
-  const t = useTranslation();
+  const { locale } = useLocale();
   const [ready, setReady] = React.useState(false);
   const [user, setUser] = React.useState<SessionUser | null>(null);
 
@@ -38,15 +35,8 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
 
   if (!ready) return null;
 
-  const items: SettingsNavItem[] = SETTINGS_NAV_ITEMS.map((item) => ({
-    ...item,
-    label:
-      item.href === '/settings/branding'
-        ? t('settings.branding')
-        : item.href === '/settings/language'
-          ? t('settings.language')
-          : item.label,
-  }));
+  const shell = settingsShellCopyFor(locale);
+  const items = settingsNavItemsFor(locale);
 
   return (
     <div className="min-h-[100dvh] bg-background">
@@ -59,12 +49,12 @@ export default function SettingsLayout({ children }: { children: React.ReactNode
       />
 
       <main className="mx-auto w-full max-w-[960px] px-md py-xl sm:py-2xl">
-        <h1 className="text-2xl font-bold text-foreground">{t('settings.title')}</h1>
+        <h1 className="text-2xl font-bold text-foreground">{shell.sectionTitle}</h1>
 
         <div className="mt-xl flex flex-col gap-lg sm:flex-row sm:items-start sm:gap-xl">
           <SettingsNav
             items={items}
-            label={t('settings.navLabel')}
+            label={shell.navLabel}
             className="w-full sm:w-[180px] sm:shrink-0"
           />
           <div className="min-w-0 flex-1">{children}</div>

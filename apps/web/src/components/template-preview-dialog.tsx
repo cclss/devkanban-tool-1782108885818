@@ -36,9 +36,8 @@ import {
   type TemplateField,
   type TemplateSummary,
 } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
-
-const COPY = TEMPLATE_ACTIONS_COPY.preview_dialog;
+import { templateActionsCopyFor } from '@/lib/templates-copy';
+import { useLocale } from '@/components/locale-provider';
 
 type Status = 'loading' | 'ready' | 'error';
 
@@ -61,6 +60,8 @@ export function TemplatePreviewDialog({
   template,
 }: TemplatePreviewDialogProps) {
   const router = useRouter();
+  const { locale } = useLocale();
+  const COPY = templateActionsCopyFor(locale).preview_dialog;
   const [status, setStatus] = React.useState<Status>('loading');
   const [data, setData] = React.useState<PreviewData | null>(null);
   const [error, setError] = React.useState<string | null>(null);

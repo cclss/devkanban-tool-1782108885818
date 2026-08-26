@@ -22,9 +22,8 @@ import {
   DialogTitle,
 } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
-
-const COPY = TEMPLATE_ACTIONS_COPY.delete_dialog;
+import { templateActionsCopyFor } from '@/lib/templates-copy';
+import { useLocale } from '@/components/locale-provider';
 
 export interface DeleteTemplateDialogProps {
   open: boolean;
@@ -41,6 +40,8 @@ export function DeleteTemplateDialog({
   template,
   onConfirm,
 }: DeleteTemplateDialogProps) {
+  const { locale } = useLocale();
+  const COPY = templateActionsCopyFor(locale).delete_dialog;
   const handleConfirm = () => {
     if (!template) return;
     onConfirm(template);

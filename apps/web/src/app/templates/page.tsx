@@ -16,7 +16,8 @@ import {
   renameTemplate,
   type TemplateSummary,
 } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY, TEMPLATES_COPY } from '@/lib/templates-copy';
+import { templateActionsCopyFor, templatesCopyFor } from '@/lib/templates-copy';
+import { useLocale } from '@/components/locale-provider';
 
 /**
  * `/templates` — the sender's saved-template list ("내 템플릿"), the destination
@@ -40,6 +41,9 @@ const NEW_CONTRACT_ROUTE = '/contracts/new';
 
 export default function TemplatesPage() {
   const router = useRouter();
+  const { locale } = useLocale();
+  const copy = templatesCopyFor(locale);
+  const actionsCopy = templateActionsCopyFor(locale);
 
   const [ready, setReady] = React.useState(false);
   const [user, setUser] = React.useState<SessionUser | null>(null);
@@ -126,11 +130,11 @@ export default function TemplatesPage() {
               : list,
           );
           setActionError(
-            err instanceof ApiError ? err.message : TEMPLATE_ACTIONS_COPY.renameFailed,
+            err instanceof ApiError ? err.message : actionsCopy.renameFailed,
           );
         });
     },
-    [bounceIfUnauthorized],
+    [bounceIfUnauthorized, actionsCopy],
   );
 
   const handleDelete = React.useCallback(
@@ -148,11 +152,11 @@ export default function TemplatesPage() {
           return next;
         });
         setActionError(
-          err instanceof ApiError ? err.message : TEMPLATE_ACTIONS_COPY.deleteFailed,
+          err instanceof ApiError ? err.message : actionsCopy.deleteFailed,
         );
       });
     },
-    [templates, bounceIfUnauthorized],
+    [templates, bounceIfUnauthorized, actionsCopy],
   );
 
   const actions = React.useMemo<TemplateCardActions>(
@@ -173,15 +177,19 @@ export default function TemplatesPage() {
 
       <main className="mx-auto w-full max-w-[960px] px-md py-xl sm:py-2xl">
         <div className="flex flex-col gap-2xs">
-          <h1 className="text-2xl font-bold text-foreground">{TEMPLATES_COPY.title}</h1>
-          <p className="text-base text-foreground-subtle">{TEMPLATES_COPY.description}</p>
+          <h1 className="text-2xl font-bold text-foreground">{copy.title}</h1>
+          <p className="text-base text-foreground-subtle">{copy.description}</p>
         </div>
 
         {actionError ? (
-          <ActionErrorBanner message={actionError} onDismiss={() => setActionError(null)} />
+          <ActionErrorBanner
+            message={actionError}
+            closeLabel={actionsCopy.preview_dialog.close}
+            onDismiss={() => setActionError(null)}
+          />
         ) : null}
 
-        <section className="mt-xl" aria-label={TEMPLATES_COPY.listLabel}>
+        <section className="mt-xl" aria-label={copy.listLabel}>
           <TemplatesBody
             templates={templates}
             error={error}
@@ -214,7 +222,15 @@ export default function TemplatesPage() {
 }
 
 /** Dismissible banner for an optimistic rename/delete that was rolled back. */
-function ActionErrorBanner({ message, onDismiss }: { message: string; onDismiss: () => void }) {
+function ActionErrorBanner({
+  message,
+  closeLabel,
+  onDismiss,
+}: {
+  message: string;
+  closeLabel: string;
+  onDismiss: () => void;
+}) {
   return (
     <div
       role="alert"
@@ -224,7 +240,7 @@ function ActionErrorBanner({ message, onDismiss }: { message: string; onDismiss:
       <button
         type="button"
         onClick={onDismiss}
-        aria-label={TEMPLATE_ACTIONS_COPY.preview_dialog.close}
+        aria-label={closeLabel}
         className="shrink-0 rounded-md p-2xs text-danger transition-colors duration-fast ease-standard hover:bg-danger/10 focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-focus"
       >
         <svg viewBox="0 0 20 20" className="h-4 w-4" fill="none" aria-hidden="true">
@@ -290,28 +306,32 @@ function SkeletonList() {
 }
 
 function EmptyState({ onCreate }: { onCreate: () => void }) {
+  const { locale } = useLocale();
+  const copy = templatesCopyFor(locale);
   return (
     <Card className="motion-stagger flex flex-col items-center gap-md px-lg py-3xl text-center">
       <EmptyIllustration />
       <div className="flex flex-col gap-2xs">
-        <h2 className="text-lg font-bold text-foreground">{TEMPLATES_COPY.emptyTitle}</h2>
+        <h2 className="text-lg font-bold text-foreground">{copy.emptyTitle}</h2>
         <p className="max-w-[380px] text-base text-foreground-subtle">
-          {TEMPLATES_COPY.emptyDescription}
+          {copy.emptyDescription}
         </p>
       </div>
       <Button size="lg" onClick={onCreate}>
-        {TEMPLATES_COPY.emptyCta}
+        {copy.emptyCta}
       </Button>
     </Card>
   );
 }
 
 function ErrorState({ message, onRetry }: { message: string; onRetry: () => void }) {
+  const { locale } = useLocale();
+  const copy = templatesCopyFor(locale);
   return (
     <Card className="flex flex-col items-center gap-md px-lg py-3xl text-center">
       <p className="text-base text-foreground-muted">{message}</p>
       <Button variant="secondary" onClick={onRetry}>
-        {TEMPLATES_COPY.errorRetry}
+        {copy.errorRetry}
       </Button>
     </Card>
   );

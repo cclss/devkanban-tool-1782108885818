@@ -21,7 +21,8 @@
 import * as React from 'react';
 import { Button, Field, Input, cn } from '@repo/ui';
 import { brandStyle, expandHex, isValidHex } from '@/lib/branding';
-import { BRAND_COLOR_COPY } from '@/lib/settings-copy';
+import { useLocale } from '@/components/locale-provider';
+import { brandColorCopyFor } from '@/lib/settings-copy';
 
 export interface BrandColorPickerProps {
   /** Ties the field label to the HEX input. Must be unique on the page. */
@@ -45,6 +46,8 @@ export function BrandColorPicker({
   hint,
   className,
 }: BrandColorPickerProps) {
+  const { locale } = useLocale();
+  const copy = brandColorCopyFor(locale);
   const swatchId = `${id}-swatch`;
   // Local draft mirrors the text field so the user can type an in-progress
   // (temporarily invalid) value without the committed color jumping. It re-syncs
@@ -71,10 +74,10 @@ export function BrandColorPicker({
         // Empty is "not yet decided", not an error — the committed color stays.
         setError(null);
       } else {
-        setError(BRAND_COLOR_COPY.invalidHex);
+        setError(copy.invalidHex);
       }
     },
-    [onChange],
+    [onChange, copy],
   );
 
   const handleSwatch = React.useCallback(
@@ -88,9 +91,9 @@ export function BrandColorPicker({
 
   return (
     <Field
-      label={label ?? BRAND_COLOR_COPY.label}
+      label={label ?? copy.label}
       htmlFor={id}
-      hint={hint ?? BRAND_COLOR_COPY.hint}
+      hint={hint ?? copy.hint}
       error={error}
       className={className}
     >
@@ -107,13 +110,13 @@ export function BrandColorPicker({
           )}
           style={{ backgroundColor: active }}
         >
-          <span className="sr-only">{BRAND_COLOR_COPY.swatchLabel}</span>
+          <span className="sr-only">{copy.swatchLabel}</span>
           <input
             id={swatchId}
             type="color"
             value={swatchValue}
             onChange={handleSwatch}
-            aria-label={BRAND_COLOR_COPY.swatchLabel}
+            aria-label={copy.swatchLabel}
             className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
           />
         </label>
@@ -138,7 +141,7 @@ export function BrandColorPicker({
           own value already conveys the chosen color. */}
       <div className="mt-xs flex flex-col gap-xs">
         <span className="text-xs font-semibold text-foreground-muted">
-          {BRAND_COLOR_COPY.previewLabel}
+          {copy.previewLabel}
         </span>
         <div
           aria-hidden="true"
@@ -146,10 +149,10 @@ export function BrandColorPicker({
           className="flex flex-wrap items-center gap-md rounded-lg border border-border bg-surface p-md"
         >
           <Button type="button" variant="primary" size="sm" tabIndex={-1}>
-            {BRAND_COLOR_COPY.previewButton}
+            {copy.previewButton}
           </Button>
           <span className="text-sm font-semibold text-primary underline underline-offset-2">
-            {BRAND_COLOR_COPY.previewLink}
+            {copy.previewLink}
           </span>
           <span className="ml-auto inline-flex items-center rounded-full bg-primary-subtle px-md py-2xs text-xs font-semibold uppercase text-primary">
             {active}

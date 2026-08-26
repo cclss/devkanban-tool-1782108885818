@@ -25,9 +25,8 @@ import {
   Input,
 } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
-import { TEMPLATE_ACTIONS_COPY } from '@/lib/templates-copy';
-
-const COPY = TEMPLATE_ACTIONS_COPY.rename_dialog;
+import { templateActionsCopyFor } from '@/lib/templates-copy';
+import { useLocale } from '@/components/locale-provider';
 
 export interface RenameTemplateDialogProps {
   open: boolean;
@@ -44,6 +43,8 @@ export function RenameTemplateDialog({
   template,
   onSubmit,
 }: RenameTemplateDialogProps) {
+  const { locale } = useLocale();
+  const COPY = templateActionsCopyFor(locale).rename_dialog;
   const [name, setName] = React.useState('');
 
   // Prefill with the current name each time the dialog opens for a template, so a

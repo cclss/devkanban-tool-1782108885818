@@ -1,5 +1,8 @@
+'use client';
+
 import { BrandingForm } from '@/components/branding-form';
-import { BRANDING_COPY } from '@/lib/settings-copy';
+import { useLocale } from '@/components/locale-provider';
+import { brandingCopyFor } from '@/lib/settings-copy';
 
 /**
  * Settings → 브랜딩. Heading + intro, then the branding form that assembles the
@@ -9,13 +12,15 @@ import { BRANDING_COPY } from '@/lib/settings-copy';
  * favicon · brand color) for every end user.
  */
 export default function BrandingSettingsPage() {
+  const { locale } = useLocale();
+  const copy = brandingCopyFor(locale);
   return (
     <section aria-labelledby="branding-heading" className="flex flex-col gap-lg">
       <div className="flex flex-col gap-2xs">
         <h2 id="branding-heading" className="text-lg font-bold text-foreground">
-          {BRANDING_COPY.title}
+          {copy.title}
         </h2>
-        <p className="text-base text-foreground-subtle">{BRANDING_COPY.description}</p>
+        <p className="text-base text-foreground-subtle">{copy.description}</p>
       </div>
 
       <BrandingForm />

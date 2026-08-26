@@ -1,20 +1,26 @@
 /**
  * Templates list copy — the single source of truth for the "내 템플릿" screen's
- * user-facing strings (page heading, entry-point label, empty/error states, and
- * the per-card meta line). Kept here so structure/tone stay consistent and
- * auditable, mirroring `lib/settings-copy.ts` / `lib/todo-copy.ts`.
+ * user-facing strings (page heading, entry-point label, empty/error states, the
+ * per-card meta line, the management actions, and the rename / delete-confirm /
+ * preview dialogs). Kept here so structure/tone stay consistent and auditable,
+ * mirroring `lib/settings-copy.ts` / `lib/todo-copy.ts`.
  *
- * Tone follows the project base voice (design-spec `tone/*`): plain 해요체, calm,
- * action-forward, never blaming the user. Alongside the read-only list strings,
- * this owns the per-card management actions (미리보기·이름 수정·삭제·이 템플릿으로
- * 시작) and the rename / delete-confirm / preview dialog copy — the destructive
- * confirm names the consequence plainly and offers a calm way out, never blaming.
+ * Locale: every catalog is exposed as a `xCopyFor(locale: 'ko' | 'en')` accessor
+ * (the standard from messaging/locale-copy-convention.md). The Korean catalog is
+ * the `as const` base (single source of tone); the English branch is type-checked
+ * against its widened shape, so a missing/misshapen English key is a compile
+ * error. Tone follows the project base voice: plain 해요체, calm, action-forward,
+ * never blaming the user — the destructive confirm names the consequence plainly
+ * and offers a calm way out. The English branch keeps that voice (neutral, no
+ * contractions).
  */
 
-/** Label for the entry point that opens the templates list (dashboard). */
-export const TEMPLATES_ENTRY_LABEL = '내 템플릿';
+import { copyForLocale } from './copy-locale';
 
-export const TEMPLATES_COPY = {
+/** Read-only templates-list copy (heading, entry point, empty/error states). */
+const TEMPLATES_COPY_KO = {
+  /** Label for the entry point that opens the templates list (dashboard). */
+  entryLabel: '내 템플릿',
   /** H1 at the top of the list. Matches the save dialog's '내 템플릿' promise. */
   title: '내 템플릿',
   /** One-line intro under the title. */
@@ -31,12 +37,25 @@ export const TEMPLATES_COPY = {
   errorRetry: '다시 시도',
 } as const;
 
+/** Templates-list copy in the resolved locale. */
+export const templatesCopyFor = copyForLocale<typeof TEMPLATES_COPY_KO>(TEMPLATES_COPY_KO, {
+  entryLabel: 'My templates',
+  title: 'My templates',
+  description: 'All your saved layouts in one place. Load one the moment you create a contract.',
+  listLabel: 'Template list',
+  emptyTitle: 'No templates saved yet',
+  emptyDescription:
+    'Save a layout you use often as a template, and next time you can send it without placing fields again.',
+  emptyCta: 'Create contract',
+  errorRetry: 'Try again',
+});
+
 /**
  * Per-card management actions on the `/templates` list (manageable Extension) and
  * the dialogs they open (rename / delete-confirm / preview). Grouped so the whole
  * management surface reads in one voice.
  */
-export const TEMPLATE_ACTIONS_COPY = {
+const TEMPLATE_ACTIONS_COPY_KO = {
   /** Primary card action → `/contracts/new?template=id` (reuse this layout). */
   start: '이 템플릿으로 시작',
   /** Open the read-only PDF preview modal. */
@@ -90,13 +109,56 @@ export const TEMPLATE_ACTIONS_COPY = {
   deleteFailed: '삭제하지 못해 목록에 다시 넣었어요.',
 } as const;
 
+/** Template management-action copy in the resolved locale. */
+export const templateActionsCopyFor = copyForLocale<typeof TEMPLATE_ACTIONS_COPY_KO>(
+  TEMPLATE_ACTIONS_COPY_KO,
+  {
+    start: 'Use this template',
+    preview: 'Preview',
+    rename: 'Rename',
+    delete: 'Delete',
+    actionsLabel: (name: string) => `Manage ${name}`,
+
+    rename_dialog: {
+      title: 'Rename template',
+      description: 'Give it a name that is easy to find in the list.',
+      nameLabel: 'Template name',
+      namePlaceholder: 'e.g. Standard employment contract',
+      cancel: 'Cancel',
+      save: 'Save',
+      saving: 'Saving',
+    },
+
+    delete_dialog: {
+      title: (name: string) => `Delete "${name}"?`,
+      description: 'This cannot be undone. Contracts you have already sent are unaffected.',
+      cancel: 'Cancel',
+      confirm: 'Delete',
+      deleting: 'Deleting',
+    },
+
+    preview_dialog: {
+      title: (name: string) => `${name} preview`,
+      description:
+        'See where the saved signature, date, and text fields sit on the PDF. Previewing never changes the template.',
+      loading: 'Loading the preview.',
+      error: 'We could not load the preview.',
+      retry: 'Try again',
+      close: 'Close',
+    },
+
+    renameFailed: 'We could not rename it, so we restored the original name.',
+    deleteFailed: 'We could not delete it, so we put it back in the list.',
+  },
+);
+
 /**
  * Read-only field-overlay preview surface (`template-field-preview.tsx`). Copy
  * for the page-flip controls, the field-type legend, and the per-field recipient
  * badge. This surface only *shows* where fields sit — no edit/save verbs — so the
  * tone stays purely descriptive ("여기에 무엇이 있는지"), matching `tone/templates-list.md`.
  */
-export const TEMPLATE_FIELD_PREVIEW_COPY = {
+const TEMPLATE_FIELD_PREVIEW_COPY_KO = {
   /** Accessible name for the rendered page canvas. `{page}`/`{total}` 1-based. */
   pageLabel: (page: number, total: number) => `템플릿 ${page}/${total}페이지 미리보기`,
   /** Prev/next page control labels (shown only for multi-page templates). */
@@ -117,12 +179,51 @@ export const TEMPLATE_FIELD_PREVIEW_COPY = {
   error: 'PDF를 읽을 수 없어요. 파일이 손상되지 않았는지 확인해 주세요.',
 } as const;
 
+/** Field-preview copy in the resolved locale. */
+export const templateFieldPreviewCopyFor = copyForLocale<typeof TEMPLATE_FIELD_PREVIEW_COPY_KO>(
+  TEMPLATE_FIELD_PREVIEW_COPY_KO,
+  {
+    pageLabel: (page: number, total: number) => `Template preview, page ${page} of ${total}`,
+    prevPage: 'Previous page',
+    nextPage: 'Next page',
+    pageIndicator: (page: number, total: number) => `${page} / ${total}`,
+    legendLabel: 'Field types',
+    recipientBadgeLabel: (n: number) => `Recipient ${n}`,
+    recipientHint: 'The number at the top-left of each box is the signing order of the recipient.',
+    noFieldsOnPage: 'No fields are placed on this page.',
+    loading: 'Loading the preview.',
+    error: 'We cannot read the PDF. Check that the file is not damaged.',
+  },
+);
+
 /** Units for the per-card meta line (페이지 수 · 필드 수 · 저장일). */
-export const TEMPLATE_META_COPY = {
+const TEMPLATE_META_COPY_KO = {
   /** `2페이지` — page count of the source PDF. */
   pages: (n: number) => `${n}페이지`,
   /** `필드 3개` — how many placed fields the saved layout holds. */
   fields: (n: number) => `필드 ${n}개`,
   /** Suffix appended to the relative time, e.g. `3일 전 저장`. */
   savedSuffix: '저장',
+} as const;
+
+/** Template meta-line copy in the resolved locale. */
+export const templateMetaCopyFor = copyForLocale<typeof TEMPLATE_META_COPY_KO>(
+  TEMPLATE_META_COPY_KO,
+  {
+    pages: (n: number) => `${n} pages`,
+    fields: (n: number) => `${n} fields`,
+    savedSuffix: 'saved',
+  },
+);
+
+/**
+ * Every locale-branched copy surface this module owns, exposed as `{ ko, en }`
+ * catalog pairs so the ko/en key-parity gate (templates-copy.test.ts) can assert
+ * full structural parity without reaching into module internals.
+ */
+export const TEMPLATES_COPY_CATALOGS = {
+  templates: { ko: templatesCopyFor('ko'), en: templatesCopyFor('en') },
+  actions: { ko: templateActionsCopyFor('ko'), en: templateActionsCopyFor('en') },
+  fieldPreview: { ko: templateFieldPreviewCopyFor('ko'), en: templateFieldPreviewCopyFor('en') },
+  meta: { ko: templateMetaCopyFor('ko'), en: templateMetaCopyFor('en') },
 } as const;

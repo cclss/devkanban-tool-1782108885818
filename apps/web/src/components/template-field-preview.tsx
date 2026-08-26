@@ -28,7 +28,8 @@ import {
   type PdfDocument,
 } from '@/lib/pdf';
 import { normToPx, FIELD_TYPE_META, type PageSize, type SignFieldType } from '@/lib/field-geometry';
-import { TEMPLATE_FIELD_PREVIEW_COPY as COPY } from '@/lib/templates-copy';
+import { templateFieldPreviewCopyFor } from '@/lib/templates-copy';
+import { useLocale } from '@/components/locale-provider';
 
 /**
  * The minimal field shape this surface needs: a type, its 1-based page, its
@@ -64,6 +65,8 @@ export function TemplateFieldPreview({
   maxWidth = 480,
   className,
 }: TemplateFieldPreviewProps) {
+  const { locale } = useLocale();
+  const COPY = templateFieldPreviewCopyFor(locale);
   const containerRef = React.useRef<HTMLDivElement>(null);
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
   const docRef = React.useRef<PdfDocument | null>(null);
@@ -103,7 +106,7 @@ export function TemplateFieldPreview({
       void docRef.current?.destroy();
       docRef.current = null;
     };
-  }, [file]);
+  }, [file, COPY]);
 
   // Measure the column so each page rasterizes fit-to-width (capped at maxWidth).
   React.useLayoutEffect(() => {
@@ -138,7 +141,7 @@ export function TemplateFieldPreview({
     return () => {
       cancelled = true;
     };
-  }, [docReady, page, width]);
+  }, [docReady, page, width, COPY]);
 
   const pageFields = React.useMemo(
     () => fields.filter((f) => f.page === page),
