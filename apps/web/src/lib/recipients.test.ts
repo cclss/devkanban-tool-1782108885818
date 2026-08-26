@@ -4,12 +4,17 @@ import {
   moveIndexMap,
   moveRecipient,
   normalizeEmail,
+  recipientLabel,
   recipientsComplete,
   remapFieldRecipients,
   removeIndexMap,
   validateRecipients,
   recipientMessages,
 } from './recipients';
+import {
+  getWebTranslationFallbackReport,
+  resetWebTranslationFallbackReport,
+} from './web-translations';
 import type { RecipientDraft, SignFieldDraft } from '@/components/wizard/wizard-context';
 
 function r(id: string, email: string, name = ''): RecipientDraft {
@@ -65,6 +70,30 @@ describe('validateRecipients', () => {
 
   it('is incomplete when empty', () => {
     expect(recipientsComplete([])).toBe(false);
+  });
+});
+
+describe('recipientLabel', () => {
+  it('uses the trimmed name when the recipient has one', () => {
+    expect(recipientLabel(r('1', 'a@x.com', '  김하나  '), 0, 'ko')).toBe('김하나');
+    expect(recipientLabel(r('1', 'a@x.com', 'Jane'), 2, 'en')).toBe('Jane');
+  });
+
+  it('falls back to the localized order label with the 1-based index interpolated', () => {
+    // `{n}` placeholder is filled with index + 1 in each locale.
+    expect(recipientLabel(r('1', 'a@x.com'), 0, 'ko')).toBe('받는 분 1');
+    expect(recipientLabel(r('1', 'a@x.com'), 2, 'ko')).toBe('받는 분 3');
+    expect(recipientLabel(r('1', 'a@x.com'), 0, 'en')).toBe('Recipient 1');
+    expect(recipientLabel(r('1', 'a@x.com'), 2, 'en')).toBe('Recipient 3');
+  });
+
+  it('switches the fallback label KO→EN and leaves no missing-key fallback', () => {
+    resetWebTranslationFallbackReport();
+    const ko = recipientLabel(r('1', 'a@x.com'), 0, 'ko');
+    const en = recipientLabel(r('1', 'a@x.com'), 0, 'en');
+    expect(ko).not.toBe(en);
+    expect(en.trim().length).toBeGreaterThan(0);
+    expect(getWebTranslationFallbackReport().missingKeys).toEqual([]);
   });
 });
 
