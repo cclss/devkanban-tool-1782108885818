@@ -60,7 +60,7 @@ export function DashboardHeader({
             <Link href={SETTINGS_DEFAULT_ROUTE}>{t('settings.title')}</Link>
           </Button>
           <Button variant="ghost" size="sm" onClick={onLogout}>
-            로그아웃
+            {t('header.logout')}
           </Button>
         </div>
       </div>

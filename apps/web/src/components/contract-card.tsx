@@ -9,6 +9,7 @@ import { CompletionDownload } from '@/components/completion-download';
 import { downloadOwnerArtifact, type DocumentSummary, type NextAction } from '@/lib/documents';
 import { nextActionCopy, pendingSignerLabel, urgencyLabel } from '@/lib/todo-copy';
 import { useLocale } from '@/components/locale-provider';
+import { formatRelativeTime, type Translate } from '@/lib/relative-time';
 import type { SupportedLocale } from '@/lib/locale';
 
 /**
@@ -96,7 +97,7 @@ function CardHeaderRow({
   completed: boolean;
   variant: ContractCardVariant;
 }) {
-  const { locale } = useLocale();
+  const { locale, t } = useLocale();
   const compact = variant === 'compact';
   // The list's completed card carries the 완료됨 badge inside its download region,
   // so the title row omits it there to avoid a duplicate. The compact card has no
@@ -117,7 +118,7 @@ function CardHeaderRow({
               renders nothing for NORMAL (incl. completed/cancelled). */}
           <UrgencyBadge urgency={document.urgency} label={urgencyLabel(document.urgency, locale)} />
         </div>
-        <p className="truncate text-sm text-foreground-subtle">{metaLine(document, locale)}</p>
+        <p className="truncate text-sm text-foreground-subtle">{metaLine(document, locale, t)}</p>
       </div>
       {/* The single next action as a compact hint. Completed cards render DOWNLOAD
           via the list's download region (and the compact card defers it to the
@@ -153,32 +154,17 @@ function NextActionHint({ action, locale }: { action: NextAction | null; locale:
   );
 }
 
-function metaLine(doc: DocumentSummary, locale: SupportedLocale): string {
+function metaLine(doc: DocumentSummary, locale: SupportedLocale, t: Translate): string {
   const parts: string[] = [];
-  if (doc.recipientCount > 0) parts.push(`받는 분 ${doc.recipientCount}명`);
+  if (doc.recipientCount > 0) parts.push(t('contract.metaRecipients', { n: doc.recipientCount }));
   // Signers still awaited (omitted at 0 — see todo-copy.md).
   const pending = pendingSignerLabel(doc.pendingSignerCount, locale);
   if (pending) parts.push(pending);
-  if (doc.pageCount > 0) parts.push(`${doc.pageCount}페이지`);
+  if (doc.pageCount > 0) parts.push(t('contract.metaPages', { n: doc.pageCount }));
   const sent = doc.status !== 'DRAFT' && doc.sentAt;
-  const when = formatRelative(sent ? (doc.sentAt as string) : doc.createdAt);
-  parts.push(sent ? `${when} 발송` : `${when} 생성`);
+  const when = formatRelativeTime(sent ? (doc.sentAt as string) : doc.createdAt, t);
+  parts.push(sent ? t('contract.metaSent', { when }) : t('contract.metaCreated', { when }));
   return parts.join(' · ');
-}
-
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return '방금 전';
-  if (min < 60) return `${min}분 전`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}일 전`;
-  const d = new Date(then);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function DocumentIcon() {
