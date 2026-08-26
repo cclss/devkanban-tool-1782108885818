@@ -35,8 +35,8 @@ export class SigningController {
 
   /** ① Pre-auth minimal metadata (no PDF / fields). */
   @Get(':token')
-  meta(@Param('token') token: string) {
-    return this.signing.meta(token);
+  meta(@Param('token') token: string, @Headers('accept-language') acceptLanguage?: string) {
+    return this.signing.meta(token, acceptLanguage);
   }
 
   /** ② Verify the 6-digit code → issue a short-lived signer session token. */

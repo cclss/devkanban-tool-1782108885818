@@ -32,8 +32,8 @@ export class SharePublicController {
 
   /** ① Pre-auth minimal metadata (no PDF / fields). */
   @Get(':token')
-  meta(@Param('token') token: string) {
-    return this.sharing.meta(token);
+  meta(@Param('token') token: string, @Headers('accept-language') acceptLanguage?: string) {
+    return this.sharing.meta(token, acceptLanguage);
   }
 
   /** ② Unlock (verify password if set) → short-lived share session token. */
