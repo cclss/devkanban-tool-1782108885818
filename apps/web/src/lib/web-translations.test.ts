@@ -346,6 +346,35 @@ describe('share and common namespaces', () => {
   });
 });
 
+describe('header language switch catalog', () => {
+  it('exposes the header language-switch keys in both locales', () => {
+    for (const locale of ['ko', 'en'] as const) {
+      expect(Object.keys(WEB_TRANSLATIONS[locale].header)).toEqual(
+        expect.arrayContaining(['languageSwitchLabel', 'localeKo', 'localeEn']),
+      );
+    }
+  });
+
+  it('localizes the radiogroup label per locale and shows each language endonym', () => {
+    expect(translateWeb('ko', 'header.languageSwitchLabel')).toBe('언어 선택');
+    expect(translateWeb('en', 'header.languageSwitchLabel')).toBe('Select language');
+    // Segment labels are endonyms — identical in either UI locale.
+    for (const locale of ['ko', 'en'] as const) {
+      expect(translateWeb(locale, 'header.localeKo')).toBe('한국어');
+      expect(translateWeb(locale, 'header.localeEn')).toBe('English');
+    }
+  });
+
+  it('resolves every header key with no missing-key fallback in English', () => {
+    resetWebTranslationFallbackReport();
+    for (const key of ['languageSwitchLabel', 'localeKo', 'localeEn'] as const) {
+      const resolved = translateWeb('en', `header.${key}` as WebTranslationKey);
+      expect(resolved.trim().length).toBeGreaterThan(0);
+    }
+    expect(getWebTranslationFallbackReport().missingKeys).toEqual([]);
+  });
+});
+
 describe('document metadata catalog', () => {
   it('localizes the document title and description per locale', () => {
     expect(translateWeb('ko', 'meta.title')).toBe('전자계약');

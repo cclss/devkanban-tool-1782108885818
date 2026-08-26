@@ -100,6 +100,24 @@ export function isAuthenticated(): boolean {
   return getToken() !== null;
 }
 
+/**
+ * Optimistically apply a locale preference on the client *without* waiting for
+ * the server: patch the stored user's locale, mirror the SSR cookie, and notify
+ * locale consumers so the UI flips immediately (event → `LocaleProvider`
+ * re-render → `<html lang>`). The header language switch uses this for instant
+ * apply and for its rollback path; {@link updateLocale} still confirms the
+ * authoritative, cross-session value on the server.
+ */
+export function applyLocalePreference(locale: SessionUser['locale']): void {
+  if (!isBrowser()) return;
+  const user = getUser();
+  if (user) {
+    localStorage.setItem(USER_KEY, JSON.stringify({ ...user, locale }));
+  }
+  writeLocaleCookie(locale);
+  notifySessionChange();
+}
+
 /** Update the persisted sender preference and notify locale consumers immediately. */
 export async function updateLocale(locale: SessionUser['locale']): Promise<SessionUser> {
   const user = await apiFetch<SessionUser>('/auth/locale', {

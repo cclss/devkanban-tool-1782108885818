@@ -6,6 +6,7 @@ import { Button } from '@repo/ui';
 import type { SessionUser } from '@/lib/auth';
 import { useBranding } from '@/components/branding-provider';
 import { useTranslation } from '@/components/locale-provider';
+import { LanguageSwitch } from '@/components/language-switch';
 import { SETTINGS_DEFAULT_ROUTE } from '@/lib/settings-copy';
 
 /**
@@ -51,6 +52,7 @@ export function DashboardHeader({
           )}
         </Link>
         <div className="flex items-center gap-xs">
+          <LanguageSwitch />
           {user?.email ? (
             <span className="hidden text-sm text-foreground-subtle sm:inline">{user.email}</span>
           ) : null}
