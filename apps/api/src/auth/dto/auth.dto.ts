@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
+import { IsEmail, IsIn, IsNotEmpty, IsOptional, IsString, MaxLength, MinLength } from 'class-validator';
 
 export class RegisterDto {
   @IsEmail()
@@ -30,4 +30,9 @@ export class GoogleAuthDto {
   @IsString()
   @IsNotEmpty()
   code!: string;
+}
+
+export class UpdateLocaleDto {
+  @IsIn(['ko', 'en'])
+  locale!: 'ko' | 'en';
 }

@@ -35,15 +35,10 @@ import { normToPx, type PageSize } from '@/lib/field-geometry';
 import { useFill, type FillField, type FillFieldValue } from './fill-context';
 import { BrandingHeader } from './branding-header';
 import { SignatureInputSheet } from './signature-sheet';
+import { signerCopyFor } from '@/lib/signing';
+import { useLocale } from '@/components/locale-provider';
 
 type LoadStatus = 'loading' | 'ready' | 'error';
-
-/** Korean field-type label, reused for accessibility copy. */
-const TYPE_LABEL: Record<SignFieldType, string> = {
-  SIGNATURE: '서명',
-  DATE: '날짜',
-  TEXT: '텍스트',
-};
 
 /** Stable DOM id so the CTA / a tap can scroll a field into view. */
 function fieldDomId(id: string): string {
@@ -61,6 +56,8 @@ function topOf(field: FillField): number {
 }
 
 export function DocumentViewer() {
+  const { locale } = useLocale();
+  const localeCopy = signerCopyFor(locale);
   const {
     sender,
     brandColor,
@@ -236,6 +233,7 @@ export function DocumentViewer() {
               fieldValues={fieldValues}
               affordance={copy.fieldAffordance}
               pageError={copy.pageError}
+              localeCopy={localeCopy}
               onFieldTap={onFieldTap}
             />
           ))
@@ -278,6 +276,7 @@ interface PdfPageViewProps {
   fieldValues: Record<string, FillFieldValue>;
   affordance: Record<SignFieldType, string>;
   pageError: (pageNumber: number) => string;
+  localeCopy: ReturnType<typeof signerCopyFor>;
   onFieldTap: (field: FillField) => void;
 }
 
@@ -290,6 +289,7 @@ function PdfPageView({
   fieldValues,
   affordance,
   pageError,
+  localeCopy,
   onFieldTap,
 }: PdfPageViewProps) {
   const canvasRef = React.useRef<HTMLCanvasElement>(null);
@@ -331,7 +331,7 @@ function PdfPageView({
       <canvas
         ref={canvasRef}
         role="img"
-        aria-label={`계약 ${pageNumber}페이지`}
+        aria-label={localeCopy.pageAria(pageNumber)}
         className={cn(
           'block w-full rounded-sm border border-border bg-surface shadow-sm',
           ready ? 'animate-fade-in' : 'hidden',
@@ -347,6 +347,7 @@ function PdfPageView({
               pageSize={pageSize}
               value={fieldValues[field.id]}
               affordance={affordance}
+              localeCopy={localeCopy}
               onTap={() => onFieldTap(field)}
             />
           ))}
@@ -361,11 +362,12 @@ interface FieldOverlayProps {
   pageSize: PageSize;
   value: FillFieldValue | undefined;
   affordance: Record<SignFieldType, string>;
+  localeCopy: ReturnType<typeof signerCopyFor>;
   onTap: () => void;
 }
 
 /** A single field box positioned over the page: pulse affordance, or its value. */
-function FieldOverlay({ field, pageSize, value, affordance, onTap }: FieldOverlayProps) {
+function FieldOverlay({ field, pageSize, value, affordance, localeCopy, onTap }: FieldOverlayProps) {
   const rect = normToPx(field, pageSize);
   const style: React.CSSProperties = {
     left: rect.left,
@@ -373,17 +375,17 @@ function FieldOverlay({ field, pageSize, value, affordance, onTap }: FieldOverla
     width: rect.width,
     height: rect.height,
   };
-  const label = TYPE_LABEL[field.type];
+  const label = localeCopy.fieldLabel[field.type];
 
   if (value != null || field.filled) {
     return (
       <div
         id={fieldDomId(field.id)}
-        aria-label={`${label} 필드, 작성 완료`}
+        aria-label={localeCopy.fieldCompleteAria(label)}
         className="absolute flex items-center justify-center overflow-hidden rounded-sm border border-success bg-success-subtle/30"
         style={style}
       >
-        <FieldValueContent field={field} value={value} />
+        <FieldValueContent field={field} value={value} localeCopy={localeCopy} />
       </div>
     );
   }
@@ -393,7 +395,7 @@ function FieldOverlay({ field, pageSize, value, affordance, onTap }: FieldOverla
       type="button"
       id={fieldDomId(field.id)}
       onClick={onTap}
-      aria-label={`${label} 필드, 탭하여 입력해 주세요`}
+      aria-label={localeCopy.fieldInputAria(label)}
       className={cn(
         'field-pulse animate-breathing-pulse absolute flex items-center justify-center rounded-sm',
         'border-2 border-primary bg-primary-subtle/40 text-2xs font-bold text-primary',
@@ -413,17 +415,19 @@ function FieldOverlay({ field, pageSize, value, affordance, onTap }: FieldOverla
 function FieldValueContent({
   field,
   value,
+  localeCopy,
 }: {
   field: FillField;
   value: FillFieldValue | undefined;
+  localeCopy: ReturnType<typeof signerCopyFor>;
 }) {
   // Server-saved on a resumed session but not re-fetched into the client.
   if (!value) {
-    return <span className="truncate px-2xs text-2xs font-semibold text-success">작성됨</span>;
+    return <span className="truncate px-2xs text-2xs font-semibold text-success">{localeCopy.fieldCompleted}</span>;
   }
   if (value.type === 'SIGNATURE') {
     // eslint-disable-next-line @next/next/no-img-element -- in-memory data URL, not a remote asset
-    return <img src={value.dataUrl} alt={`${TYPE_LABEL[field.type]} 입력값`} className="h-full w-full object-contain" />;
+    return <img src={value.dataUrl} alt={localeCopy.fieldValueAlt(localeCopy.fieldLabel[field.type])} className="h-full w-full object-contain" />;
   }
   const fontFamily = value.type === 'TEXT' ? value.fontFamily : undefined;
   return (

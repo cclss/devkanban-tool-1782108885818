@@ -14,7 +14,8 @@ import * as React from 'react';
 import { Button } from '@repo/ui';
 import { ApiError } from '@/lib/api';
 import { brandStyle } from '@/lib/branding';
-import { SIGNER_COPY, type SigningMeta } from '@/lib/signing';
+import { type SigningMeta } from '@/lib/signing';
+import { useTranslation } from '@/components/locale-provider';
 import { useSigner } from './signer-context';
 import { BrandingHeader } from './branding-header';
 import { OtpInput } from './otp-input';
@@ -23,6 +24,7 @@ const CODE_LENGTH = 6;
 
 export function VerifyScreen({ meta }: { meta: SigningMeta }) {
   const { verify } = useSigner();
+  const t = useTranslation();
 
   const [code, setCode] = React.useState('');
   const [submitting, setSubmitting] = React.useState(false);
@@ -41,14 +43,14 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
         setError(
           err instanceof ApiError
             ? err.message
-            : '문제가 생겼어요. 잠시 후 다시 시도해 주세요.',
+            : t('signer.genericError'),
         );
         setCode('');
         setShakeNonce((n) => n + 1);
         setSubmitting(false);
       }
     },
-    [submitting, verify],
+    [submitting, verify, t],
   );
 
   return (
@@ -59,8 +61,8 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
       <BrandingHeader sender={meta.sender} />
 
       <div className="motion-stagger mt-2xl flex flex-1 flex-col">
-        <h1 className="text-2xl font-bold text-foreground">{SIGNER_COPY.verifyTitle}</h1>
-        <p className="mt-2xs text-base text-foreground-subtle">{SIGNER_COPY.verifyHint}</p>
+        <h1 className="text-2xl font-bold text-foreground">{t('signer.verifyTitle')}</h1>
+        <p className="mt-2xs text-base text-foreground-subtle">{t('signer.verifyHint')}</p>
 
         <p className="mt-lg truncate rounded-md bg-surface-muted px-md py-sm text-sm font-medium text-foreground-muted">
           {meta.documentTitle}
@@ -78,7 +80,7 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
             invalid={Boolean(error)}
             shakeNonce={shakeNonce}
             autoFocus
-            aria-label={SIGNER_COPY.codeLabel}
+            aria-label={t('signer.codeLabel')}
           />
           <p
             role="alert"
@@ -97,7 +99,7 @@ export function VerifyScreen({ meta }: { meta: SigningMeta }) {
           isLoading={submitting}
           onClick={() => submit(code)}
         >
-          {submitting ? '확인 중' : '본인확인'}
+          {submitting ? t('signer.verifying') : t('signer.verify')}
         </Button>
       </div>
     </main>

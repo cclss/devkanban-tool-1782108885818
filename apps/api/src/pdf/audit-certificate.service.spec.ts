@@ -1,4 +1,5 @@
 import { PDFDocument } from 'pdf-lib';
+import { SERVER_TRANSLATIONS } from '../i18n/server-translations';
 import {
   AuditCertificateService,
   type AuditCertificateInput,
@@ -10,6 +11,7 @@ const SHA_B = 'b'.repeat(64);
 /** A fully-populated, fixed input — all timestamps are literals (deterministic). */
 function makeInput(overrides: Partial<AuditCertificateInput> = {}): AuditCertificateInput {
   return {
+    locale: 'ko',
     document: {
       id: 'doc_abc123',
       title: '용역 위탁 계약서',
@@ -66,6 +68,34 @@ describe('AuditCertificateService.generate', () => {
     const doc = await PDFDocument.load(out);
     expect(doc.getPageCount()).toBeGreaterThanOrEqual(1);
     expect(doc.getTitle()).toBe('감사 추적 인증서');
+  });
+
+  it('uses English resources for an English audit certificate', async () => {
+    const input = makeInput({
+      locale: 'en',
+      document: {
+        id: 'doc_abc123',
+        title: 'Service Agreement',
+        pageCount: 3,
+        sentAt: '2026-06-20T01:00:00.000Z',
+        completedAt: '2026-06-23T08:30:45.000Z',
+      },
+      sender: { name: 'Toss Corporation', email: 'sender@toss.im', brandColor: null },
+      participants: [{
+        name: 'Jane Doe',
+        email: 'jane@example.com',
+        order: 1,
+        verificationMethod: '6-digit verification code',
+        signedAt: '2026-06-23T08:30:00.000Z',
+      }],
+      events: [{ action: 'DOCUMENT_COMPLETED', occurredAt: '2026-06-23T08:30:45.000Z', actorRole: 'SYSTEM' }],
+      serviceName: 'eContract',
+    });
+    const out = await service.generate(input);
+    const doc = await PDFDocument.load(out);
+
+    expect(doc.getTitle()).toBe('Audit Trail Certificate');
+    expect(Object.values(SERVER_TRANSLATIONS.en.auditCertificate).every((copy) => !/[가-힣]/.test(copy))).toBe(true);
   });
 
   it('is deterministic — identical input yields byte-identical output', async () => {

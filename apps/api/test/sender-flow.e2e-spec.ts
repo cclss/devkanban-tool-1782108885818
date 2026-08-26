@@ -73,6 +73,7 @@ describe('Sender flow (e2e)', () => {
     expect(res.body.accessToken).toBeDefined();
     expect(res.body.user.email).toBe(email);
     expect(res.body.user.plan).toBe('FREE');
+    expect(res.body.user.locale).toBe('ko');
     token = res.body.accessToken;
     userId = res.body.user.id;
   });
@@ -83,7 +84,35 @@ describe('Sender flow (e2e)', () => {
       .send({ email, password })
       .expect(200);
     expect(res.body.accessToken).toBeDefined();
+    expect(res.body.user.locale).toBe('ko');
     token = res.body.accessToken;
+  });
+
+  it('persists a locale change for the current session, refresh, and next login', async () => {
+    const update = await request(app.getHttpServer())
+      .post('/api/auth/locale')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ locale: 'en' })
+      .expect(201);
+
+    expect(update.body).toMatchObject({ id: userId, email, locale: 'en' });
+
+    // A refreshed client reads the authenticated user's persisted preference.
+    const res = await request(app.getHttpServer())
+      .get('/api/auth/me')
+      .set('Authorization', `Bearer ${token}`)
+      .expect(200);
+
+    expect(res.body).toMatchObject({ id: userId, email, locale: 'en' });
+
+    // A new authentication response must carry the same saved preference.
+    const relogin = await request(app.getHttpServer())
+      .post('/api/auth/login')
+      .send({ email, password })
+      .expect(200);
+
+    expect(relogin.body.user).toMatchObject({ id: userId, email, locale: 'en' });
+    token = relogin.body.accessToken;
   });
 
   it('rejects a wrong password with a Korean message', async () => {

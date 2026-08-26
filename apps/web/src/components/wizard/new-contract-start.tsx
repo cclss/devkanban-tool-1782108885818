@@ -36,6 +36,7 @@ import {
   type TemplateSummary,
 } from '@/lib/templates';
 import { NEW_CONTRACT_COPY as COPY } from '@/lib/new-contract-copy';
+import { useTranslation } from '@/components/locale-provider';
 import { TemplateCard } from '@/components/template-card';
 import { ContractWizard } from './contract-wizard';
 import { nextFieldId } from './field-canvas';
@@ -184,18 +185,19 @@ export function NewContractStart() {
 /** Centered page shell shared by every pre-wizard view. */
 function StartShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
+  const t = useTranslation();
   return (
     <div className="flex min-h-[100dvh] flex-col bg-background">
       <header className="sticky top-0 z-30 border-b border-border bg-surface">
         <div className="mx-auto flex w-full max-w-[760px] items-center justify-between px-md py-sm">
-          <span className="text-base font-bold tracking-tight text-primary">전자계약</span>
+          <span className="text-base font-bold tracking-tight text-primary">{t('wizard.product')}</span>
           <Button
             variant="ghost"
             size="sm"
             onClick={() => router.push('/dashboard')}
-            aria-label="계약 생성 나가기"
+            aria-label={t('wizard.exitLabel')}
           >
-            나가기
+            {t('wizard.exit')}
           </Button>
         </div>
       </header>
@@ -212,22 +214,23 @@ function StartChoice({
   onUpload: () => void;
   onFromTemplate: () => void;
 }) {
+  const t = useTranslation();
   return (
     <div className="flex flex-col gap-xl">
       <div className="flex flex-col gap-2xs">
-        <h1 className="text-2xl font-bold text-foreground">{COPY.chooseTitle}</h1>
-        <p className="text-base text-foreground-subtle">{COPY.chooseSubtitle}</p>
+        <h1 className="text-2xl font-bold text-foreground">{t('wizard.chooseTitle')}</h1>
+        <p className="text-base text-foreground-subtle">{t('wizard.chooseSubtitle')}</p>
       </div>
       <div className="grid gap-md sm:grid-cols-2">
         <ChoiceCard
-          title={COPY.uploadTitle}
-          body={COPY.uploadBody}
+          title={t('wizard.uploadTitle')}
+          body={t('wizard.uploadBody')}
           onClick={onUpload}
           icon={<UploadIcon />}
         />
         <ChoiceCard
-          title={COPY.fromTemplateTitle}
-          body={COPY.fromTemplateBody}
+          title={t('wizard.templateTitle')}
+          body={t('wizard.templateBody')}
           onClick={onFromTemplate}
           icon={<TemplateIcon />}
         />

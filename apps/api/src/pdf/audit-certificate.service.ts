@@ -11,6 +11,8 @@ import {
 import { embedKoreanFont } from './korean-font';
 import { auditActionLabel } from './audit-action-labels';
 import { maskEmail, maskIp, maskName } from '../common/masking';
+import type { SupportedLocale } from '../i18n/locale-resolver';
+import { SERVER_TRANSLATIONS, translate, type TranslationKey } from '../i18n/server-translations';
 
 /* ────────────────────────────────────────────────────────────────────────────
  * Input boundary
@@ -51,6 +53,8 @@ export interface AuditEvent {
 }
 
 export interface AuditCertificateInput {
+  /** Resolved completion-output locale. */
+  locale: SupportedLocale;
   document: {
     id: string;
     title: string;
@@ -154,8 +158,6 @@ const LABEL_COL_WIDTH = 132; // fixed label column for 2-col label/value rows
 const FAUX_BOLD_RATIO = 0.025;
 
 const HEX_COLOR = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/;
-const DEFAULT_SERVICE_NAME = '전자계약';
-
 /**
  * Generates the audit-trail certificate PDF — a standalone legal record of a
  * contract's full history and integrity, laid out per the `audit-certificate`
@@ -174,14 +176,14 @@ export class AuditCertificateService {
     const issued = toDate(input.issuedAt);
     doc.setProducer('esign-saas');
     doc.setCreator('esign-saas');
-    doc.setTitle('감사 추적 인증서');
+    doc.setTitle(t(input.locale, 'title'));
     doc.setCreationDate(issued);
     doc.setModificationDate(issued);
 
     const font = await embedKoreanFont(doc);
     const mono = await doc.embedFont(StandardFonts.Courier);
     const primary = resolveBrandColor(input.sender.brandColor);
-    const serviceName = input.serviceName?.trim() || DEFAULT_SERVICE_NAME;
+    const serviceName = input.serviceName?.trim() || translate(input.locale, 'completionEmail.serviceName');
 
     const r = new Renderer(doc, font, mono, primary);
 
@@ -224,14 +226,14 @@ export class AuditCertificateService {
       color: primary,
       bold: WEIGHT_BOLD,
     });
-    r.drawText(input.sender.name ?? '발신자', MARGIN_X + monoSize + SPACE.sm, r.cursor - monoSize + 9, {
+    r.drawText(input.sender.name ?? t(input.locale, 'senderFallback'), MARGIN_X + monoSize + SPACE.sm, r.cursor - monoSize + 9, {
       size: SIZE.body,
       color: COLOR.foregroundMuted,
     });
     r.cursor -= monoSize + SPACE.lg;
 
     // Document-kind title (highest hierarchy).
-    r.drawText('감사 추적 인증서', MARGIN_X, r.cursor - SIZE.coverTitle, {
+    r.drawText(t(input.locale, 'title'), MARGIN_X, r.cursor - SIZE.coverTitle, {
       size: SIZE.coverTitle,
       color: COLOR.foreground,
       bold: WEIGHT_BOLD,
@@ -246,9 +248,9 @@ export class AuditCertificateService {
     r.cursor -= SPACE.lg;
 
     // Issue meta + certificate ID.
-    r.drawLabelValue('발급 일시', `${fmtDateTime(input.issuedAt)} (KST)`);
-    r.drawLabelValue('인증서 고유 ID', input.certificateId);
-    r.drawLabelValue('대상 문서 ID', input.document.id);
+    r.drawLabelValue(t(input.locale, 'issuedAt'), `${fmtDateTime(input.issuedAt)} (KST)`);
+    r.drawLabelValue(t(input.locale, 'certificateId'), input.certificateId);
+    r.drawLabelValue(t(input.locale, 'documentId'), input.document.id);
 
     r.cursor -= SPACE.md;
     r.drawDivider();
@@ -257,26 +259,26 @@ export class AuditCertificateService {
 
   /** 계약 요약: label/value pairs + completion status pill. */
   private drawContractSummary(r: Renderer, input: AuditCertificateInput): void {
-    r.startSection('계약 요약', 6 * (SIZE.body + SPACE.sm));
-    r.drawLabelValue('계약명', input.document.title);
-    r.drawLabelValue('원본 문서 페이지 수', `${input.document.pageCount}쪽`);
-    r.drawLabelValue('발신자', input.sender.name ?? '—');
-    r.drawLabelValue('발신자 이메일', input.sender.email);
-    r.drawLabelValue('발송 일시', input.document.sentAt ? `${fmtDateTime(input.document.sentAt)} (KST)` : '—');
+    r.startSection(t(input.locale, 'contractSummary'), 6 * (SIZE.body + SPACE.sm));
+    r.drawLabelValue(t(input.locale, 'contractName'), input.document.title);
+    r.drawLabelValue(t(input.locale, 'originalPageCount'), interpolate(t(input.locale, 'originalPageCount'), { count: input.document.pageCount }));
+    r.drawLabelValue(t(input.locale, 'sender'), input.sender.name ?? '—');
+    r.drawLabelValue(t(input.locale, 'senderEmail'), input.sender.email);
+    r.drawLabelValue(t(input.locale, 'sentAt'), input.document.sentAt ? `${fmtDateTime(input.document.sentAt)} (KST)` : '—');
     r.drawLabelValue(
-      '완료 일시',
+      t(input.locale, 'completedAt'),
       input.document.completedAt ? `${fmtDateTime(input.document.completedAt)} (KST)` : '—',
     );
-    r.drawStatusRow('최종 상태', '완료됨');
+    r.drawStatusRow(t(input.locale, 'finalStatus'), t(input.locale, 'completed'));
     r.cursor -= SPACE.xl;
   }
 
   /** 참여자: one row per signer (name/email masked, order, method, signed-at). */
   private drawParticipants(r: Renderer, input: AuditCertificateInput): void {
-    r.startSection('참여자', 3 * (SIZE.body + SIZE.timeline + SPACE.sm));
+    r.startSection(t(input.locale, 'participants'), 3 * (SIZE.body + SIZE.timeline + SPACE.sm));
 
     if (input.participants.length === 0) {
-      r.drawText('등록된 서명자가 없어요.', MARGIN_X, r.cursor - SIZE.body, {
+      r.drawText(t(input.locale, 'noParticipants'), MARGIN_X, r.cursor - SIZE.body, {
         size: SIZE.body,
         color: COLOR.foregroundMuted,
       });
@@ -300,8 +302,8 @@ export class AuditCertificateService {
       });
       r.cursor -= SIZE.body + SPACE.xs;
       // Secondary line: verification method · signed-at
-      const signed = p.signedAt ? `${fmtDateTimeSec(p.signedAt)} (KST)` : '서명 전';
-      r.drawText(`본인확인: ${p.verificationMethod}   ·   서명 완료: ${signed}`, MARGIN_X, r.cursor - SIZE.timeline, {
+      const signed = p.signedAt ? `${fmtDateTimeSec(p.signedAt)} (KST)` : t(input.locale, 'unsigned');
+      r.drawText(`${t(input.locale, 'verification')}: ${p.verificationMethod}   ·   ${t(input.locale, 'signedAt')}: ${signed}`, MARGIN_X, r.cursor - SIZE.timeline, {
         size: SIZE.timeline,
         color: COLOR.foregroundMuted,
       });
@@ -314,7 +316,7 @@ export class AuditCertificateService {
 
   /** 이벤트 타임라인: ascending events with time axis + Korean action labels. */
   private drawTimeline(r: Renderer, input: AuditCertificateInput): void {
-    r.startSection('이벤트 타임라인', 2 * (SIZE.body + SIZE.timeline + SPACE.md));
+    r.startSection(t(input.locale, 'timeline'), 2 * (SIZE.body + SIZE.timeline + SPACE.md));
 
     const ordered = [...input.events].sort(
       (a, b) => toDate(a.occurredAt).getTime() - toDate(b.occurredAt).getTime(),
@@ -333,13 +335,13 @@ export class AuditCertificateService {
       // Timeline dot.
       r.page.drawCircle({ x: textX - SPACE.md, y: top - SIZE.timeline + 3, size: 2.5, color: resolveBrandColor(input.sender.brandColor) });
       // Right: action label (primary) + actor/IP (secondary).
-      r.drawText(auditActionLabel(e.action), textX, top - SIZE.body, {
+      r.drawText(auditActionLabel(input.locale, e.action), textX, top - SIZE.body, {
         size: SIZE.body,
         color: COLOR.foreground,
         bold: WEIGHT_BOLD,
       });
       r.cursor = top - SIZE.body - SPACE.xs;
-      const actor = resolveActor(e);
+      const actor = resolveActor(input.locale, e);
       const ip = e.ipAddress ? ` · IP ${maskIp(e.ipAddress)}` : '';
       r.drawText(`${actor}${ip}`, textX, r.cursor - SIZE.timeline, {
         size: SIZE.timeline,
@@ -352,12 +354,12 @@ export class AuditCertificateService {
 
   /** 문서 무결성 지문: algorithm + original & final SHA-256 (mono, wrapped). */
   private drawIntegrity(r: Renderer, input: AuditCertificateInput): void {
-    r.startSection('문서 무결성 지문', 4 * (SIZE.mono + SPACE.sm));
-    r.drawLabelValue('해시 알고리즘', 'SHA-256');
-    r.drawLabelValue('인증서 발급', `${fmtDateTimeSec(input.issuedAt)} (KST)`);
+    r.startSection(t(input.locale, 'integrity'), 4 * (SIZE.mono + SPACE.sm));
+    r.drawLabelValue(t(input.locale, 'hashAlgorithm'), 'SHA-256');
+    r.drawLabelValue(t(input.locale, 'certificateIssued'), `${fmtDateTimeSec(input.issuedAt)} (KST)`);
     r.cursor -= SPACE.sm;
 
-    r.drawText('원본 계약서', MARGIN_X, r.cursor - SIZE.label, {
+    r.drawText(t(input.locale, 'originalContract'), MARGIN_X, r.cursor - SIZE.label, {
       size: SIZE.label,
       color: COLOR.foregroundSubtle,
       bold: WEIGHT_BOLD,
@@ -366,7 +368,7 @@ export class AuditCertificateService {
     r.drawMono(input.originalPdfSha256);
     r.cursor -= SPACE.sm;
 
-    r.drawText('최종 계약서', MARGIN_X, r.cursor - SIZE.label, {
+    r.drawText(t(input.locale, 'finalContract'), MARGIN_X, r.cursor - SIZE.label, {
       size: SIZE.label,
       color: COLOR.foregroundSubtle,
       bold: WEIGHT_BOLD,
@@ -537,11 +539,21 @@ function mixWhite(color: Color, ratioBase: number): Color {
 }
 
 /** Display actor for a timeline event: sender raw, signer masked, else 시스템. */
-function resolveActor(e: AuditEvent): string {
-  if (e.actorRole === 'SYSTEM') return '시스템';
-  if (e.actorRole === 'SENDER') return e.actorName?.trim() || '발신자';
+function resolveActor(locale: SupportedLocale, e: AuditEvent): string {
+  if (e.actorRole === 'SYSTEM') return t(locale, 'system');
+  if (e.actorRole === 'SENDER') return e.actorName?.trim() || t(locale, 'senderFallback');
   if (e.actorName && e.actorName.trim().length > 0) return maskName(e.actorName);
-  return '시스템';
+  return t(locale, 'system');
+}
+
+type AuditCertificateTranslationKey = keyof (typeof SERVER_TRANSLATIONS)['ko']['auditCertificate'];
+
+function t(locale: SupportedLocale, key: AuditCertificateTranslationKey): string {
+  return translate(locale, `auditCertificate.${key}` as TranslationKey);
+}
+
+function interpolate(template: string, values: Record<string, string | number>): string {
+  return template.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? ''));
 }
 
 function toDate(value: Date | string): Date {

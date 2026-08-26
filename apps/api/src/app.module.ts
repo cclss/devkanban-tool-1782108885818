@@ -13,6 +13,7 @@ import { SharingModule } from './sharing/sharing.module';
 import { PdfModule } from './pdf/pdf.module';
 import { CompletionModule } from './completion/completion.module';
 import { BrandingModule } from './branding/branding.module';
+import { I18nModule } from './i18n/i18n.module';
 
 @Module({
   imports: [
@@ -29,6 +30,7 @@ import { BrandingModule } from './branding/branding.module';
     PdfModule,
     CompletionModule,
     BrandingModule,
+    I18nModule,
     HealthModule,
   ],
 })

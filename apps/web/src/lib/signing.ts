@@ -19,7 +19,7 @@
 
 import { ApiError, apiDownload, apiFetch, apiUrl } from './api';
 import {
-  COMPLETION_DOWNLOAD_COPY,
+  completionDownloadCopyFor,
   saveBlob,
   type CompletionArtifact,
 } from './completion-download';
@@ -40,6 +40,7 @@ export interface SignerSender {
   name: string | null;
   brandColor: string | null;
   brandLogoUrl: string | null;
+  locale: 'ko' | 'en';
 }
 
 /** Pre-verification metadata for the landing screen (no PDF / fields). */
@@ -48,6 +49,8 @@ export interface SigningMeta {
   pageCount: number;
   documentStatus: SigningDocumentStatus;
   sender: SignerSender;
+  /** Server-resolved public-link locale, useful to non-React consumers. */
+  locale: 'ko' | 'en';
   recipientNameMasked: string | null;
   status: SignRequestStatus;
   alreadySigned: boolean;
@@ -90,6 +93,17 @@ export const SIGNER_COPY = {
   verifyHint: '문자로 받은 6자리 인증 코드를 입력해 주세요.',
   codeLabel: '인증 코드',
   loading: '잠시만 기다려 주세요.',
+  senderFallback: '발신자', senderContract: '님이 보낸 계약', logoAlt: '로고',
+  fieldLabel: { SIGNATURE: '서명', DATE: '날짜', TEXT: '텍스트' },
+  pageAria: (page: number) => `계약 ${page}페이지`,
+  fieldCompleteAria: (label: string) => `${label} 필드, 작성 완료`,
+  fieldInputAria: (label: string) => `${label} 필드, 탭하여 입력해 주세요`,
+  fieldCompleted: '작성됨', fieldValueAlt: (label: string) => `${label} 입력값`,
+  modeLabel: '서명 입력 방식', close: '닫기', signaturePadAria: '서명 그리기 영역',
+  pageError: (page: number) => `${page}페이지를 불러올 수 없어요.`,
+  progress: (total: number, done: number) => `서명할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
+  progressNone: '서명할 항목이 없어요.', progressAllDone: '모든 항목을 작성했어요.',
+  dateHint: '서명한 날짜를 입력해 주세요.', textHint: '필요한 내용을 입력해 주세요.',
   // Friendly terminal screens for non-signable links (mirror the server catalog).
   alreadySignedTitle: '서명을 완료했어요',
   alreadySigned: '이미 서명을 완료한 계약이에요.',
@@ -119,6 +133,9 @@ export const SIGNER_COPY = {
     /** Mode toggle labels for a signature field. */
     modeDraw: '그리기',
     modeType: '입력',
+    modeLabel: '서명 입력 방식',
+    close: '닫기',
+    signaturePadAria: '서명 그리기 영역',
     drawHint: '아래 칸에 손가락이나 펜으로 서명해 주세요.',
     typeHint: '이름을 입력하고 마음에 드는 글씨체를 골라 주세요.',
     typePlaceholder: '이름',
@@ -144,6 +161,39 @@ export const SIGNER_COPY = {
   /** Final-CTA failure fallback (no blame, just retry) — when the server gives none. */
   completeError: '서명을 완료하지 못했어요. 잠시 후 다시 시도해 주세요.',
 } as const;
+
+/** Public signing chrome is resolved from the sender/browser locale at render time. */
+export type SignerCopy = WidenStrings<typeof SIGNER_COPY>;
+type WidenStrings<T> = T extends (...args: infer Args) => infer Result
+  ? (...args: Args) => Result
+  : T extends string
+    ? string
+    : { [K in keyof T]: WidenStrings<T[K]> };
+
+export function signerCopyFor(locale: 'ko' | 'en'): SignerCopy {
+  if (locale === 'ko') return SIGNER_COPY;
+  return {
+    ...SIGNER_COPY,
+    verifyTitle: 'Verify your identity', verifyHint: 'Enter the 6-digit verification code sent by text message.', codeLabel: 'Verification code', loading: 'Please wait.',
+    senderFallback: 'Sender', senderContract: 'sent you a contract', logoAlt: 'logo',
+    fieldLabel: { SIGNATURE: 'Signature', DATE: 'Date', TEXT: 'Text' },
+    pageAria: (page: number) => `Contract page ${page}`,
+    fieldCompleteAria: (label: string) => `${label} field, completed`,
+    fieldInputAria: (label: string) => `${label} field, tap to enter a value`,
+    fieldCompleted: 'Completed', fieldValueAlt: (label: string) => `${label} value`,
+    modeLabel: 'Signature input method', close: 'Close', signaturePadAria: 'Signature drawing area',
+    pageError: (page: number) => `We could not load page ${page}.`,
+    progress: (total: number, done: number) => `Completed ${done} of ${total} signing fields.`,
+    progressNone: 'There are no fields to sign.', progressAllDone: 'All fields are complete.',
+    dateHint: 'Enter the signing date.', textHint: 'Enter the required text.',
+    alreadySignedTitle: 'Signing is complete', alreadySigned: 'You have already signed this contract.', unavailableTitle: 'This contract is unavailable for signing', unavailable: 'This contract can no longer be signed. Contact the sender.', invalidLinkTitle: 'Check your link', invalidLink: 'This signing link is invalid. Ask the sender for a new link.',
+    viewerCtaContinue: 'Sign', viewerCtaComplete: 'Complete signing', viewerLoadError: 'We could not load the document. Please try again shortly.', fieldFilled: 'Completed',
+    fieldAffordance: { SIGNATURE: 'Sign here', DATE: 'Enter date', TEXT: 'Enter text' },
+    sheet: { ...SIGNER_COPY.sheet, title: { SIGNATURE: 'Add signature', DATE: 'Enter date', TEXT: 'Enter text' }, modeDraw: 'Draw', modeType: 'Type', modeLabel: 'Signature input method', close: 'Close', signaturePadAria: 'Signature drawing area', drawHint: 'Sign in the box below with your finger or pen.', typeHint: 'Enter your name and choose a font.', typePlaceholder: 'Name', fontLabel: 'Font', dateLabel: 'Date', textLabel: 'Text', textPlaceholder: 'Enter text', reset: 'Reset', apply: 'Apply', saveError: 'We could not save your signature. Please try again shortly.' },
+    done: { title: 'Signing complete!', body: 'Your signature has been delivered securely.', documentLabel: 'Signed document', nextAllDone: 'All signatures are complete. We will email the completed contract.', nextWaiting: 'We will email the completed contract when the other signatures are complete.' },
+    completeError: 'We could not complete signing. Please try again shortly.',
+  };
+}
 
 // --- session token persistence ----------------------------------------------
 
@@ -281,6 +331,7 @@ export async function downloadSignerArtifact(
   accessToken: string,
   kind: CompletionArtifact,
   fallbackTitle: string,
+  locale: 'ko' | 'en' = 'ko',
 ): Promise<void> {
   const session = getSignerSession(accessToken);
   if (!session) throw new ApiError(SIGNER_COPY.completeError, 401);
@@ -288,7 +339,8 @@ export async function downloadSignerArtifact(
   const { blob, filename } = await apiDownload(`${base(accessToken)}/download/${kind}`, {
     token: session,
   });
-  saveBlob(blob, filename ?? `${fallbackTitle} (${COMPLETION_DOWNLOAD_COPY.items[kind].title}).pdf`);
+  const copy = completionDownloadCopyFor(locale);
+  saveBlob(blob, filename ?? `${fallbackTitle} (${copy.items[kind].title}).pdf`);
 }
 
 /**

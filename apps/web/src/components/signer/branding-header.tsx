@@ -12,6 +12,8 @@
 import * as React from 'react';
 import { cn } from '@repo/ui';
 import type { SignerSender } from '@/lib/signing';
+import { signerCopyFor } from '@/lib/signing';
+import { useLocale } from '@/components/locale-provider';
 
 export function BrandingHeader({
   sender,
@@ -20,7 +22,9 @@ export function BrandingHeader({
   sender: SignerSender;
   className?: string;
 }) {
-  const name = sender.name?.trim() || '발신자';
+  const { locale } = useLocale();
+  const copy = signerCopyFor(locale);
+  const name = sender.name?.trim() || copy.senderFallback;
   const monogram = name.charAt(0);
 
   return (
@@ -29,7 +33,7 @@ export function BrandingHeader({
         // eslint-disable-next-line @next/next/no-img-element -- remote sender logo, arbitrary host
         <img
           src={sender.brandLogoUrl}
-          alt={`${name} 로고`}
+          alt={`${name} ${copy.logoAlt}`}
           className="h-10 w-10 rounded-md object-contain"
         />
       ) : (
@@ -42,7 +46,7 @@ export function BrandingHeader({
       )}
       <div className="flex min-w-0 flex-col">
         <span className="truncate text-base font-bold text-foreground">{name}</span>
-        <span className="text-xs text-foreground-subtle">님이 보낸 계약</span>
+        <span className="text-xs text-foreground-subtle">{copy.senderContract}</span>
       </div>
     </div>
   );

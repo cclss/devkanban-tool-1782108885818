@@ -22,7 +22,8 @@
 
 import * as React from 'react';
 import { ApiError } from '@/lib/api';
-import { SIGNER_COPY } from '@/lib/signing';
+import { useLocale } from '@/components/locale-provider';
+import { signerCopyFor } from '@/lib/signing';
 import {
   fetchShareMeta,
   fetchSharePayload,
@@ -34,7 +35,7 @@ import {
   unlockShare,
   metaBlockReason,
   unlockBlockReason,
-  SHARE_RECIPIENT_COPY,
+  shareRecipientCopyFor,
   type ShareBlockReason,
   type ShareMeta,
   type SharePayload,
@@ -136,6 +137,8 @@ export function ShareProvider({
   children: React.ReactNode;
 }) {
   const [state, dispatch] = React.useReducer(reducer, initialState);
+  const { setSenderLocale, setPublicLinkActive, locale } = useLocale();
+  const recipientCopy = React.useMemo(() => shareRecipientCopyFor(locale), [locale]);
 
   const unlock = React.useCallback(
     async (password?: string) => {
@@ -166,9 +169,11 @@ export function ShareProvider({
   // Load pre-auth metadata once per link, then route to gate / auto-unlock / notice.
   React.useEffect(() => {
     let active = true;
+    setPublicLinkActive(true);
     fetchShareMeta(token)
       .then((meta) => {
         if (!active) return;
+        setSenderLocale(meta.locale);
         dispatch({ type: 'META', meta });
         // An open link (no password) unlocks immediately behind the skeleton.
         if (!meta.alreadySubmitted && !meta.requiresPassword) {
@@ -178,12 +183,17 @@ export function ShareProvider({
         }
       })
       .catch((error) => {
-        if (active) dispatch({ type: 'BLOCK', reason: metaBlockReason(error) });
+        if (active) {
+          setSenderLocale(null);
+          dispatch({ type: 'BLOCK', reason: metaBlockReason(error) });
+        }
       });
     return () => {
       active = false;
+      setSenderLocale(null);
+      setPublicLinkActive(false);
     };
-  }, [token, unlock]);
+  }, [token, unlock, setSenderLocale, setPublicLinkActive]);
 
   const openField = React.useCallback(
     (fieldId: string) => dispatch({ type: 'OPEN_FIELD', fieldId }),
@@ -209,11 +219,11 @@ export function ShareProvider({
     const session = getShareSession(token);
     if (!session) {
       // A missing session means the unlock token expired or the tab lost it.
-      throw new ApiError(SHARE_RECIPIENT_COPY.viewer.completeError, 401);
+      throw new ApiError(recipientCopy.viewer.completeError, 401);
     }
     const result = await submitShare(token, session);
     dispatch({ type: 'DONE', documentCompleted: result.documentCompleted });
-  }, [token]);
+  }, [token, recipientCopy.viewer.completeError]);
 
   const value = React.useMemo<ShareContextValue>(
     () => ({ state, token, unlock }),
@@ -224,7 +234,7 @@ export function ShareProvider({
   const fillValue = React.useMemo<FillContextValue>(() => {
     const documentTitle = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
     return {
-      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null },
+      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null, locale: 'ko' },
       brandColor: state.meta?.sender.brandColor ?? null,
       documentTitle,
       payload: state.payload
@@ -244,10 +254,10 @@ export function ShareProvider({
       closeField,
       setFieldValue,
       complete,
-      copy: SHARE_FILL_COPY,
+      copy: shareFillCopy(recipientCopy, locale),
       // No download: a fill link has no completed artifact to hand back.
     };
-  }, [state, token, persistFields, openField, closeField, setFieldValue, complete]);
+  }, [state, token, persistFields, openField, closeField, setFieldValue, complete, recipientCopy, locale]);
 
   return (
     <ShareContext.Provider value={value}>
@@ -263,31 +273,34 @@ export function useShare(): ShareContextValue {
 }
 
 /** The recipient flow's copy for the shared fill surface (speaks "작성/제출"). */
-const SHARE_FILL_COPY: FillCopy = {
-  ctaContinue: SHARE_RECIPIENT_COPY.viewer.ctaContinue,
-  ctaComplete: SHARE_RECIPIENT_COPY.viewer.ctaComplete,
-  loadError: SHARE_RECIPIENT_COPY.viewer.loadError,
-  pageError: (n) => `${n}페이지를 불러올 수 없어요.`,
-  progress: (total, done) => `작성할 항목 ${total}곳 중 ${done}곳을 작성했어요.`,
-  progressNone: SHARE_RECIPIENT_COPY.viewer.progressNone,
-  progressAllDone: SHARE_RECIPIENT_COPY.viewer.progressAllDone,
+function shareFillCopy(recipient: ReturnType<typeof shareRecipientCopyFor>, locale: 'ko' | 'en'): FillCopy {
+  const signer = signerCopyFor(locale);
+  return {
+  ctaContinue: recipient.viewer.ctaContinue,
+  ctaComplete: recipient.viewer.ctaComplete,
+  loadError: recipient.viewer.loadError,
+  pageError: recipient.viewer.pageError,
+  progress: recipient.viewer.progress,
+  progressNone: recipient.viewer.progressNone,
+  progressAllDone: recipient.viewer.progressAllDone,
   // The capture affordance + sheet chrome are identical to the signer flow.
-  fieldAffordance: SIGNER_COPY.fieldAffordance,
-  completeError: SHARE_RECIPIENT_COPY.viewer.completeError,
+  fieldAffordance: signer.fieldAffordance,
+  completeError: recipient.viewer.completeError,
   sheet: {
-    ...SIGNER_COPY.sheet,
+    ...signer.sheet,
     hint: (type) => {
-      if (type === 'DATE') return '날짜를 입력해 주세요.';
-      if (type === 'TEXT') return '내용을 입력해 주세요.';
-      return SIGNER_COPY.sheet.drawHint;
+      if (type === 'DATE') return recipient.viewer.dateHint;
+      if (type === 'TEXT') return recipient.viewer.textHint;
+      return signer.sheet.drawHint;
     },
   },
   done: {
-    title: SHARE_RECIPIENT_COPY.done.title,
-    body: SHARE_RECIPIENT_COPY.done.body,
-    documentLabel: SHARE_RECIPIENT_COPY.done.documentLabel,
+    title: recipient.done.title,
+    body: recipient.done.body,
+    documentLabel: recipient.done.documentLabel,
     // A share submission shows one next-step line regardless of other participants.
-    nextAllDone: SHARE_RECIPIENT_COPY.done.next,
-    nextWaiting: SHARE_RECIPIENT_COPY.done.next,
+    nextAllDone: recipient.done.next,
+    nextWaiting: recipient.done.next,
   },
-};
+  };
+}

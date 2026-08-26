@@ -15,6 +15,7 @@ export interface SessionUser {
   email: string;
   name: string | null;
   plan: string;
+  locale: 'ko' | 'en';
 }
 
 export interface LoginResponse {
@@ -41,12 +42,17 @@ function clearCookie(): void {
   document.cookie = `${COOKIE_NAME}=; Path=/; Max-Age=0; SameSite=Lax`;
 }
 
+function notifySessionChange(): void {
+  window.dispatchEvent(new Event('esign:session-change'));
+}
+
 /** Persist the session after a successful login. */
 export function setSession(session: LoginResponse): void {
   if (!isBrowser()) return;
   localStorage.setItem(TOKEN_KEY, session.accessToken);
   localStorage.setItem(USER_KEY, JSON.stringify(session.user));
   writeCookie(session.accessToken);
+  notifySessionChange();
 }
 
 export function clearSession(): void {
@@ -54,6 +60,7 @@ export function clearSession(): void {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
   clearCookie();
+  notifySessionChange();
 }
 
 export function getToken(): string | null {
@@ -74,6 +81,20 @@ export function getUser(): SessionUser | null {
 
 export function isAuthenticated(): boolean {
   return getToken() !== null;
+}
+
+/** Update the persisted sender preference and notify locale consumers immediately. */
+export async function updateLocale(locale: SessionUser['locale']): Promise<SessionUser> {
+  const user = await apiFetch<SessionUser>('/auth/locale', {
+    method: 'POST',
+    json: { locale },
+    token: getToken() ?? undefined,
+  });
+  if (isBrowser()) {
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+    notifySessionChange();
+  }
+  return user;
 }
 
 /** Authenticate and establish the session. Throws `ApiError` on failure. */

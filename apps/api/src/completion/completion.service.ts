@@ -22,12 +22,8 @@ import {
 } from '../email/completion-email.template';
 import type { CompletionResult } from './completion.constants';
 import { artifactFilename } from './artifact';
-
-/** Human-readable identity-verification method used across the signer flow. */
-const VERIFICATION_METHOD = '6자리 인증코드';
-
-/** Footer / subject service name (matches the web product name). */
-const SERVICE_NAME = '전자계약';
+import { resolveLocale, type SupportedLocale } from '../i18n/locale-resolver';
+import { translate } from '../i18n/server-translations';
 
 /**
  * Completion post-processing orchestrator (grain-5).
@@ -70,7 +66,11 @@ export class CompletionService {
    * Email never throws (grain-4 console fallback), so a missing SES config does
    * not fail the pipeline.
    */
-  async runPostProcessing(documentId: string): Promise<CompletionResult> {
+  async runPostProcessing(
+    documentId: string,
+    senderLocale: SupportedLocale,
+  ): Promise<CompletionResult> {
+    const locale = resolveLocale({ senderLocale });
     const document = await this.prisma.document.findUnique({
       where: { id: documentId },
       include: {
@@ -117,7 +117,14 @@ export class CompletionService {
     const completionEvent = document.auditLogs.find((a) => a.action === 'DOCUMENT_COMPLETED');
     const completedAt = completionEvent?.createdAt ?? new Date();
     const issuedAt = new Date();
-    const certificateInput = this.buildCertificateInput(document, signedPdf, originalPdf, completedAt, issuedAt);
+    const certificateInput = this.buildCertificateInput(
+      document,
+      signedPdf,
+      originalPdf,
+      completedAt,
+      issuedAt,
+      locale,
+    );
     const certificatePdf = await this.certificate.generate(certificateInput);
 
     // 3) Store both PDFs under new, deterministic keys (retries overwrite,
@@ -128,7 +135,12 @@ export class CompletionService {
     await this.storage.save(certificateStorageKey, certificatePdf);
 
     // 4) Email sender + every signer with both attachments.
-    const recipientCount = await this.sendCompletionEmails(document, signedPdf, certificatePdf);
+    const recipientCount = await this.sendCompletionEmails(
+      document,
+      signedPdf,
+      certificatePdf,
+      locale,
+    );
 
     // 5) Record artifact keys + completion time. Guard on `completedAt: null`
     //    so a concurrent duplicate run cannot double-write.
@@ -180,6 +192,7 @@ export class CompletionService {
     originalPdf: Buffer,
     completedAt: Date,
     issuedAt: Date,
+    locale: SupportedLocale,
   ): AuditCertificateInput {
     const participants: CertificateParticipant[] = document.signRequests.map((sr, i) => ({
       name: sr.recipientName,
@@ -187,7 +200,7 @@ export class CompletionService {
       // email is null. The certificate masks an empty address to '—'.
       email: sr.recipientEmail ?? '',
       order: i + 1,
-      verificationMethod: VERIFICATION_METHOD,
+      verificationMethod: verificationMethod(locale),
       signedAt: sr.signedAt,
     }));
 
@@ -235,7 +248,8 @@ export class CompletionService {
       finalPdfSha256: sha256(signedPdf),
       issuedAt,
       certificateId: buildCertificateId(document.id, completedAt),
-      serviceName: SERVICE_NAME,
+      serviceName: translate(locale, 'completionEmail.serviceName'),
+      locale,
     };
   }
 
@@ -244,12 +258,13 @@ export class CompletionService {
     document: DocumentWithRelations,
     signedPdf: Buffer,
     certificatePdf: Buffer,
+    locale: SupportedLocale,
   ): Promise<number> {
     const attachments = [
       { filename: artifactFilename(document.title, 'signed'), content: signedPdf },
       { filename: artifactFilename(document.title, 'certificate'), content: certificatePdf },
     ];
-    const senderName = document.owner.name ?? '발신자';
+    const senderName = document.owner.name ?? translate(locale, 'completionEmail.sender');
     const dashboardUrl = `${this.webOrigin()}/dashboard`;
 
     const build = (
@@ -257,13 +272,13 @@ export class CompletionService {
       role: CompletionEmailRole,
     ): EmailMessage => {
       const rendered = renderCompletionEmail({
+        locale,
         contractTitle: document.title,
         senderName,
         recipientRole: role,
         brandColor: document.owner.brandColor,
         brandLogoUrl: document.owner.brandLogoUrl,
         dashboardUrl: role === 'SENDER' ? dashboardUrl : null,
-        serviceName: SERVICE_NAME,
       });
       return {
         to: [to],
@@ -302,6 +317,10 @@ export class CompletionService {
   private artifactKey(ownerId: string, documentId: string, kind: 'signed' | 'certificate'): string {
     return `documents/${ownerId}/completed/${documentId}-${kind}.pdf`;
   }
+}
+
+function verificationMethod(locale: SupportedLocale): string {
+  return translate(locale, 'auditCertificate.verificationMethod');
 }
 
 /** Shape consumed by the certificate/email helpers (subset of the query). */

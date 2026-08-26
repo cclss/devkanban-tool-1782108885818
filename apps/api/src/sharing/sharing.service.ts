@@ -33,6 +33,7 @@ import { LinkPasswordCipher } from './link-password-cipher';
 import { SendQuotaService } from '../common/send-quota.service';
 import type { SaveFieldValuesDto } from '../signing/dto/signing.dto';
 import type { CreateShareLinkDto, UpdateShareLinkPasswordDto } from './dto/sharing.dto';
+import { resolveLocale, type SupportedLocale } from '../i18n/locale-resolver';
 
 /** Audit-log action names for the share-link flow. */
 const AUDIT_ACTION = {
@@ -293,7 +294,7 @@ export class SharingService {
    * expiry — never the PDF or fields. Throws the matching status code for an
    * expired/revoked/invalid link so the recipient sees the right notice.
    */
-  async meta(accessToken: string): Promise<ShareMeta> {
+  async meta(accessToken: string, acceptLanguage?: string): Promise<ShareMeta> {
     const link = await this.prisma.signRequest.findUnique({
       where: { accessToken },
       select: {
@@ -306,7 +307,7 @@ export class SharingService {
           select: {
             title: true,
             status: true,
-            owner: { select: { name: true, brandColor: true, brandLogoUrl: true } },
+            owner: { select: { name: true, brandColor: true, brandLogoUrl: true, locale: true } },
           },
         },
       },
@@ -319,7 +320,9 @@ export class SharingService {
         name: link!.document.owner.name,
         brandColor: link!.document.owner.brandColor,
         brandLogoUrl: link!.document.owner.brandLogoUrl,
+        locale: link!.document.owner.locale,
       },
+      locale: resolveLocale({ senderLocale: link!.document.owner.locale, acceptLanguage }),
       requiresPassword: link!.linkPasswordCipher != null,
       expiresAt: link!.linkExpiresAt ? link!.linkExpiresAt.toISOString() : null,
       alreadySubmitted: link!.status === SignRequestStatus.SIGNED,
@@ -647,7 +650,10 @@ export interface ShareMeta {
     name: string | null;
     brandColor: string | null;
     brandLogoUrl: string | null;
+    /** Persisted locale of the sender; public clients use it as their primary source. */
+    locale: SupportedLocale;
   };
+  locale: SupportedLocale;
   requiresPassword: boolean;
   expiresAt: string | null;
   alreadySubmitted: boolean;

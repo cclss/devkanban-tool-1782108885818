@@ -96,6 +96,9 @@ export interface SheetCopy {
   reset: string;
   apply: string;
   saveError: string;
+  modeLabel: string;
+  close: string;
+  signaturePadAria: string;
   /** Inline hint under the sheet title, by field type. */
   hint: (type: SignFieldType) => string;
 }

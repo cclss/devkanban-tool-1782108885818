@@ -44,7 +44,7 @@ import {
   SUMMARY_COPY,
   VIEW_SWITCHER_COPY,
 } from '@/lib/todo-copy';
-import { TEMPLATES_ENTRY_LABEL } from '@/lib/templates-copy';
+import { useTranslation } from '@/components/locale-provider';
 
 /**
  * Dashboard list ordering by urgency (design-spec/components/urgency-badge/base.md
@@ -63,6 +63,7 @@ const TEMPLATES_ROUTE = '/templates';
 
 export default function DashboardPage() {
   const router = useRouter();
+  const t = useTranslation();
 
   const [ready, setReady] = React.useState(false);
   const [user, setUser] = React.useState<SessionUser | null>(null);
@@ -114,9 +115,9 @@ export default function DashboardPage() {
         router.replace('/login');
         return;
       }
-      setError(err instanceof ApiError ? err.message : '문제가 생겼어요. 잠시 후 다시 시도해 주세요.');
+      setError(err instanceof ApiError ? err.message : t('dashboard.loadError'));
     }
-  }, [router]);
+  }, [router, t]);
 
   // Initial load + revalidate whenever the tab regains focus (e.g. returning
   // from the send wizard), so a freshly sent contract appears as '진행 중'.
@@ -194,24 +195,24 @@ export default function DashboardPage() {
       <main className="mx-auto w-full max-w-[960px] px-md py-xl sm:py-2xl">
         <div className="flex flex-col gap-md sm:flex-row sm:items-end sm:justify-between">
           <div className="flex flex-col gap-2xs">
-            <h1 className="text-2xl font-bold text-foreground">계약</h1>
+            <h1 className="text-2xl font-bold text-foreground">{t('dashboard.title')}</h1>
             <p className="text-base text-foreground-subtle">
-              보낸 계약의 진행 상황을 한눈에 확인하세요.
+              {t('dashboard.description')}
             </p>
           </div>
           <div className="flex items-center gap-xs">
             <Button variant="secondary" size="lg" asChild className="sm:w-auto">
-              <Link href={TEMPLATES_ROUTE}>{TEMPLATES_ENTRY_LABEL}</Link>
+              <Link href={TEMPLATES_ROUTE}>{t('dashboard.templates')}</Link>
             </Button>
             <Button size="lg" onClick={() => router.push(NEW_CONTRACT_ROUTE)} className="sm:w-auto">
-              새 계약 생성
+              {t('dashboard.newContract')}
             </Button>
           </div>
         </div>
 
         <PlanUsage quota={quota} plan={user?.plan} className="mt-lg" />
 
-        <section className="mt-xl" aria-label="계약 목록">
+        <section className="mt-xl" aria-label={t('dashboard.listLabel')}>
           {/* The switcher + summary sit at the top of the list section. Both only
               appear once contracts exist — with an empty/onboarding dashboard there
               is nothing to switch between. The summary stays mounted in both views

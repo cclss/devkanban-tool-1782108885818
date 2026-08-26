@@ -24,6 +24,7 @@ import { SignerSessionService } from './signer-session.service';
 import { CompletionQueue } from '../completion/completion.queue';
 import { artifactFilename, type CompletionArtifact } from '../completion/artifact';
 import type { SaveFieldValuesDto } from './dto/signing.dto';
+import { resolveLocale, type SupportedLocale } from '../i18n/locale-resolver';
 
 /** Audit-log action names for the signer flow. */
 const AUDIT_ACTION = {
@@ -52,13 +53,13 @@ export class SigningService {
    * exposes the PDF, fields, or full recipient identity before the 6-digit
    * code is verified.
    */
-  async meta(accessToken: string): Promise<SigningMeta> {
+  async meta(accessToken: string, acceptLanguage?: string): Promise<SigningMeta> {
     const signRequest = await this.prisma.signRequest.findUnique({
       where: { accessToken },
       include: {
         document: {
           include: {
-            owner: { select: { name: true, brandColor: true, brandLogoUrl: true } },
+            owner: { select: { name: true, brandColor: true, brandLogoUrl: true, locale: true } },
           },
         },
       },
@@ -74,7 +75,9 @@ export class SigningService {
         name: document.owner.name,
         brandColor: document.owner.brandColor,
         brandLogoUrl: document.owner.brandLogoUrl,
+        locale: document.owner.locale,
       },
+      locale: resolveLocale({ senderLocale: document.owner.locale, acceptLanguage }),
       recipientNameMasked: maskName(signRequest.recipientName),
       status: signRequest.status,
       alreadySigned: signRequest.status === SignRequestStatus.SIGNED,
@@ -322,7 +325,9 @@ export class SigningService {
         id: true,
         status: true,
         documentId: true,
-        document: { select: { status: true } },
+        document: {
+          select: { status: true, owner: { select: { locale: true } } },
+        },
         signFields: { select: { id: true, value: true } },
       },
     });
@@ -381,7 +386,12 @@ export class SigningService {
     // + certificate + email + artifact recording) AFTER the transaction commits.
     // `enqueue` never throws — a queue hiccup must not break this response.
     if (documentCompleted) {
-      await this.completionQueue.enqueue(signRequest.documentId);
+      await this.completionQueue.enqueue(
+        signRequest.documentId,
+        // Completion runs without a browser request; preserve the sender's
+        // persisted preference as a closed, valid locale value.
+        resolveLocale({ senderLocale: signRequest.document.owner.locale }),
+      );
     }
 
     return {
@@ -497,7 +507,10 @@ export interface SigningMeta {
     name: string | null;
     brandColor: string | null;
     brandLogoUrl: string | null;
+    /** Persisted locale of the sender; public clients use it as their primary source. */
+    locale: SupportedLocale;
   };
+  locale: SupportedLocale;
   recipientNameMasked: string | null;
   status: SignRequestStatus;
   alreadySigned: boolean;

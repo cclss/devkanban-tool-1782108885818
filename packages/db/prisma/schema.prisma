@@ -24,6 +24,9 @@ model User {
   // Sender branding (logo + brand color) — available on all plans per spec.
   brandLogoUrl String?  @map("brand_logo_url")
   brandColor   String?  @map("brand_color")
+  // Preferred language for signed-in experiences. This is intentionally a
+  // small closed set while the product supports Korean and English only.
+  locale       Locale   @default(ko)
   plan         Plan     @default(FREE)
   createdAt    DateTime @default(now()) @map("created_at")
   updatedAt    DateTime @updatedAt @map("updated_at")
@@ -221,6 +224,13 @@ enum Plan {
   FREE
   PRO
   ENTERPRISE
+}
+
+/// Supported application locales. Values are kept lowercase because they are
+/// exposed directly by the API and used by web translation resource lookups.
+enum Locale {
+  ko
+  en
 }
 
 enum DocumentStatus {
