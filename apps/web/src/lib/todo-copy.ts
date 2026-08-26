@@ -115,6 +115,7 @@ export const VIEW_SWITCHER_COPY: ViewSwitcherCopy = {
 export const KANBAN_BOARD_COPY: KanbanBoardCopy = {
   columnLabel: {
     DRAFT: '작성 중',
+    SCHEDULED: '예약됨',
     IN_PROGRESS: '진행 중',
     COMPLETED: '완료됨',
     CANCELLED: '취소됨',

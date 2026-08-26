@@ -19,7 +19,7 @@ import {
   type CompletionArtifact,
 } from './completion-download';
 
-export type DocumentStatus = 'DRAFT' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
+export type DocumentStatus = 'DRAFT' | 'SCHEDULED' | 'IN_PROGRESS' | 'COMPLETED' | 'CANCELLED';
 
 /**
  * How much attention a contract needs today, derived server-side at read time

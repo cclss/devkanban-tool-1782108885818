@@ -14,13 +14,10 @@ import type { DocumentStatus, DocumentSummary } from '@/lib/documents';
  * context and applies the same filter (same `visible` set → context preserved).
  *
  * Design decisions (design-spec):
- * - Columns follow the lifecycle left→right: 작성 중 → 진행 중 → 완료됨. These three
- *   always render (with an empty-column state) so the board's shape is stable.
- * - CANCELLED handling: 취소됨 is a terminal, inactive state. Rather than a
- *   permanently-empty fourth column (visual noise) or hiding cancelled work
- *   outright, the 취소됨 column renders **only when the visible set actually
- *   contains a cancelled contract** — a calm, de-emphasized (neutral) column shown
- *   on demand.
+ * - Columns follow the lifecycle left→right: 작성 중 → 예약됨 → 진행 중 → 완료됨.
+ *   The established three active columns always render; 예약됨 and 취소됨 render
+ *   only when the visible set contains a document in that state, keeping an
+ *   unscheduled dashboard's shape stable.
  * - Column highlight reuses `STATUS_TONE` from status-badge (the same status reads
  *   with the same hue as its badge; no color re-declared).
  * - Cards reuse ContractCard in its `compact` density (design-spec
@@ -41,12 +38,13 @@ export interface KanbanBoardCopy {
   boardLabel: string;
 }
 
-/** Column order = lifecycle left→right. CANCELLED renders only when present. */
-const COLUMN_ORDER: readonly DocumentStatus[] = ['DRAFT', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
+/** Column order = lifecycle left→right. SCHEDULED/CANCELLED render only when present. */
+const COLUMN_ORDER: readonly DocumentStatus[] = ['DRAFT', 'SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'];
 
 function groupByStatus(documents: DocumentSummary[]): Record<DocumentStatus, DocumentSummary[]> {
   const groups: Record<DocumentStatus, DocumentSummary[]> = {
     DRAFT: [],
+    SCHEDULED: [],
     IN_PROGRESS: [],
     COMPLETED: [],
     CANCELLED: [],
@@ -69,9 +67,12 @@ export interface KanbanBoardProps {
 
 export function KanbanBoard({ documents, copy, highlightId, className }: KanbanBoardProps) {
   const groups = React.useMemo(() => groupByStatus(documents), [documents]);
-  // 작성 중 / 진행 중 / 완료됨 always render; 취소됨 only when it has cards.
+  // 작성 중 / 진행 중 / 완료됨 always render; 예약됨 / 취소됨 only when they have cards.
   const columns = COLUMN_ORDER.filter(
-    (status) => status !== 'CANCELLED' || groups.CANCELLED.length > 0,
+    (status) =>
+      status !== 'SCHEDULED' && status !== 'CANCELLED'
+        ? true
+        : groups[status].length > 0,
   );
 
   return (
