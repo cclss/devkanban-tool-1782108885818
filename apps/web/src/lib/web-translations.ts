@@ -18,11 +18,115 @@ export const WEB_TRANSLATIONS = {
   },
 } as const;
 
-export type WebTranslationKey = `${keyof (typeof WEB_TRANSLATIONS)['ko']}.${string}`;
+/** A key is open-ended so newly added UI copy is safe before its catalog ships. */
+export type WebTranslationKey = `${string}.${string}`;
 
+type TranslationLeaf = string | null | undefined;
+export type WebTranslationCatalog = Readonly<Record<string, Readonly<Record<string, TranslationLeaf>>>>;
+export type WebTranslationCatalogs = Readonly<Record<SupportedLocale, WebTranslationCatalog>>;
+
+export type MissingWebTranslationReason = 'missing' | 'empty';
+
+/** This report retains keys and counters only, never user data or rendered copy. */
+export interface MissingWebTranslationEntry {
+  locale: SupportedLocale;
+  key: WebTranslationKey;
+  reason: MissingWebTranslationReason;
+  count: number;
+}
+
+export interface WebTranslationFallbackReport {
+  /** De-duplicated keys, suitable for a coverage report. */
+  missingKeys: readonly WebTranslationKey[];
+  /** Per-locale detail and occurrence counts for runtime diagnostics. */
+  entries: readonly MissingWebTranslationEntry[];
+}
+
+/** Last-resort Korean text when even the Korean base catalog is incomplete. */
+export const UNKNOWN_WEB_TRANSLATION_FALLBACK = '내용을 준비하고 있습니다.';
+
+function lookup(catalog: WebTranslationCatalog | undefined, key: WebTranslationKey): TranslationLeaf {
+  const separator = key.indexOf('.');
+  if (separator < 1 || separator === key.length - 1) return undefined;
+  return catalog?.[key.slice(0, separator)]?.[key.slice(separator + 1)];
+}
+
+function missingReason(value: TranslationLeaf): MissingWebTranslationReason | undefined {
+  if (value == null) return 'missing';
+  if (value.trim() === '') return 'empty';
+  return undefined;
+}
+
+function isUsableTranslation(value: TranslationLeaf): value is string {
+  return !missingReason(value);
+}
+
+/**
+ * Creates an isolated lookup runtime. Isolated instances keep tests, previews,
+ * and coverage jobs independent of the shared browser report.
+ */
+export function createWebTranslationRuntime(catalogs: WebTranslationCatalogs = WEB_TRANSLATIONS): {
+  translate: (locale: SupportedLocale, key: WebTranslationKey) => string;
+  getFallbackReport: () => WebTranslationFallbackReport;
+  resetFallbackReport: () => void;
+} {
+  const missing = new Map<string, MissingWebTranslationEntry>();
+
+  const recordMissing = (
+    locale: SupportedLocale,
+    key: WebTranslationKey,
+    reason: MissingWebTranslationReason,
+  ) => {
+    const id = `${locale}\u0000${key}\u0000${reason}`;
+    const previous = missing.get(id);
+    if (previous) {
+      previous.count += 1;
+      return;
+    }
+    missing.set(id, { locale, key, reason, count: 1 });
+  };
+
+  return {
+    translate(locale, key) {
+      const localized = lookup(catalogs[locale], key);
+      if (isUsableTranslation(localized)) return localized;
+
+      recordMissing(locale, key, missingReason(localized)!);
+      const korean = lookup(catalogs.ko, key);
+      return isUsableTranslation(korean) ? korean : UNKNOWN_WEB_TRANSLATION_FALLBACK;
+    },
+    getFallbackReport() {
+      const entries = [...missing.values()].map((entry) => ({ ...entry }));
+      return {
+        missingKeys: [...new Set(entries.map((entry) => entry.key))],
+        entries,
+      };
+    },
+    resetFallbackReport() {
+      missing.clear();
+    },
+  };
+}
+
+/** Shared browser runtime used by hooks and direct UI translation calls. */
+export const webTranslationRuntime = createWebTranslationRuntime();
+
+/** Returns localized copy, Korean base copy, or a safe Korean placeholder—never a key or blank string. */
 export function translateWeb(locale: SupportedLocale, key: WebTranslationKey): string {
-  const [domain, name] = key.split('.') as [keyof (typeof WEB_TRANSLATIONS)['ko'], string];
-  const localized = WEB_TRANSLATIONS[locale][domain] as Record<string, string>;
-  const fallback = WEB_TRANSLATIONS.ko[domain] as Record<string, string>;
-  return localized[name] ?? fallback[name] ?? key;
+  return webTranslationRuntime.translate(locale, key);
+}
+
+/** Snapshot the missing/empty localized keys replaced by Korean at runtime. */
+export function getWebTranslationFallbackReport(): WebTranslationFallbackReport {
+  return webTranslationRuntime.getFallbackReport();
+}
+
+/** Convenience API for coverage reporters that only need the unique key list. */
+export function getMissingWebTranslationKeys(): readonly WebTranslationKey[] {
+  return getWebTranslationFallbackReport().missingKeys;
+}
+
+/** Clear the shared runtime report, for example after a diagnostics upload. */
+export function resetWebTranslationFallbackReport(): void {
+  webTranslationRuntime.resetFallbackReport();
 }
