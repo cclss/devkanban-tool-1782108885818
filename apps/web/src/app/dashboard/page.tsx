@@ -28,7 +28,7 @@ import { ViewSwitcher } from '@/components/view-switcher';
 import { ApiError } from '@/lib/api';
 import { isOnboardingComplete, markOnboardingComplete } from '@/lib/onboarding';
 import { readViewMode, writeViewMode, type ViewMode } from '@/lib/view-mode';
-import { ONBOARDING_COPY } from '@/lib/onboarding-copy';
+import { onboardingCopyFor } from '@/lib/onboarding-copy';
 import { clearSession, getUser, getToken, type SessionUser } from '@/lib/auth';
 import {
   fetchDocuments,
@@ -387,6 +387,7 @@ function DashboardBody({
   onRetry: () => void;
   onCreate: () => void;
 }) {
+  const { locale } = useLocale();
   // Error only blocks when we have nothing to show; otherwise keep the list.
   if (error && (!documents || documents.length === 0)) {
     return <ErrorState message={error} onRetry={onRetry} />;
@@ -398,12 +399,13 @@ function DashboardBody({
     // A new user (never onboarded) gets the welcome guide — the path to a first
     // contract. Everyone else gets the calm EmptyState endpoint. Both reuse the
     // same onCreate → NEW_CONTRACT_ROUTE flow.
+    const onboardingCopy = onboardingCopyFor(locale);
     return showOnboarding ? (
       <OnboardingGuide
-        title={ONBOARDING_COPY.title}
-        description={ONBOARDING_COPY.description}
-        steps={ONBOARDING_COPY.steps}
-        ctaLabel={ONBOARDING_COPY.cta}
+        title={onboardingCopy.title}
+        description={onboardingCopy.description}
+        steps={onboardingCopy.steps}
+        ctaLabel={onboardingCopy.cta}
         onCreate={onCreate}
       />
     ) : (

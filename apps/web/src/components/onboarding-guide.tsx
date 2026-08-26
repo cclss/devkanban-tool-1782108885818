@@ -33,7 +33,7 @@ export interface OnboardingGuideProps {
   /** One-line lead under the heading. */
   description: string;
   /** The ordered walkthrough steps (①업로드 ②서명 요청 ③완료 추적). */
-  steps: OnboardingStep[];
+  steps: readonly OnboardingStep[];
   /** Primary CTA label; clicking it calls {@link onCreate}. */
   ctaLabel: string;
   /** Start the first real contract. */
