@@ -267,7 +267,13 @@ export class DocumentsService {
     ) {
       return;
     }
-    await this.dispatch(data.ownerId, document, data.recipients, undefined);
+    await this.dispatch(
+      data.ownerId,
+      document,
+      data.recipients,
+      undefined,
+      DocumentStatus.SCHEDULED,
+    );
     await this.notifyScheduledOwner(document, 'scheduled_send_succeeded');
   }
 
@@ -333,6 +339,7 @@ export class DocumentsService {
     document: Document,
     recipients: ScheduledSendRecipient[],
     ip?: string,
+    expectedStatus: DocumentStatus = DocumentStatus.DRAFT,
   ): Promise<DocumentSummary> {
     await this.assertDispatchable(ownerId, document.id);
 
@@ -376,8 +383,12 @@ export class DocumentsService {
         });
       }
 
-      const updated = await tx.document.update({
-        where: { id: document.id },
+      // BullMQ can redeliver a stalled job. Claim the state transition inside
+      // the same transaction as SignRequest creation so only one execution can
+      // create recipients and dispatch notifications. A losing execution
+      // throws, rolling its whole transaction back for a later retry/no-op.
+      const claimed = await tx.document.updateMany({
+        where: { id: document.id, status: expectedStatus },
         data: {
           status: DocumentStatus.IN_PROGRESS,
           sentAt: new Date(),
@@ -385,6 +396,10 @@ export class DocumentsService {
           scheduledJobId: null,
         },
       });
+      if (claimed.count !== 1) {
+        throw new BadRequestException(MESSAGES.send.alreadySent);
+      }
+      const updated = await tx.document.findUniqueOrThrow({ where: { id: document.id } });
 
       await tx.auditLog.create({
         data: {

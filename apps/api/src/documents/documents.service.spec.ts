@@ -337,12 +337,35 @@ describe('DocumentsService — scheduled dispatch', () => {
       expect.objectContaining({ id: documentId }),
       expect.any(Array),
       undefined,
+      DocumentStatus.SCHEDULED,
     );
     expect(notifications.enqueueMany).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ to: 'owner@example.com', template: 'scheduled_send_succeeded' }),
       ]),
     );
+  });
+
+  it('ignores an obsolete delayed job whose persisted job ID no longer matches', async () => {
+    const { service, prisma, notifications } = setup(DocumentStatus.SCHEDULED);
+    prisma.document.findUnique.mockResolvedValue(
+      document(DocumentStatus.SCHEDULED, {
+        scheduledJobId: 'replacement-job',
+        owner: { email: 'owner@example.com', name: '발신자' },
+      }),
+    );
+    const dispatch = jest.fn(async () => undefined);
+    (service as unknown as { dispatch: jest.Mock }).dispatch = dispatch;
+
+    await service.dispatchScheduled({
+      documentId,
+      ownerId,
+      jobId: 'old-job',
+      recipients: [{ email: 'signer@example.com', name: '서명자', order: 0, index: 0 }],
+    });
+
+    expect(dispatch).not.toHaveBeenCalled();
+    expect(notifications.enqueueMany).not.toHaveBeenCalled();
   });
 
   it('notifies the sender after the worker exhausts a scheduled send job', async () => {
