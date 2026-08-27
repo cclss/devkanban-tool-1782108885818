@@ -49,7 +49,7 @@ export function CompletionDownload({
   const { locale } = useLocale();
   const copy = completionDownloadCopyFor(locale);
   const completedLabel = formatKstDateTime(completedAt ?? null);
-  const resolvedStatusLabel = statusLabel ?? (locale === 'en' ? 'Completed' : '완료됨');
+  const resolvedStatusLabel = statusLabel ?? copy.completedStatus;
 
   return (
     <section

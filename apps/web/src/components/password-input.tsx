@@ -2,6 +2,7 @@
 
 import * as React from 'react';
 import { cn, Input, type InputProps } from '@repo/ui';
+import { useTranslation } from '@/components/locale-provider';
 
 /**
  * PasswordInput — a password field with a Toss-signature reveal toggle.
@@ -20,6 +21,7 @@ export type PasswordInputProps = Omit<InputProps, 'type' | 'trailing'>;
 export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputProps>(
   ({ id, disabled, ...props }, ref) => {
     const [revealed, setRevealed] = React.useState(false);
+    const t = useTranslation();
 
     return (
       <Input
@@ -35,7 +37,7 @@ export const PasswordInput = React.forwardRef<HTMLInputElement, PasswordInputPro
             disabled={disabled}
             aria-pressed={revealed}
             aria-controls={id}
-            aria-label={revealed ? '비밀번호 숨기기' : '비밀번호 표시'}
+            aria-label={revealed ? t('auth.passwordHide') : t('auth.passwordShow')}
             className={cn(
               'inline-flex h-8 w-8 items-center justify-center rounded-xs',
               'text-foreground-subtle transition-colors duration-fast ease-standard hover:text-foreground',

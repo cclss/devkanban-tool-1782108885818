@@ -23,9 +23,9 @@ describe('web locale resolver', () => {
     expect(resolveLocale({ senderLocale: 'en', browserLanguages: ['ko-KR'] })).toBe('en');
   });
 
-  it('uses the first supported browser language and safely defaults to Korean', () => {
+  it('uses the first supported browser language and safely defaults to English', () => {
     expect(localeFromBrowserLanguages(['fr-FR', 'en-GB', 'ko-KR'])).toBe('en');
-    expect(resolveLocale({ browserLanguages: ['fr-FR', 'ja-JP'] })).toBe('ko');
+    expect(resolveLocale({ browserLanguages: ['fr-FR', 'ja-JP'] })).toBe('en');
   });
 });
 
@@ -47,9 +47,10 @@ describe('server-side locale resolution', () => {
     ).toBe('en');
   });
 
-  it('falls back to Accept-Language, then Korean, when no cookie is stored', () => {
+  it('falls back to Accept-Language, then English, when no cookie is stored', () => {
     expect(resolveServerLocale({ acceptLanguage: 'en-US,en;q=0.9' })).toBe('en');
-    expect(resolveServerLocale({ acceptLanguage: 'fr-FR' })).toBe('ko');
-    expect(resolveServerLocale({})).toBe('ko');
+    expect(resolveServerLocale({ acceptLanguage: 'ko-KR,ko;q=0.9' })).toBe('ko');
+    expect(resolveServerLocale({ acceptLanguage: 'fr-FR' })).toBe('en');
+    expect(resolveServerLocale({})).toBe('en');
   });
 });

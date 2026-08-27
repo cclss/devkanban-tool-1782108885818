@@ -4,9 +4,7 @@ import * as React from 'react';
 import { Button, Card } from '@repo/ui';
 import type { TemplateSummary } from '@/lib/templates';
 import { useTranslation } from '@/components/locale-provider';
-import type { InterpolationVars, WebTranslationKey } from '@/lib/web-translations';
-
-type Translate = (key: WebTranslationKey, vars?: InterpolationVars) => string;
+import { formatRelativeTime, type Translate } from '@/lib/relative-time';
 
 /**
  * TemplateCard — one saved template as a card (design-spec
@@ -148,29 +146,9 @@ function metaLine(template: TemplateSummary, t: Translate): string {
     t('templates.metaPages', { n: template.pageCount }),
     t('templates.metaFields', { n: template.fieldCount }),
   ];
-  const when = formatRelative(template.createdAt);
+  const when = formatRelativeTime(template.createdAt, t);
   if (when) parts.push(`${when} ${t('templates.savedSuffix')}`);
   return parts.join(' · ');
-}
-
-/**
- * Relative "saved" time in the same voice as the contract list (방금 전 / N분 전
- * / N시간 전 / N일 전, then an absolute YYYY.MM.DD past a week). Mirrors
- * ContractCard's formatRelative so both lists tell time identically.
- */
-function formatRelative(iso: string): string {
-  const then = new Date(iso).getTime();
-  if (Number.isNaN(then)) return '';
-  const diffMs = Date.now() - then;
-  const min = Math.floor(diffMs / 60000);
-  if (min < 1) return '방금 전';
-  if (min < 60) return `${min}분 전`;
-  const hr = Math.floor(min / 60);
-  if (hr < 24) return `${hr}시간 전`;
-  const day = Math.floor(hr / 24);
-  if (day < 7) return `${day}일 전`;
-  const d = new Date(then);
-  return `${d.getFullYear()}.${String(d.getMonth() + 1).padStart(2, '0')}.${String(d.getDate()).padStart(2, '0')}`;
 }
 
 function TemplateIcon() {

@@ -7,7 +7,7 @@
  *
  * User-facing error copy comes from the server (`apps/api/src/common/messages.ts`),
  * so we surface the server's message verbatim and only fall back to a neutral,
- * Toss-tone Korean line when the network itself fails or the body is unreadable.
+ * Toss-tone English line when the network itself fails or the body is unreadable.
  */
 
 /**
@@ -20,7 +20,7 @@ export const API_ORIGIN = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:3
 const API_BASE = `${API_ORIGIN}/api`;
 
 /** Neutral fallback when we can't read a server-provided message. */
-export const GENERIC_ERROR = '문제가 생겼어요. 잠시 후 다시 시도해 주세요.';
+export const GENERIC_ERROR = 'Something went wrong. Please try again shortly.';
 
 /**
  * Absolute URL for an API path. Use when fetching outside `apiFetch` — e.g. a
