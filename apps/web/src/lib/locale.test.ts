@@ -49,6 +49,7 @@ describe('server-side locale resolution', () => {
 
   it('falls back to Accept-Language, then English, when no cookie is stored', () => {
     expect(resolveServerLocale({ acceptLanguage: 'en-US,en;q=0.9' })).toBe('en');
+    expect(resolveServerLocale({ acceptLanguage: 'ko-KR,ko;q=0.9' })).toBe('ko');
     expect(resolveServerLocale({ acceptLanguage: 'fr-FR' })).toBe('en');
     expect(resolveServerLocale({})).toBe('en');
   });

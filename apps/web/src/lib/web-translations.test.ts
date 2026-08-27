@@ -427,11 +427,43 @@ describe('document metadata catalog', () => {
       title: 'eSign',
       description: 'Electronic contract SaaS',
     });
+    // A Korean preference still seeds the Korean catalog (no regression).
+    expect(seed({ acceptLanguage: 'ko-KR,ko;q=0.9' })).toEqual({
+      locale: 'ko',
+      title: '전자계약',
+      description: '전자계약 SaaS',
+    });
     // No usable signal → English default.
     expect(seed({})).toEqual({
       locale: 'en',
       title: 'eSign',
       description: 'Electronic contract SaaS',
     });
+  });
+
+  it('locks the default request to lang="en" with a zero-Hangul meta title', () => {
+    // The root layout seeds <html lang> from resolveServerLocale and the tab
+    // title from translateWeb('meta.title'). The default request carries no
+    // saved-locale cookie and no Korean Accept-Language signal, so it must
+    // resolve to English and render an English (Hangul-free) document title.
+    const HANGUL = /[ᄀ-ᇿ㄰-㆏ꥠ-꥿가-힣]/;
+
+    const defaultRequests: Array<{ cookieLocale?: string | null; acceptLanguage?: string | null }> = [
+      {},
+      { cookieLocale: null, acceptLanguage: null },
+      { acceptLanguage: 'fr-FR,fr;q=0.9' }, // only unsupported tags → default fallback
+    ];
+
+    for (const request of defaultRequests) {
+      const locale = resolveServerLocale(request);
+      expect(locale).toBe('en');
+
+      const title = translateWeb(locale, 'meta.title');
+      expect(title).toBe('eSign');
+      expect(HANGUL.test(title)).toBe(false);
+      // Never a seeded placeholder or a raw catalog key in <head>.
+      expect(title).not.toBe(UNKNOWN_WEB_TRANSLATION_FALLBACK);
+      expect(title).not.toContain('meta.');
+    }
   });
 });

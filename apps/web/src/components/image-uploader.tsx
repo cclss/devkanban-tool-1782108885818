@@ -29,6 +29,7 @@ import {
   createObjectUrlLifecycle,
   type ObjectUrlLifecycle,
 } from '@/lib/image-uploader-view';
+import { useTranslation } from '@/components/locale-provider';
 
 export interface ImageUploaderProps {
   /** Ties the field label to the file input. Must be unique per uploader. */
@@ -59,6 +60,7 @@ export function ImageUploader({
   onChange,
   className,
 }: ImageUploaderProps) {
+  const t = useTranslation();
   const inputRef = React.useRef<HTMLInputElement>(null);
   const [error, setError] = React.useState<string | null>(null);
   const [dragActive, setDragActive] = React.useState(false);
@@ -166,10 +168,10 @@ export function ImageUploader({
           </div>
           <div className="flex shrink-0 items-center gap-2xs">
             <Button variant="ghost" size="sm" onClick={triggerPick}>
-              다른 파일
+              {t('imageUploader.chooseAnother')}
             </Button>
             <Button variant="ghost" size="sm" onClick={handleRemove}>
-              제거
+              {t('imageUploader.remove')}
             </Button>
           </div>
         </div>
@@ -191,13 +193,15 @@ export function ImageUploader({
           </span>
           <div className="flex min-w-0 flex-1 flex-col gap-2xs">
             <span className="truncate text-sm font-semibold text-foreground">
-              {labelText ? `현재 설정된 ${labelText}` : '현재 설정된 이미지'}
+              {labelText
+                ? t('imageUploader.currentLabel', { label: labelText })
+                : t('imageUploader.currentImage')}
             </span>
-            <span className="text-xs text-foreground-subtle">새로 올리면 교체돼요</span>
+            <span className="text-xs text-foreground-subtle">{t('imageUploader.replaceHint')}</span>
           </div>
           <div className="flex shrink-0 items-center gap-2xs">
             <Button variant="ghost" size="sm" onClick={triggerPick}>
-              다른 파일
+              {t('imageUploader.chooseAnother')}
             </Button>
           </div>
         </div>
@@ -236,13 +240,15 @@ export function ImageUploader({
           <div className="flex flex-col gap-2xs">
             <span className="text-sm font-bold text-foreground">
               {dragActive
-                ? '여기에 놓으면 올라가요'
-                : `${labelText ? `${labelText} 이미지를 ` : '이미지를 '}끌어다 놓으세요`}
+                ? t('imageUploader.dropActive')
+                : labelText
+                  ? t('imageUploader.dragLabeled', { label: labelText })
+                  : t('imageUploader.dragUnlabeled')}
             </span>
-            <span className="text-xs text-foreground-subtle">또는 클릭해서 파일을 선택하세요</span>
+            <span className="text-xs text-foreground-subtle">{t('imageUploader.orClick')}</span>
           </div>
           <span className="pointer-events-none mt-2xs inline-flex h-9 items-center rounded-md bg-surface px-md text-sm font-semibold text-primary shadow-sm">
-            파일 선택
+            {t('imageUploader.chooseFile')}
           </span>
         </label>
       )}

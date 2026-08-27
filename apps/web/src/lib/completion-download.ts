@@ -20,6 +20,8 @@ export type CompletionArtifact = 'signed' | 'certificate';
 export const COMPLETION_DOWNLOAD_COPY = {
   /** Section title. */
   sectionTitle: '완료 문서',
+  /** Fallback COMPLETED badge label when the caller passes no server `statusLabel`. */
+  completedStatus: '완료됨',
   /** Completion notice — `{완료일시}` is `YYYY.MM.DD HH:mm (KST)`. */
   notice: (completedAtLabel: string): string =>
     `${completedAtLabel}에 완료됐어요. 참여자 모두에게 메일로도 보내 드렸어요.`,
@@ -45,6 +47,7 @@ export function completionDownloadCopyFor(locale: 'ko' | 'en') {
 
   return {
     sectionTitle: 'Completed documents',
+    completedStatus: 'Completed',
     notice: (completedAtLabel: string) =>
       `Completed on ${completedAtLabel}. We also emailed it to all participants.`,
     items: {
