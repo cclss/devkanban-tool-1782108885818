@@ -34,12 +34,12 @@ export function localeFromAcceptLanguage(header?: string | null): SupportedLocal
     .sort((a, b) => b.q - a.q || a.index - b.index)[0]?.locale;
 }
 
-/** Resolve locale: authenticated user → sender → browser → Korean default. */
+/** Resolve locale: authenticated user → sender → browser → English default. */
 export function resolveLocale(input: LocaleResolutionInput = {}): SupportedLocale {
   return (
     parseLocale(input.userLocale) ??
     parseLocale(input.senderLocale) ??
     localeFromAcceptLanguage(input.acceptLanguage) ??
-    'ko'
+    'en'
   );
 }

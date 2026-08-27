@@ -7,7 +7,7 @@ import { SERVER_TRANSLATIONS } from './server-translations';
 export class I18nController {
   @Get('resources/:locale')
   resources(@Param('locale') locale: string) {
-    const resolved: SupportedLocale = parseLocale(locale) ?? 'ko';
+    const resolved: SupportedLocale = parseLocale(locale) ?? 'en';
     return { locale: resolved, resources: SERVER_TRANSLATIONS[resolved] };
   }
 }

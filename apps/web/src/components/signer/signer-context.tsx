@@ -260,7 +260,7 @@ export function SignerProvider({
   const fillValue = React.useMemo<FillContextValue>(() => {
     const documentTitle = state.payload?.documentTitle ?? state.meta?.documentTitle ?? '';
     return {
-      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null, locale: 'ko' },
+      sender: state.meta?.sender ?? { name: null, brandColor: null, brandLogoUrl: null, locale: 'en' },
       brandColor: state.meta?.sender.brandColor ?? null,
       documentTitle,
       payload: state.payload
